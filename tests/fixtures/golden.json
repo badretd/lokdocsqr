@@ -1,0 +1,21 @@
+{
+  "spec_version": "1.0",
+  "metadata": {
+    "id": "golden-phase4",
+    "name": "Phase 4 golden"
+  },
+  "settings": {
+    "error_handling": {
+      "strategy": "fail"
+    }
+  },
+  "nodes": [
+    {
+      "id": "move",
+      "type": "move_files",
+      "inputs": [],
+      "outputs": []
+    }
+  ],
+  "edges": []
+}

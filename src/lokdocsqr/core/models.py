@@ -1,4 +1,4 @@
-"""Domain dataclasses for Workflow specification v1.0."""
+"""Domain dataclasses for Workflow specification v1.0 (plus Phase 4 extensions)."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 __all__ = [
+    # --- Workflow specification v1.0 public surface ---
     "WorkflowMetadata",
     "WorkflowScopeSettings",
     "WorkflowErrorHandling",
@@ -20,6 +21,13 @@ __all__ = [
     "ResolvedGraph",
     "NodeState",
     "Risk",
+    # --- Phase 4 runtime extensions ---
+    "FileRef",
+    "ActionProposal",
+    "ActionLog",
+    "NodeResult",
+    "RollbackOp",
+    "RunResult",
 ]
 
 
@@ -176,3 +184,210 @@ class WorkspaceScope:
     writable: list[Path] = field(default_factory=list)
     allow_symlinks: bool = False
     policy_ref: str | None = None
+
+
+# --- Phase 4 models ---------------------------------------------------------
+from datetime import datetime, timezone
+
+
+def _utc_now_iso() -> str:
+    """Return the current UTC timestamp as an ISO-8601 string."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _json_safe(value: Any) -> Any:
+    """Convert Paths and Enums into JSON-safe primitives recursively."""
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
+@dataclass
+class FileRef:
+    """Reference to a file known to a workflow."""
+
+    id: str
+    path: Path
+    hash: str = ""
+    mime: str = ""
+    size: int = 0
+    created_at: str | None = None
+    modified_at: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ActionProposal:
+    """Proposed action produced by a node before execution/approval."""
+
+    type: str
+    source: Path | None = None
+    target: Path | None = None
+    reason: str = ""
+    confidence: float = 0.0
+    risk: Risk = Risk.LOW
+
+
+@dataclass
+class ActionLog:
+    """Auditable record of one action attempted by a node."""
+
+    run_id: str = ""
+    node_id: str = ""
+    automation_id: str = ""
+    action_type: str = ""
+    source: str | None = None
+    target: str | None = None
+    status: str = "planned"
+    reason: str = ""
+    confidence: float = 0.0
+    risk: Risk = Risk.LOW
+    timestamp: str = field(default_factory=_utc_now_iso)
+    rollback_eligible: bool = False
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-safe dictionary representation of this log entry."""
+        return {
+            "run_id": self.run_id,
+            "node_id": self.node_id,
+            "automation_id": self.automation_id,
+            "action_type": self.action_type,
+            "source": self.source,
+            "target": self.target,
+            "status": self.status,
+            "reason": self.reason,
+            "confidence": self.confidence,
+            "risk": self.risk.value if isinstance(self.risk, Risk) else str(self.risk),
+            "timestamp": self.timestamp,
+            "rollback_eligible": self.rollback_eligible,
+            "extra": _json_safe(self.extra),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ActionLog":
+        """Build an ActionLog from a JSON-decoded mapping.
+
+        Raises:
+            KeyError: if the required identity key ``action_type``
+                is absent. Silent defaulting would mask corrupted
+                audit lines and hide serialization bugs.
+        """
+        if "action_type" not in data:
+            raise KeyError("action_type")
+        risk_raw = data.get("risk", Risk.LOW)
+        if isinstance(risk_raw, Risk):
+            risk = risk_raw
+        else:
+            try:
+                risk = Risk(str(risk_raw).lower())
+            except ValueError:
+                risk = Risk.LOW
+
+        source = data.get("source")
+        target = data.get("target")
+        confidence_raw = data.get("confidence", 0.0)
+        try:
+            confidence = float(confidence_raw)
+        except (TypeError, ValueError):
+            confidence = 0.0
+
+        return cls(
+            run_id=str(data.get("run_id") or ""),
+            node_id=str(data.get("node_id") or ""),
+            automation_id=str(data.get("automation_id") or ""),
+            action_type=str(data.get("action_type") or ""),
+            source=None if source is None else str(source),
+            target=None if target is None else str(target),
+            status=str(data.get("status") or "planned"),
+            reason=str(data.get("reason") or ""),
+            confidence=confidence,
+            risk=risk,
+            timestamp=str(data.get("timestamp") or _utc_now_iso()),
+            rollback_eligible=bool(data.get("rollback_eligible", False)),
+            extra=dict(data.get("extra") or {}),
+        )
+
+
+@dataclass
+class NodeResult:
+    """Result of executing one node."""
+
+    node_id: str
+    state: NodeState
+    outputs: dict[str, Any] = field(default_factory=dict)
+    action_logs: list[ActionLog] = field(default_factory=list)
+    error: str | None = None
+    attempts: int = 1
+    duration_seconds: float = 0.0
+
+
+@dataclass
+class RollbackOp:
+    """One reversible filesystem operation."""
+
+    action: str
+    source: Path
+    target: Path
+    original_log_index: int
+
+
+@dataclass
+class RunResult:
+    """Result of a complete workflow run."""
+
+    run_id: str
+    automation_id: str
+    dry_run: bool
+    success: bool
+    node_results: dict[str, NodeResult] = field(default_factory=dict)
+    action_logs: list[ActionLog] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    started_at: str = field(default_factory=_utc_now_iso)
+    finished_at: str | None = None
+    rollback_plan: list[RollbackOp] = field(default_factory=list)
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-safe dictionary representation of this run."""
+        return {
+            "run_id": self.run_id,
+            "automation_id": self.automation_id,
+            "dry_run": self.dry_run,
+            "success": self.success,
+            "node_results": {
+                node_id: {
+                    "node_id": result.node_id,
+                    "state": (
+                        result.state.value
+                        if isinstance(result.state, Enum)
+                        else str(result.state)
+                    ),
+                    "outputs": _json_safe(result.outputs),
+                    "action_logs": [
+                        log.to_dict() for log in result.action_logs
+                    ],
+                    "error": result.error,
+                    "attempts": result.attempts,
+                    "duration_seconds": result.duration_seconds,
+                }
+                for node_id, result in self.node_results.items()
+            },
+            "action_logs": [log.to_dict() for log in self.action_logs],
+            "errors": list(self.errors),
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "rollback_plan": [
+                {
+                    "action": op.action,
+                    "source": str(op.source),
+                    "target": str(op.target),
+                    "original_log_index": op.original_log_index,
+                }
+                for op in self.rollback_plan
+            ],
+        }

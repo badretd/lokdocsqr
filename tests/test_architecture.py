@@ -229,3 +229,21 @@ def test_invariant_8_executor_isolation() -> None:
                 relative = path.relative_to(ROOT)
                 violations.append(f"{relative} imports {module}")
     assert not violations, "Executor isolation violations:\n" + "\n".join(violations)
+
+# === Phase 4 extra arch invariant: no delete calls in audit/executor ===
+def test_no_delete_calls_in_audit_and_executor() -> None:
+    """Invariant 3 must also hold for core/audit.py and core/executor/*.py."""
+    targets = [CORE / "audit.py", *_python_files(CORE / "executor")]
+    violations: list[str] = []
+    for path in targets:
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+        relative = path.relative_to(ROOT)
+        if _contains_forbidden_text(text):
+            violations.append(f"{relative} contains forbidden deletion text")
+        tree = ast.parse(text, filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and _is_forbidden_call(node):
+                violations.append(f"{relative} contains a forbidden deletion call")
+    assert not violations, "Phase 4 delete-ban violations:\n" + "\n".join(violations)

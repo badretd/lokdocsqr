@@ -1,5 +1,7 @@
 """Verify the Workflow v1.0 domain dataclasses and enums."""
 # === Phase 3.5 applied: workflow v1.0 spec-compliant tests ===
+# === Phase 4 extensions: FileRef / ActionProposal / ActionLog / NodeResult /
+#     RollbackOp / RunResult are part of the public `__all__` surface. ===
 from __future__ import annotations
 
 from dataclasses import is_dataclass
@@ -7,12 +9,18 @@ from pathlib import Path
 
 from lokdocsqr.core import models
 from lokdocsqr.core.models import (
+    ActionLog,
+    ActionProposal,
     EdgeSpec,
+    FileRef,
+    NodeResult,
     NodeSpec,
     NodeState,
     PortSpec,
     ResolvedGraph,
     Risk,
+    RollbackOp,
+    RunResult,
     TriggerSpec,
     VariableSpec,
     WorkflowDocument,
@@ -24,6 +32,7 @@ from lokdocsqr.core.models import (
 )
 
 EXPECTED_ALL = {
+    # --- Workflow specification v1.0 public surface ---
     "WorkflowMetadata",
     "WorkflowScopeSettings",
     "WorkflowErrorHandling",
@@ -37,9 +46,17 @@ EXPECTED_ALL = {
     "ResolvedGraph",
     "NodeState",
     "Risk",
+    # --- Phase 4 runtime extensions ---
+    "FileRef",
+    "ActionProposal",
+    "ActionLog",
+    "NodeResult",
+    "RollbackOp",
+    "RunResult",
 }
 
 ALL_DATACLASSES = (
+    # v1.0 surface (excluding enums NodeState / Risk)
     WorkflowMetadata,
     WorkflowScopeSettings,
     WorkflowErrorHandling,
@@ -51,13 +68,20 @@ ALL_DATACLASSES = (
     EdgeSpec,
     WorkflowDocument,
     ResolvedGraph,
+    # Phase 4 extensions
+    FileRef,
+    ActionProposal,
+    ActionLog,
+    NodeResult,
+    RollbackOp,
+    RunResult,
 )
 
 
 # --- Public surface ---------------------------------------------------------
 
 def test_models_all_surface() -> None:
-    """models.__all__ must exactly declare the Workflow v1.0 public surface."""
+    """models.__all__ must exactly declare the public model surface."""
     assert set(models.__all__) == EXPECTED_ALL
     missing = [name for name in EXPECTED_ALL if not hasattr(models, name)]
     assert not missing, f"models missing attributes: {missing}"
@@ -305,3 +329,72 @@ def test_workspacescope_lists_isolated() -> None:
 def test_workspacescope_not_in_public_all() -> None:
     """WorkspaceScope is retained for core.scope but is not workflow surface."""
     assert "WorkspaceScope" not in models.__all__
+
+
+# --- Phase 4 extensions -----------------------------------------------------
+
+def test_phas4_dataclasses_in_public_all() -> None:
+    """Phase 4 models must be explicitly exposed via ``models.__all__``."""
+    for name in (
+        "FileRef",
+        "ActionProposal",
+        "ActionLog",
+        "NodeResult",
+        "RollbackOp",
+        "RunResult",
+    ):
+        assert name in models.__all__, f"{name} missing from __all__"
+
+
+def test_actionlog_roundtrip_to_from_dict() -> None:
+    """ActionLog should survive a to_dict → from_dict round-trip."""
+    original = ActionLog(
+        run_id="run-1",
+        node_id="n-1",
+        automation_id="auto-1",
+        action_type="move",
+        source="/src/a.txt",
+        target="/dst/a.txt",
+        status="done",
+        reason="dedupe",
+        confidence=0.85,
+        risk=Risk.HIGH,
+        rollback_eligible=True,
+        extra={"k": "v", "nested": {"ok": True}},
+    )
+    payload = original.to_dict()
+    assert payload["risk"] == "high"
+    assert payload["rollback_eligible"] is True
+
+    restored = ActionLog.from_dict(payload)
+    assert restored.run_id == original.run_id
+    assert restored.node_id == original.node_id
+    assert restored.source == original.source
+    assert restored.target == original.target
+    assert restored.risk is Risk.HIGH
+    assert restored.rollback_eligible is True
+    assert restored.extra == {"k": "v", "nested": {"ok": True}}
+
+
+def test_actionlog_from_dict_tolerates_bad_input() -> None:
+    """from_dict should coerce unknown risk/confidence safely."""
+    log = ActionLog.from_dict(
+        {"action_type": "move", "risk": "NOPE", "confidence": "not-a-number"}
+    )
+    assert log.risk is Risk.LOW
+    assert log.confidence == 0.0
+    assert log.status == "planned"
+
+
+def test_fileref_and_runresult_defaults_isolated() -> None:
+    a = FileRef(id="f", path=Path("/tmp/a"))
+    b = FileRef(id="g", path=Path("/tmp/b"))
+    a.metadata["k"] = "v"
+    assert b.metadata == {}
+
+    ra = RunResult(run_id="r1", automation_id="a1", dry_run=True, success=True)
+    rb = RunResult(run_id="r2", automation_id="a2", dry_run=False, success=False)
+    ra.node_results["n"] = NodeResult(node_id="n", state=NodeState.ENABLED)
+    ra.errors.append("boom")
+    assert rb.node_results == {}
+    assert rb.errors == []
