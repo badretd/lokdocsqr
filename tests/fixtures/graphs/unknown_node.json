@@ -1,5 +1,6 @@
 {
-  "automation": {"id": "auto-unknown"},
+  "spec_version": "1.0",
+  "metadata": {"id": "auto-unknown", "name": "Unknown node"},
   "nodes": [
     {"id": "n1", "type": "list_files"},
     {"id": "n2", "type": "totally_unknown_xyz"}

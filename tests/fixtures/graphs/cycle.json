@@ -1,5 +1,6 @@
 {
-  "automation": {"id": "auto-cycle"},
+  "spec_version": "1.0",
+  "metadata": {"id": "auto-cycle", "name": "Cycle graph"},
   "nodes": [
     {"id": "a", "type": "list_files"},
     {"id": "b", "type": "filter"},

@@ -1,4 +1,4 @@
-"""Domain dataclasses shared across LokDocSQR."""
+"""Domain dataclasses for Workflow specification v1.0."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -7,23 +7,24 @@ from pathlib import Path
 from typing import Any
 
 __all__ = [
-    "ActionLog",
-    "ActionProposal",
-    "Automation",
-    "Edge",
-    "FileRef",
-    "NodeResult",
+    "WorkflowMetadata",
+    "WorkflowScopeSettings",
+    "WorkflowErrorHandling",
+    "WorkflowSettings",
+    "VariableSpec",
+    "TriggerSpec",
+    "PortSpec",
     "NodeSpec",
-    "NodeState",
-    "RawGraph",
+    "EdgeSpec",
+    "WorkflowDocument",
     "ResolvedGraph",
+    "NodeState",
     "Risk",
-    "WorkspaceScope",
 ]
 
 
 class NodeState(str, Enum):
-    """Execution state of a node in an automation graph."""
+    """Execution state of a node in a workflow graph."""
 
     ENABLED = "enabled"
     DISABLED = "disabled"
@@ -40,106 +41,133 @@ class Risk(str, Enum):
 
 
 @dataclass
-class FileRef:
-    """Reference to a file known to the system."""
+class WorkflowMetadata:
+    """Metadata block of a workflow document."""
 
     id: str
-    path: Path
-    hash: str | None = None
-    mime: str | None = None
-    size: int = 0
-    timestamps: dict[str, float] = field(default_factory=dict)
-    metadata: dict[str, Any] = field(default_factory=dict)
+    name: str = ""
+    description: str = ""
+    version: str = "1.0"
+    author: str = ""
+    created_at: str | None = None
+    updated_at: str | None = None
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass
-class ActionProposal:
-    """Proposed file action produced by planning or rules."""
+class WorkflowScopeSettings:
+    """Filesystem scope settings declared by a workflow."""
 
+    roots: list[str] = field(default_factory=list)
+    writable: list[str] = field(default_factory=list)
+    allow_symlinks: bool = False
+    policy_ref: str | None = None
+
+
+@dataclass
+class WorkflowErrorHandling:
+    """Error-handling policy for a workflow."""
+
+    strategy: str = "fail"
+    max_retries: int = 0
+    retry_delay_seconds: float = 0.0
+    backoff: str = "none"
+
+
+@dataclass
+class WorkflowSettings:
+    """Top-level workflow settings."""
+
+    default_dry_run: bool = True
+    scope: WorkflowScopeSettings = field(default_factory=WorkflowScopeSettings)
+    error_handling: WorkflowErrorHandling = field(default_factory=WorkflowErrorHandling)
+    max_concurrency: int = 1
+
+
+@dataclass
+class VariableSpec:
+    """Declared workflow variable."""
+
+    type: str = "string"
+    value: Any = None
+    description: str = ""
+
+
+@dataclass
+class TriggerSpec:
+    """Workflow trigger declaration."""
+
+    id: str
     type: str
-    source: Path | None = None
-    target: Path | None = None
-    reason: str = ""
-    confidence: float = 1.0
-    risk: Risk = Risk.LOW
-    extra: dict[str, Any] = field(default_factory=dict)
+    title: str = ""
+    params: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
-class ActionLog:
-    """Audit record describing an action that was applied, skipped, or failed."""
+class PortSpec:
+    """Normalized node input or output port."""
 
-    run_id: str
-    automation_id: str
-    node_id: str
-    action: str
-    status: str
-    timestamp: float
-    source: Path | None = None
-    target: Path | None = None
-    confirmed_by: str = "auto"
-    rollback: dict[str, Any] | None = None
-    meta: dict[str, Any] = field(default_factory=dict)
+    name: str
+    type: str = "any"
+    required: bool = True
+    description: str = ""
+    default: Any = None
 
 
 @dataclass
 class NodeSpec:
-    """Declarative specification of a graph node."""
+    """Declarative specification of a workflow node."""
 
     id: str
     type: str
-    params: dict[str, Any] = field(default_factory=dict)
+    title: str = ""
     state: NodeState = NodeState.ENABLED
+    params: dict[str, Any] = field(default_factory=dict)
+    inputs: list[PortSpec] = field(default_factory=list)
+    outputs: list[PortSpec] = field(default_factory=list)
+    position: dict[str, float] = field(default_factory=dict)
+    description: str = ""
 
 
 @dataclass
-class Edge:
-    """Directed edge between two graph nodes."""
-
-    src: str
-    dst: str
-
-
-@dataclass
-class Automation:
-    """Automation graph definition."""
+class EdgeSpec:
+    """Directed edge between two workflow nodes."""
 
     id: str
-    name: str = ""
-    nodes: list[NodeSpec] = field(default_factory=list)
-    edges: list[Edge] = field(default_factory=list)
-    meta: dict[str, Any] = field(default_factory=dict)
+    source: str
+    target: str
+    source_port: str = "out"
+    target_port: str = "in"
+    condition: str | None = None
+    label: str = ""
 
 
 @dataclass
-class RawGraph:
-    """Unresolved graph as parsed from an automation file."""
+class WorkflowDocument:
+    """Root object representing a workflow document."""
 
-    automation: Automation
+    spec_version: str
+    metadata: WorkflowMetadata
+    settings: WorkflowSettings = field(default_factory=WorkflowSettings)
+    variables: dict[str, VariableSpec] = field(default_factory=dict)
+    triggers: list[TriggerSpec] = field(default_factory=list)
+    nodes: list[NodeSpec] = field(default_factory=list)
+    edges: list[EdgeSpec] = field(default_factory=list)
+    extra_meta: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class ResolvedGraph:
     """Graph prepared for execution."""
 
+    document: WorkflowDocument
     ordered_node_ids: list[str] = field(default_factory=list)
     handlers: dict[str, Any] = field(default_factory=dict)
     states: dict[str, NodeState] = field(default_factory=dict)
-    scope: WorkspaceScope | None = None
-    templates: dict[str, str] = field(default_factory=dict)
 
 
-@dataclass
-class NodeResult:
-    """Result returned by a node after execution or dry-run."""
-
-    node_id: str
-    status: str
-    outputs: dict[str, Any] = field(default_factory=dict)
-    actions: list[ActionLog] = field(default_factory=list)
-    error: str | None = None
-
-
+# Compatibility model retained for core.scope; not part of the v1.0 workflow
+# public model surface.
 @dataclass
 class WorkspaceScope:
     """Resolved filesystem scope with writable roots and policy reference."""

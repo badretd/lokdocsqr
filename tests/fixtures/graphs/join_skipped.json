@@ -1,5 +1,6 @@
 {
-  "automation": {"id": "auto-join"},
+  "spec_version": "1.0",
+  "metadata": {"id": "auto-join", "name": "Join skip"},
   "nodes": [
     {"id": "a", "type": "list_files", "state": "enabled"},
     {"id": "b", "type": "filter",     "state": "disabled"},

@@ -1,5 +1,6 @@
 {
-  "automation": {"id": "auto-dangling"},
+  "spec_version": "1.0",
+  "metadata": {"id": "auto-dangling", "name": "Dangling edge"},
   "nodes": [
     {"id": "n1", "type": "list_files"}
   ],

@@ -1,10 +1,11 @@
 {
-  "automation": {"id": "auto-cascade"},
+  "spec_version": "1.0",
+  "metadata": {"id": "auto-cascade", "name": "Disabled cascade"},
   "nodes": [
-    {"id": "a", "type": "list_files",  "state": "enabled"},
-    {"id": "b", "type": "filter",      "state": "disabled"},
-    {"id": "c", "type": "move_files",  "state": "enabled"},
-    {"id": "d", "type": "write_file",  "state": "enabled"}
+    {"id": "a", "type": "list_files", "state": "enabled"},
+    {"id": "b", "type": "filter",     "state": "disabled"},
+    {"id": "c", "type": "move_files", "state": "enabled"},
+    {"id": "d", "type": "write_file", "state": "enabled"}
   ],
   "edges": [
     {"source": "a", "target": "b"},

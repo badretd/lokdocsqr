@@ -24,7 +24,7 @@ EXCLUDE_DIRS = {
 }
 
 # File extensions to include
-INCLUDE_EXTENSIONS = {".py"}
+INCLUDE_EXTENSIONS = {".py", ".json"}
 
 
 def should_skip_dir(path: Path) -> bool:

@@ -1,326 +1,375 @@
-"""JSON dict -> :class:`RawGraph`. Structural parsing only, no semantics.
-
-Semantic checks (connectivity, cycles, path-template safety) belong to
-:mod:`lokdocsqr.core.graph.validator`. This module is the first line of
-defense and raises :class:`GraphParseError` as soon as the JSON shape is
-wrong.
-
-Model adaptation
-----------------
-The concrete model classes in :mod:`lokdocsqr.core.models` may use
-abbreviated field names (e.g. ``Edge.src`` / ``Edge.dst``) or expose
-container attributes under different labels (``RawGraph.raw_nodes`` etc.).
-To keep this module compatible with the models actually shipped by
-Phase 0–2 *and* with the contract that downstream code relies on
-(``.source``, ``.target``, ``.nodes``, ``.edges``), we:
-
-1. Construct each model through :func:`_construct`, which filters kwargs
-   against the model's *actual* dataclass fields — passing extra aliases
-   is therefore free and safe.
-2. Post-process each instance through :func:`_alias_attrs` /
-   :func:`_ensure_nodes_edges`, which uses ``object.__setattr__`` to add
-   the expected aliases if they are missing. Already-populated attributes
-   are left untouched.
-
-Any genuinely irreconcilable model mismatch surfaces as
-:class:`GraphParseError`, never as a raw ``TypeError`` / ``AttributeError``.
-"""
-
+"""Structural parser for Workflow specification v1.0."""
 from __future__ import annotations
 
-import dataclasses
 from typing import Any
 
 from ..errors import GraphParseError
-from ..models import Automation, Edge, NodeSpec, NodeState, RawGraph
+from ..models import (
+    EdgeSpec,
+    NodeSpec,
+    NodeState,
+    PortSpec,
+    TriggerSpec,
+    VariableSpec,
+    WorkflowDocument,
+    WorkflowErrorHandling,
+    WorkflowMetadata,
+    WorkflowScopeSettings,
+    WorkflowSettings,
+)
+
+_SPEC_VERSION = "1.0"
 
 
-# ---------------------------------------------------------------------------
-# Dataclass-aware constructor
-# ---------------------------------------------------------------------------
-def _construct(cls: type, **kwargs: Any) -> Any:
-    """Instantiate ``cls`` with only the kwargs it actually accepts.
-
-    When ``cls`` is a dataclass, kwargs whose names are not declared as
-    init fields are dropped. Non-dataclass classes receive kwargs verbatim.
-    Any ``TypeError`` from the final call is wrapped as
-    :class:`GraphParseError` so the parser never leaks model-internal
-    errors.
-    """
-    try:
-        if dataclasses.is_dataclass(cls):
-            allowed = {f.name for f in dataclasses.fields(cls) if f.init}
-            kwargs = {k: v for k, v in kwargs.items() if k in allowed}
-    except Exception:  # noqa: BLE001 — introspection must never fail parsing
-        pass
-
-    try:
-        return cls(**kwargs)
-    except TypeError as exc:
-        raise GraphParseError(
-            f"cannot construct {cls.__name__}: {exc}"
-        ) from exc
+def _fail(message: str) -> None:
+    raise GraphParseError(message)
 
 
-# ---------------------------------------------------------------------------
-# Attribute aliasing helpers
-# ---------------------------------------------------------------------------
-def _alias_attrs(obj: Any, pairs: dict[str, Any]) -> None:
-    """Ensure ``obj`` exposes each key attribute, defaulting to ``pairs[key]``.
-
-    Uses ``object.__setattr__`` so frozen dataclasses work too (unless they
-    declare ``__slots__`` without the target name, in which case the alias
-    is silently skipped). Existing attributes are never overwritten.
-    """
-    for name, value in pairs.items():
-        if hasattr(obj, name):
-            continue
-        try:
-            object.__setattr__(obj, name, value)
-        except (AttributeError, TypeError):
-            # Frozen + __slots__ without the target — skip silently; the
-            # downstream consumers use getattr-with-default and will see
-            # the aliased value via the *original* field name instead.
-            pass
+def _as_dict(value: Any, context: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        _fail(f"{context} must be an object")
+    return value
 
 
-def _ensure_container_attrs(obj: Any, pairs: dict[str, Any]) -> None:
-    """Like :func:`_alias_attrs`, but also replaces empty ``[]``/``()`` values.
-
-    Used for container attributes (``.nodes``, ``.edges``) where an empty
-    default produced by the model constructor is not semantically meaningful.
-    """
-    for name, value in pairs.items():
-        existing = getattr(obj, name, None)
-        if existing is not None and existing != [] and existing != ():
-            continue
-        try:
-            object.__setattr__(obj, name, value)
-        except (AttributeError, TypeError) as exc:
-            raise GraphParseError(
-                f"cannot attach '{name}' to {type(obj).__name__}: {exc}"
-            ) from exc
+def _require_str(obj: dict[str, Any], key: str, context: str) -> str:
+    value = obj.get(key)
+    if not isinstance(value, str) or not value:
+        _fail(f"{context}.{key} must be a non-empty string")
+    return value
 
 
-# ---------------------------------------------------------------------------
-# State coercion
-# ---------------------------------------------------------------------------
-def _coerce_state(raw: Any) -> NodeState:
-    """Coerce a JSON value into a :class:`NodeState` member.
+def _optional_str(
+    obj: dict[str, Any], key: str, context: str, default: str = ""
+) -> str:
+    value = obj.get(key)
+    if value is None:
+        return default
+    if not isinstance(value, str):
+        _fail(f"{context}.{key} must be a string")
+    return value
 
-    Accepts ``None`` (defaults to ``ENABLED``), an existing ``NodeState``
-    instance, or a string matching either the member name (``"ENABLED"``)
-    or its value (``"enabled"``).
-    """
+
+def _optional_nullable_str(
+    obj: dict[str, Any], key: str, context: str
+) -> str | None:
+    value = obj.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        _fail(f"{context}.{key} must be a string or null")
+    return value
+
+
+def _optional_bool(
+    obj: dict[str, Any], key: str, context: str, default: bool = False
+) -> bool:
+    value = obj.get(key)
+    if value is None:
+        return default
+    if not isinstance(value, bool):
+        _fail(f"{context}.{key} must be a boolean")
+    return value
+
+
+def _optional_int(
+    obj: dict[str, Any], key: str, context: str, default: int = 0
+) -> int:
+    value = obj.get(key)
+    if value is None:
+        return default
+    if not isinstance(value, int) or isinstance(value, bool):
+        _fail(f"{context}.{key} must be an integer")
+    return value
+
+
+def _optional_float(
+    obj: dict[str, Any], key: str, context: str, default: float = 0.0
+) -> float:
+    value = obj.get(key)
+    if value is None:
+        return default
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        _fail(f"{context}.{key} must be a number")
+    return float(value)
+
+
+def _optional_dict(
+    obj: dict[str, Any], key: str, context: str
+) -> dict[str, Any]:
+    value = obj.get(key, {})
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        _fail(f"{context}.{key} must be an object")
+    return value
+
+
+def _list_of_str(obj: dict[str, Any], key: str, context: str) -> list[str]:
+    value = obj.get(key, [])
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        _fail(f"{context}.{key} must be a list")
+    result: list[str] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, str):
+            _fail(f"{context}.{key}[{index}] must be a string")
+        result.append(item)
+    return result
+
+
+def _coerce_state(raw: Any, context: str) -> NodeState:
     if raw is None:
         return NodeState.ENABLED
     if isinstance(raw, NodeState):
         return raw
     if not isinstance(raw, str):
-        raise GraphParseError(
-            f"node 'state' must be a string, got {type(raw).__name__}"
-        )
-
-    upper = raw.upper()
-    if hasattr(NodeState, upper):
-        candidate = getattr(NodeState, upper)
-        if candidate is not NodeState:
-            return candidate
-
+        _fail(f"{context}.state must be a string")
     try:
-        return NodeState(raw)  # type: ignore[call-arg]
-    except (ValueError, TypeError) as exc:
-        raise GraphParseError(f"unknown node state: {raw!r}") from exc
+        return NodeState(raw.lower())
+    except ValueError:
+        _fail(f"{context}.state has unknown value: {raw!r}")
 
 
-# ---------------------------------------------------------------------------
-# Node parsing
-# ---------------------------------------------------------------------------
+def _parse_metadata(raw: dict[str, Any], context: str) -> WorkflowMetadata:
+    return WorkflowMetadata(
+        id=_require_str(raw, "id", context),
+        name=_optional_str(raw, "name", context, ""),
+        description=_optional_str(raw, "description", context, ""),
+        version=_optional_str(raw, "version", context, "1.0"),
+        author=_optional_str(raw, "author", context, ""),
+        created_at=_optional_nullable_str(raw, "created_at", context),
+        updated_at=_optional_nullable_str(raw, "updated_at", context),
+        tags=_list_of_str(raw, "tags", context),
+    )
+
+
+def _parse_scope_settings(
+    raw: dict[str, Any], context: str
+) -> WorkflowScopeSettings:
+    return WorkflowScopeSettings(
+        roots=_list_of_str(raw, "roots", context),
+        writable=_list_of_str(raw, "writable", context),
+        allow_symlinks=_optional_bool(raw, "allow_symlinks", context, False),
+        policy_ref=_optional_nullable_str(raw, "policy_ref", context),
+    )
+
+
+def _parse_error_handling(
+    raw: dict[str, Any], context: str
+) -> WorkflowErrorHandling:
+    return WorkflowErrorHandling(
+        strategy=_optional_str(raw, "strategy", context, "fail"),
+        max_retries=_optional_int(raw, "max_retries", context, 0),
+        retry_delay_seconds=_optional_float(
+            raw, "retry_delay_seconds", context, 0.0
+        ),
+        backoff=_optional_str(raw, "backoff", context, "none"),
+    )
+
+
+def _parse_settings(raw: dict[str, Any], context: str) -> WorkflowSettings:
+    scope_raw = _optional_dict(raw, "scope", context)
+    error_raw = _optional_dict(raw, "error_handling", context)
+    return WorkflowSettings(
+        default_dry_run=_optional_bool(raw, "default_dry_run", context, True),
+        scope=_parse_scope_settings(scope_raw, f"{context}.scope"),
+        error_handling=_parse_error_handling(
+            error_raw, f"{context}.error_handling"
+        ),
+        max_concurrency=_optional_int(raw, "max_concurrency", context, 1),
+    )
+
+
+def _parse_variable(raw: Any, context: str) -> VariableSpec:
+    obj = _as_dict(raw, context)
+    return VariableSpec(
+        type=_optional_str(obj, "type", context, "string"),
+        value=obj.get("value"),
+        description=_optional_str(obj, "description", context, ""),
+    )
+
+
+def _parse_trigger(raw: Any, index: int) -> TriggerSpec:
+    context = f"triggers[{index}]"
+    obj = _as_dict(raw, context)
+    return TriggerSpec(
+        id=_require_str(obj, "id", context),
+        type=_require_str(obj, "type", context),
+        title=_optional_str(obj, "title", context, ""),
+        params=_optional_dict(obj, "params", context),
+    )
+
+
+def _parse_port(raw: Any, context: str) -> PortSpec:
+    if isinstance(raw, str):
+        if not raw:
+            _fail(f"{context} must be a non-empty string")
+        return PortSpec(name=raw)
+    obj = _as_dict(raw, context)
+    return PortSpec(
+        name=_require_str(obj, "name", context),
+        type=_optional_str(obj, "type", context, "any"),
+        required=_optional_bool(obj, "required", context, True),
+        description=_optional_str(obj, "description", context, ""),
+        default=obj.get("default"),
+    )
+
+
+def _parse_ports(raw_ports: Any, context: str) -> list[PortSpec]:
+    if raw_ports is None:
+        return []
+    if isinstance(raw_ports, (str, dict)):
+        return [_parse_port(raw_ports, context)]
+    if isinstance(raw_ports, list):
+        return [
+            _parse_port(item, f"{context}[{index}]")
+            for index, item in enumerate(raw_ports)
+        ]
+    _fail(f"{context} must be a port, port object, or list")
+
+
 def _parse_node(raw: Any, index: int) -> NodeSpec:
-    if not isinstance(raw, dict):
-        raise GraphParseError(
-            f"nodes[{index}] must be an object, got {type(raw).__name__}"
-        )
-
-    node_id = raw.get("id")
-    if not isinstance(node_id, str) or not node_id:
-        raise GraphParseError(f"nodes[{index}].id must be a non-empty string")
-
-    node_type = raw.get("type")
-    if not isinstance(node_type, str) or not node_type:
-        raise GraphParseError(f"nodes[{index}].type must be a non-empty string")
-
-    params = raw.get("params", {})
-    if params is None:
-        params = {}
-    if not isinstance(params, dict):
-        raise GraphParseError(f"nodes[{index}].params must be an object")
-
-    title = raw.get("title", "") or ""
-    if not isinstance(title, str):
-        raise GraphParseError(f"nodes[{index}].title must be a string")
-
-    inputs = raw.get("inputs", []) or []
-    outputs = raw.get("outputs", []) or []
-    if not isinstance(inputs, list):
-        raise GraphParseError(f"nodes[{index}].inputs must be a list")
-    if not isinstance(outputs, list):
-        raise GraphParseError(f"nodes[{index}].outputs must be a list")
-
-    spec = _construct(
-        NodeSpec,
-        # Both alias families are provided; _construct keeps the ones the
-        # model actually declares.
-        id=node_id,       node_id=node_id,
-        type=node_type,   node_type=node_type,
-        title=title,      label=title,
-        params=params,
-        state=_coerce_state(raw.get("state")),
-        inputs=list(inputs),
-        outputs=list(outputs),
+    context = f"nodes[{index}]"
+    obj = _as_dict(raw, context)
+    position_raw = obj.get("position", {})
+    if position_raw is None:
+        position_raw = {}
+    position_obj = _as_dict(position_raw, f"{context}.position")
+    position: dict[str, float] = {}
+    for key, value in position_obj.items():
+        if (
+            not isinstance(key, str)
+            or not isinstance(value, (int, float))
+            or isinstance(value, bool)
+        ):
+            _fail(f"{context}.position.{key} must be a number")
+        position[key] = float(value)
+    return NodeSpec(
+        id=_require_str(obj, "id", context),
+        type=_require_str(obj, "type", context),
+        title=_optional_str(obj, "title", context, ""),
+        state=_coerce_state(obj.get("state"), context),
+        params=_optional_dict(obj, "params", context),
+        inputs=_parse_ports(obj.get("inputs"), f"{context}.inputs"),
+        outputs=_parse_ports(obj.get("outputs"), f"{context}.outputs"),
+        position=position,
+        description=_optional_str(obj, "description", context, ""),
     )
 
-    # Guarantee downstream code sees .id / .type regardless of model naming.
-    _alias_attrs(
-        spec,
-        {
-            "id": node_id,
-            "type": node_type,
-            "node_id": node_id,
-            "node_type": node_type,
-            "params": params,
-        },
-    )
-    return spec
 
-
-# ---------------------------------------------------------------------------
-# Edge parsing
-# ---------------------------------------------------------------------------
-def _parse_edge(raw: Any, index: int) -> Edge:
-    if not isinstance(raw, dict):
-        raise GraphParseError(
-            f"edges[{index}] must be an object, got {type(raw).__name__}"
-        )
-
-    source = raw.get("source")
-    target = raw.get("target")
-    if not isinstance(source, str) or not source:
-        raise GraphParseError(f"edges[{index}].source must be a non-empty string")
-    if not isinstance(target, str) or not target:
-        raise GraphParseError(f"edges[{index}].target must be a non-empty string")
-
-    source_port = raw.get("source_port", "out") or "out"
-    target_port = raw.get("target_port", "in") or "in"
-
-    edge = _construct(
-        Edge,
-        # Provide both naming families; _construct picks what the model has.
-        src=source,            source=source,
-        dst=target,            target=target,
-        src_port=source_port,  source_port=source_port,
-        dst_port=target_port,  target_port=target_port,
+def _parse_edge(raw: Any, index: int) -> EdgeSpec:
+    context = f"edges[{index}]"
+    obj = _as_dict(raw, context)
+    source = _require_str(obj, "source", context)
+    target = _require_str(obj, "target", context)
+    raw_id = obj.get("id")
+    if raw_id is None:
+        edge_id = f"{source}->{target}"
+    else:
+        if not isinstance(raw_id, str) or not raw_id:
+            _fail(f"{context}.id must be a non-empty string")
+        edge_id = raw_id
+    source_port = _optional_str(obj, "source_port", context, "out")
+    target_port = _optional_str(obj, "target_port", context, "in")
+    if not source_port:
+        _fail(f"{context}.source_port must be non-empty")
+    if not target_port:
+        _fail(f"{context}.target_port must be non-empty")
+    return EdgeSpec(
+        id=edge_id,
+        source=source,
+        target=target,
+        source_port=source_port,
+        target_port=target_port,
+        condition=_optional_nullable_str(obj, "condition", context),
+        label=_optional_str(obj, "label", context, ""),
     )
 
-    # Guarantee downstream code sees .source / .target regardless of model.
-    _alias_attrs(
-        edge,
-        {
-            "source": source,
-            "target": target,
-            "src": source,
-            "dst": target,
-            "source_port": source_port,
-            "target_port": target_port,
-            "src_port": source_port,
-            "dst_port": target_port,
-        },
-    )
-    return edge
 
-
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
-def parse_graph(data: dict[str, Any]) -> RawGraph:
-    """Parse a JSON-decoded dictionary into a :class:`RawGraph`.
-
-    Parameters
-    ----------
-    data:
-        Result of ``json.loads`` on an automation file.
-
-    Raises
-    ------
-    GraphParseError
-        Whenever the shape is structurally invalid. Semantic checks are
-        performed separately by :func:`validate_graph`.
-    """
+def parse_graph(data: dict[str, Any]) -> WorkflowDocument:
+    """Parse a JSON-decoded workflow dictionary into WorkflowDocument."""
     if not isinstance(data, dict):
-        raise GraphParseError(
-            f"graph root must be an object, got {type(data).__name__}"
+        _fail(f"workflow root must be an object, got {type(data).__name__}")
+
+    spec_version = data.get("spec_version")
+    if spec_version != _SPEC_VERSION:
+        _fail(
+            "unsupported spec_version: "
+            f"{spec_version!r}; expected {_SPEC_VERSION!r}"
         )
 
-    # -- automation ---------------------------------------------------------
-    auto_raw = data.get("automation", {})
-    if auto_raw is None:
-        auto_raw = {}
-    if not isinstance(auto_raw, dict):
-        raise GraphParseError("'automation' must be an object")
+    metadata_raw = data.get("metadata")
+    if metadata_raw is None:
+        _fail("'metadata' is required")
+    metadata = _parse_metadata(_as_dict(metadata_raw, "metadata"), "metadata")
 
-    auto_id = auto_raw.get("id")
-    if not isinstance(auto_id, str) or not auto_id:
-        raise GraphParseError("'automation.id' must be a non-empty string")
+    settings_raw = data.get("settings", {})
+    if settings_raw is None:
+        settings_raw = {}
+    settings = _parse_settings(_as_dict(settings_raw, "settings"), "settings")
 
-    automation = _construct(
-        Automation,
-        id=auto_id,
-        name=auto_raw.get("name", "") or "",
-        # Extra optional metadata; dropped silently if not on the model.
-        description=auto_raw.get("description", "") or "",
-        title=auto_raw.get("name", "") or "",
-    )
+    variables_raw = data.get("variables", {})
+    if variables_raw is None:
+        variables_raw = {}
+    variables_obj = _as_dict(variables_raw, "variables")
+    variables: dict[str, VariableSpec] = {}
+    for key, value in variables_obj.items():
+        if not isinstance(key, str):
+            _fail("variables keys must be strings")
+        variables[key] = _parse_variable(value, f"variables[{key!r}]")
 
-    # -- nodes --------------------------------------------------------------
-    raw_nodes = data.get("nodes", [])
-    if raw_nodes is None:
-        raw_nodes = []
-    if not isinstance(raw_nodes, list):
-        raise GraphParseError("'nodes' must be a list")
-    nodes = [_parse_node(item, i) for i, item in enumerate(raw_nodes)]
+    triggers_raw = data.get("triggers", [])
+    if triggers_raw is None:
+        triggers_raw = []
+    if not isinstance(triggers_raw, list):
+        _fail("'triggers' must be a list")
+    triggers = [
+        _parse_trigger(item, index)
+        for index, item in enumerate(triggers_raw)
+    ]
 
-    # -- edges --------------------------------------------------------------
-    raw_edges = data.get("edges", [])
-    if raw_edges is None:
-        raw_edges = []
-    if not isinstance(raw_edges, list):
-        raise GraphParseError("'edges' must be a list")
-    edges = [_parse_edge(item, i) for i, item in enumerate(raw_edges)]
+    nodes_raw = data.get("nodes")
+    if not isinstance(nodes_raw, list):
+        _fail("'nodes' must be a list")
+    nodes = [
+        _parse_node(item, index)
+        for index, item in enumerate(nodes_raw)
+    ]
 
-    # -- raw graph ----------------------------------------------------------
-    raw_graph = _construct(
-        RawGraph,
-        # First alias family — used by the tests and the rest of the graph
-        # pipeline.
-        automation=automation,
+    edges_raw = data.get("edges")
+    if not isinstance(edges_raw, list):
+        _fail("'edges' must be a list")
+    edges = [
+        _parse_edge(item, index)
+        for index, item in enumerate(edges_raw)
+    ]
+
+    extra_raw = data.get("extra_meta", {})
+    if extra_raw is None:
+        extra_raw = {}
+    extra_meta = dict(_as_dict(extra_raw, "extra_meta"))
+    known = {
+        "spec_version",
+        "metadata",
+        "settings",
+        "variables",
+        "triggers",
+        "nodes",
+        "edges",
+        "extra_meta",
+    }
+    for key, value in data.items():
+        if key not in known:
+            extra_meta.setdefault(key, value)
+
+    return WorkflowDocument(
+        spec_version=spec_version,
+        metadata=metadata,
+        settings=settings,
+        variables=variables,
+        triggers=triggers,
         nodes=nodes,
         edges=edges,
-        # Second alias family — accepted if the model happens to use it.
-        raw_nodes=nodes,
-        raw_edges=edges,
-        node_specs=nodes,
-        edge_specs=edges,
+        extra_meta=extra_meta,
     )
-
-    # Guarantee .nodes / .edges are visible to validator / resolver / builder
-    # regardless of how RawGraph actually stores them.
-    _ensure_container_attrs(raw_graph, {"nodes": nodes, "edges": edges})
-    # Common alternative names — attached too so any consumer that probes
-    # them still succeeds.
-    _alias_attrs(
-        raw_graph,
-        {"raw_nodes": nodes, "raw_edges": edges,
-         "node_specs": nodes, "edge_specs": edges},
-    )
-
-    return raw_graph

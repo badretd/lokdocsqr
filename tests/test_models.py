@@ -1,4 +1,5 @@
-"""Verify the shared domain dataclasses and enums."""
+"""Verify the Workflow v1.0 domain dataclasses and enums."""
+# === Phase 3.5 applied: workflow v1.0 spec-compliant tests ===
 from __future__ import annotations
 
 from dataclasses import is_dataclass
@@ -6,63 +7,71 @@ from pathlib import Path
 
 from lokdocsqr.core import models
 from lokdocsqr.core.models import (
-    ActionLog,
-    ActionProposal,
-    Automation,
-    Edge,
-    FileRef,
-    NodeResult,
+    EdgeSpec,
     NodeSpec,
     NodeState,
-    RawGraph,
+    PortSpec,
     ResolvedGraph,
     Risk,
+    TriggerSpec,
+    VariableSpec,
+    WorkflowDocument,
+    WorkflowErrorHandling,
+    WorkflowMetadata,
+    WorkflowScopeSettings,
+    WorkflowSettings,
     WorkspaceScope,
 )
 
 EXPECTED_ALL = {
-    "ActionLog",
-    "ActionProposal",
-    "Automation",
-    "Edge",
-    "FileRef",
-    "NodeResult",
+    "WorkflowMetadata",
+    "WorkflowScopeSettings",
+    "WorkflowErrorHandling",
+    "WorkflowSettings",
+    "VariableSpec",
+    "TriggerSpec",
+    "PortSpec",
     "NodeSpec",
-    "NodeState",
-    "RawGraph",
+    "EdgeSpec",
+    "WorkflowDocument",
     "ResolvedGraph",
+    "NodeState",
     "Risk",
-    "WorkspaceScope",
 }
 
 ALL_DATACLASSES = (
-    FileRef,
-    ActionProposal,
-    ActionLog,
+    WorkflowMetadata,
+    WorkflowScopeSettings,
+    WorkflowErrorHandling,
+    WorkflowSettings,
+    VariableSpec,
+    TriggerSpec,
+    PortSpec,
     NodeSpec,
-    Edge,
-    Automation,
-    RawGraph,
+    EdgeSpec,
+    WorkflowDocument,
     ResolvedGraph,
-    NodeResult,
-    WorkspaceScope,
 )
 
 
+# --- Public surface ---------------------------------------------------------
+
 def test_models_all_surface() -> None:
-    """models.__all__ must exactly declare the public surface."""
+    """models.__all__ must exactly declare the Workflow v1.0 public surface."""
     assert set(models.__all__) == EXPECTED_ALL
     missing = [name for name in EXPECTED_ALL if not hasattr(models, name)]
     assert not missing, f"models missing attributes: {missing}"
 
 
 def test_all_models_are_dataclasses() -> None:
-    """Every domain model must be a dataclass."""
-    non_dataclasses = [cls.__name__ for cls in ALL_DATACLASSES if not is_dataclass(cls)]
+    """Every declared public model must be a dataclass."""
+    non_dataclasses = [
+        cls.__name__ for cls in ALL_DATACLASSES if not is_dataclass(cls)
+    ]
     assert not non_dataclasses, f"not dataclasses: {non_dataclasses}"
 
 
-# --- Enums ---------------------------------------------------------------
+# --- Enums ------------------------------------------------------------------
 
 def test_node_state_values() -> None:
     """NodeState is a str-Enum with the documented values."""
@@ -84,128 +93,215 @@ def test_enum_members_compare_equal_to_strings() -> None:
     assert Risk.HIGH == "high"
 
 
-# --- FileRef -------------------------------------------------------------
+# --- WorkflowMetadata -------------------------------------------------------
 
-def test_fileref_defaults() -> None:
-    """FileRef defaults must match the contract."""
-    f = FileRef(id="f1", path=Path("/tmp/x"))
-    assert f.hash is None
-    assert f.mime is None
-    assert f.size == 0
-    assert f.timestamps == {}
-    assert f.metadata == {}
-
-
-def test_fileref_mutable_defaults_isolated() -> None:
-    """Per-instance dicts must not be shared between instances."""
-    a = FileRef(id="a", path=Path("/a"))
-    b = FileRef(id="b", path=Path("/b"))
-    a.timestamps["x"] = 1.0
-    a.metadata["y"] = 2
-    assert b.timestamps == {}
-    assert b.metadata == {}
+def test_workflowmetadata_defaults() -> None:
+    meta = WorkflowMetadata(id="wf-1")
+    assert meta.name == ""
+    assert meta.description == ""
+    assert meta.version == "1.0"
+    assert meta.author == ""
+    assert meta.created_at is None
+    assert meta.updated_at is None
+    assert meta.tags == []
 
 
-# --- ActionProposal / ActionLog ------------------------------------------
-
-def test_actionproposal_defaults() -> None:
-    """ActionProposal defaults must match the contract."""
-    p = ActionProposal(type="move")
-    assert p.source is None
-    assert p.target is None
-    assert p.reason == ""
-    assert p.confidence == 1.0
-    assert p.risk is Risk.LOW
-    assert p.extra == {}
+def test_workflowmetadata_tags_isolated() -> None:
+    a = WorkflowMetadata(id="a")
+    b = WorkflowMetadata(id="b")
+    a.tags.append("x")
+    assert b.tags == []
 
 
-def test_actionlog_defaults() -> None:
-    """ActionLog defaults must match the contract."""
-    log = ActionLog(
-        run_id="r1", automation_id="a1", node_id="n1",
-        action="move", status="ok", timestamp=0.0,
-    )
-    assert log.source is None
-    assert log.target is None
-    assert log.confirmed_by == "auto"
-    assert log.rollback is None
-    assert log.meta == {}
+# --- WorkflowScopeSettings --------------------------------------------------
+
+def test_workflowscopesettings_defaults() -> None:
+    settings = WorkflowScopeSettings()
+    assert settings.roots == []
+    assert settings.writable == []
+    assert settings.allow_symlinks is False
+    assert settings.policy_ref is None
 
 
-# --- NodeSpec ------------------------------------------------------------
+def test_workflowscopesettings_lists_isolated() -> None:
+    a = WorkflowScopeSettings()
+    b = WorkflowScopeSettings()
+    a.roots.append("/x")
+    a.writable.append("/y")
+    assert b.roots == []
+    assert b.writable == []
 
-def test_nodespec_defaults() -> None:
-    """NodeSpec must default to ENABLED with empty params."""
-    spec = NodeSpec(id="n1", type="move")
-    assert spec.params == {}
-    assert spec.state is NodeState.ENABLED
+
+# --- WorkflowErrorHandling --------------------------------------------------
+
+def test_workflowerrorhandling_defaults() -> None:
+    handling = WorkflowErrorHandling()
+    assert handling.strategy == "fail"
+    assert handling.max_retries == 0
+    assert handling.retry_delay_seconds == 0.0
+    assert handling.backoff == "none"
 
 
-def test_nodespec_params_isolated() -> None:
-    """params must be per-instance."""
-    a = NodeSpec(id="a", type="t")
-    b = NodeSpec(id="b", type="t")
-    a.params["x"] = 1
+# --- WorkflowSettings -------------------------------------------------------
+
+def test_workflowsettings_defaults() -> None:
+    settings = WorkflowSettings()
+    assert settings.default_dry_run is True
+    assert isinstance(settings.scope, WorkflowScopeSettings)
+    assert isinstance(settings.error_handling, WorkflowErrorHandling)
+    assert settings.max_concurrency == 1
+
+
+def test_workflowsettings_nested_defaults_isolated() -> None:
+    a = WorkflowSettings()
+    b = WorkflowSettings()
+    assert a.scope is not b.scope
+    assert a.error_handling is not b.error_handling
+    a.scope.roots.append("/x")
+    assert b.scope.roots == []
+
+
+# --- VariableSpec -----------------------------------------------------------
+
+def test_variablespec_defaults() -> None:
+    var = VariableSpec()
+    assert var.type == "string"
+    assert var.value is None
+    assert var.description == ""
+
+
+# --- TriggerSpec ------------------------------------------------------------
+
+def test_triggerspec_requires_id_and_type() -> None:
+    trigger = TriggerSpec(id="t1", type="manual")
+    assert trigger.title == ""
+    assert trigger.params == {}
+
+
+def test_triggerspec_params_isolated() -> None:
+    a = TriggerSpec(id="a", type="manual")
+    b = TriggerSpec(id="b", type="manual")
+    a.params["k"] = "v"
     assert b.params == {}
 
 
-# --- Automation ----------------------------------------------------------
+# --- PortSpec ---------------------------------------------------------------
 
-def test_automation_defaults() -> None:
-    """Automation defaults must be empty collections."""
-    a = Automation(id="auto1")
-    assert a.name == ""
-    assert a.nodes == []
-    assert a.edges == []
-    assert a.meta == {}
+def test_portspec_defaults() -> None:
+    port = PortSpec(name="files")
+    assert port.type == "any"
+    assert port.required is True
+    assert port.description == ""
+    assert port.default is None
 
 
-def test_automation_collections_isolated() -> None:
-    """nodes/edges/meta must not leak between automations."""
-    a = Automation(id="a")
-    b = Automation(id="b")
-    a.nodes.append(NodeSpec(id="n", type="t"))
-    a.edges.append(Edge(src="x", dst="y"))
-    a.meta["k"] = "v"
+# --- NodeSpec ---------------------------------------------------------------
+
+def test_nodespec_defaults() -> None:
+    spec = NodeSpec(id="n1", type="move_files")
+    assert spec.title == ""
+    assert spec.state is NodeState.ENABLED
+    assert spec.params == {}
+    assert spec.inputs == []
+    assert spec.outputs == []
+    assert spec.position == {}
+    assert spec.description == ""
+
+
+def test_nodespec_collections_isolated() -> None:
+    a = NodeSpec(id="a", type="t")
+    b = NodeSpec(id="b", type="t")
+    a.params["x"] = 1
+    a.inputs.append(PortSpec(name="i"))
+    a.outputs.append(PortSpec(name="o"))
+    a.position["x"] = 1.0
+    assert b.params == {}
+    assert b.inputs == []
+    assert b.outputs == []
+    assert b.position == {}
+
+
+# --- EdgeSpec ---------------------------------------------------------------
+
+def test_edgespec_defaults() -> None:
+    edge = EdgeSpec(id="e1", source="a", target="b")
+    assert edge.source_port == "out"
+    assert edge.target_port == "in"
+    assert edge.condition is None
+    assert edge.label == ""
+
+
+# --- WorkflowDocument -------------------------------------------------------
+
+def test_workflowdocument_requires_spec_version_and_metadata() -> None:
+    meta = WorkflowMetadata(id="wf")
+    doc = WorkflowDocument(spec_version="1.0", metadata=meta)
+    assert doc.settings.max_concurrency == 1
+    assert doc.variables == {}
+    assert doc.triggers == []
+    assert doc.nodes == []
+    assert doc.edges == []
+    assert doc.extra_meta == {}
+
+
+def test_workflowdocument_collections_isolated() -> None:
+    a = WorkflowDocument(spec_version="1.0", metadata=WorkflowMetadata(id="a"))
+    b = WorkflowDocument(spec_version="1.0", metadata=WorkflowMetadata(id="b"))
+    a.variables["x"] = VariableSpec()
+    a.triggers.append(TriggerSpec(id="t", type="manual"))
+    a.nodes.append(NodeSpec(id="n", type="list_files"))
+    a.edges.append(EdgeSpec(id="e", source="n", target="n"))
+    a.extra_meta["k"] = "v"
+    assert b.variables == {}
+    assert b.triggers == []
     assert b.nodes == []
     assert b.edges == []
-    assert b.meta == {}
+    assert b.extra_meta == {}
 
 
-# --- ResolvedGraph / NodeResult / WorkspaceScope -------------------------
+# --- ResolvedGraph ----------------------------------------------------------
 
-def test_resolvedgraph_defaults() -> None:
-    """ResolvedGraph defaults must be empty/None as documented."""
-    rg = ResolvedGraph()
-    assert rg.ordered_node_ids == []
-    assert rg.handlers == {}
-    assert rg.states == {}
-    assert rg.scope is None
-    assert rg.templates == {}
+def test_resolvedgraph_requires_document() -> None:
+    doc = WorkflowDocument(spec_version="1.0", metadata=WorkflowMetadata(id="wf"))
+    resolved = ResolvedGraph(document=doc)
+    assert resolved.document is doc
+    assert resolved.ordered_node_ids == []
+    assert resolved.handlers == {}
+    assert resolved.states == {}
 
 
-def test_noderesult_defaults() -> None:
-    """NodeResult requires node_id/status only; the rest default."""
-    r = NodeResult(node_id="n", status="ok")
-    assert r.outputs == {}
-    assert r.actions == []
-    assert r.error is None
+def test_resolvedgraph_collections_isolated() -> None:
+    doc_a = WorkflowDocument(spec_version="1.0", metadata=WorkflowMetadata(id="a"))
+    doc_b = WorkflowDocument(spec_version="1.0", metadata=WorkflowMetadata(id="b"))
+    a = ResolvedGraph(document=doc_a)
+    b = ResolvedGraph(document=doc_b)
+    a.ordered_node_ids.append("n")
+    a.handlers["n"] = object()
+    a.states["n"] = NodeState.ENABLED
+    assert b.ordered_node_ids == []
+    assert b.handlers == {}
+    assert b.states == {}
 
+
+# --- WorkspaceScope (compatibility, not in __all__) -------------------------
 
 def test_workspacescope_defaults() -> None:
-    """WorkspaceScope defaults must match the contract."""
-    ws = WorkspaceScope()
-    assert ws.roots == []
-    assert ws.writable == []
-    assert ws.allow_symlinks is False
-    assert ws.policy_ref is None
+    scope = WorkspaceScope()
+    assert scope.roots == []
+    assert scope.writable == []
+    assert scope.allow_symlinks is False
+    assert scope.policy_ref is None
 
 
 def test_workspacescope_lists_isolated() -> None:
-    """roots/writable lists must not be shared between instances."""
     a = WorkspaceScope()
     b = WorkspaceScope()
     a.roots.append(Path("/a"))
     a.writable.append(Path("/a"))
     assert b.roots == []
     assert b.writable == []
+
+
+def test_workspacescope_not_in_public_all() -> None:
+    """WorkspaceScope is retained for core.scope but is not workflow surface."""
+    assert "WorkspaceScope" not in models.__all__
