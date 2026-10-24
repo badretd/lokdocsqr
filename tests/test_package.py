@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import importlib
 
-import pytest
-
 SUBPACKAGES = (
     "lokdocsqr",
     "lokdocsqr.core",
@@ -27,10 +25,15 @@ SUBPACKAGES = (
 )
 
 
-@pytest.mark.parametrize("name", SUBPACKAGES)
-def test_package_imports(name: str) -> None:
-    """Each scaffolded subpackage must import without side effects."""
-    importlib.import_module(name)
+def test_all_packages_importable() -> None:
+    """Every scaffolded subpackage must import without side effects."""
+    failures: list[str] = []
+    for name in SUBPACKAGES:
+        try:
+            importlib.import_module(name)
+        except Exception as exc:  # noqa: BLE001 - collect and report
+            failures.append(f"{name}: {type(exc).__name__}: {exc}")
+    assert not failures, "import failures:\n" + "\n".join(failures)
 
 
 def test_version_metadata() -> None:

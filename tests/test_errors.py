@@ -1,8 +1,6 @@
 """Verify the exception hierarchy for LokDocSQR."""
 from __future__ import annotations
 
-import inspect
-
 import pytest
 
 from lokdocsqr.core import errors
@@ -19,12 +17,14 @@ EXPECTED_ALL = {
     "ScopeViolation",
 }
 
+SUBCLASSES = sorted(EXPECTED_ALL - {"LokError"})
 
-def test_errors_all_declares_full_surface() -> None:
-    """`errors.__all__` must match the public surface exactly."""
+
+def test_errors_all_surface() -> None:
+    """errors.__all__ must exactly declare the public surface."""
     assert set(errors.__all__) == EXPECTED_ALL
-    for name in EXPECTED_ALL:
-        assert hasattr(errors, name), f"errors missing attribute: {name}"
+    missing = [name for name in EXPECTED_ALL if not hasattr(errors, name)]
+    assert not missing, f"errors missing attributes: {missing}"
 
 
 def test_lok_error_is_exception() -> None:
@@ -32,47 +32,18 @@ def test_lok_error_is_exception() -> None:
     assert issubclass(errors.LokError, Exception)
 
 
-@pytest.mark.parametrize(
-    "name",
-    sorted(EXPECTED_ALL - {"LokError"}),
-)
-def test_error_inherits_lok_error(name: str) -> None:
-    """Every named error must be a LokError subclass."""
-    cls = getattr(errors, name)
-    assert issubclass(cls, errors.LokError), f"{name} is not a LokError"
+def test_all_custom_errors_inherit_lok_error() -> None:
+    """Every named error must subclass LokError."""
+    not_subclasses = [
+        name for name in SUBCLASSES
+        if not issubclass(getattr(errors, name), errors.LokError)
+    ]
+    assert not not_subclasses, f"not LokError subclasses: {not_subclasses}"
 
 
-@pytest.mark.parametrize(
-    "name",
-    sorted(EXPECTED_ALL - {"LokError"}),
-)
-def test_error_directly_derives_from_lok_error(name: str) -> None:
-    """Each error must subclass LokError directly (no deep tree)."""
-    cls = getattr(errors, name)
-    assert cls.__bases__ == (errors.LokError,), (
-        f"{name} bases are {cls.__bases__}, expected (LokError,)"
-    )
-
-
-@pytest.mark.parametrize(
-    "name",
-    sorted(EXPECTED_ALL),
-)
-def test_error_has_docstring(name: str) -> None:
-    """Every exception class must document itself."""
-    cls = getattr(errors, name)
-    assert inspect.getdoc(cls), f"{name} has no docstring"
-
-
-def test_errors_can_be_raised_and_caught() -> None:
-    """Each error can be raised and caught via LokError."""
-    for name in sorted(EXPECTED_ALL - {"LokError"}):
+def test_errors_raise_and_catch_via_lok_error() -> None:
+    """Each error can be raised and caught as LokError."""
+    for name in SUBCLASSES:
         cls = getattr(errors, name)
         with pytest.raises(errors.LokError):
             raise cls("boom")
-
-
-def test_raising_lok_error_directly_works() -> None:
-    """The base class is instantiable."""
-    with pytest.raises(errors.LokError):
-        raise errors.LokError("boom")

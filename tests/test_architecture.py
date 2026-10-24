@@ -94,9 +94,9 @@ def _target_names(target: ast.AST) -> list[str]:
 def _base_name(base: ast.expr) -> str | None:
     """Return a readable base class name for common AST forms."""
     if isinstance(base, ast.Name):
-        return base.id or None
+        return base.id
     if isinstance(base, ast.Attribute):
-        return base.attr or None
+        return base.attr
     return None
 
 
@@ -214,7 +214,10 @@ def test_invariant_7_scope_first() -> None:
     """Scope-first ordering is verified with node tests in Phase 5."""
 
 
-@pytest.mark.skipif(not ENGINE.exists(), reason="executor engine is introduced in phase 4")
+@pytest.mark.skipif(
+    not ENGINE.exists(),
+    reason="executor engine is introduced in phase 4",
+)
 def test_invariant_8_executor_isolation() -> None:
     """Executor must not import concrete nodes."""
     violations: list[str] = []
@@ -226,17 +229,3 @@ def test_invariant_8_executor_isolation() -> None:
                 relative = path.relative_to(ROOT)
                 violations.append(f"{relative} imports {module}")
     assert not violations, "Executor isolation violations:\n" + "\n".join(violations)
-
-
-test_invariant_8_executor_isolation.__test__ = ENGINE.exists()
-
-# Numeric aliases: external verifier tests look up exact names in dir().
-# pytest keeps the descriptive names; both point at the same function objects.
-test_invariant_1 = test_invariant_1_layering
-test_invariant_2 = test_invariant_2_gui_isolation
-test_invariant_3 = test_invariant_3_delete_ban
-test_invariant_4 = test_invariant_4_no_delete_api
-test_invariant_5 = test_invariant_5_node_contract
-test_invariant_6 = test_invariant_6_dry_run_purity
-test_invariant_7 = test_invariant_7_scope_first
-test_invariant_8 = test_invariant_8_executor_isolation

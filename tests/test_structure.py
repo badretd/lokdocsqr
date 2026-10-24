@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 ROOT = Path(__file__).resolve().parent.parent
 
 EXPECTED_FILES = (
@@ -36,27 +34,26 @@ EXPECTED_FILES = (
 )
 
 
-@pytest.mark.parametrize("relpath", EXPECTED_FILES)
-def test_expected_file_exists(relpath: str) -> None:
-    """Every scaffold file listed by the installer must exist on disk."""
-    path = ROOT / relpath
-    assert path.exists(), f"missing scaffold file: {relpath}"
+def test_expected_files_exist() -> None:
+    """Every scaffold file must exist on disk."""
+    missing = [name for name in EXPECTED_FILES if not (ROOT / name).is_file()]
+    assert not missing, f"missing scaffold files: {missing}"
 
 
-def test_empty_init_files_are_trivial() -> None:
-    """All __init__.py files except the top-level package must be empty."""
+def test_init_files_are_empty() -> None:
+    """All __init__.py files except the package root must be empty."""
     top_level = ROOT / "src" / "lokdocsqr" / "__init__.py"
+    non_empty = []
     for path in (ROOT / "src").rglob("__init__.py"):
         if path == top_level:
             continue
-        content = path.read_text(encoding="utf-8").strip()
-        assert content == "", (
-            f"{path.relative_to(ROOT)} is not empty: {content!r}"
-        )
+        if path.read_text(encoding="utf-8").strip():
+            non_empty.append(str(path.relative_to(ROOT)))
+    assert not non_empty, f"unexpected content in: {non_empty}"
 
 
-def test_top_level_init_declares_version() -> None:
-    """The top-level package __init__ must set __version__ and __all__."""
+def test_top_level_init_metadata() -> None:
+    """The package root must declare __version__ and __all__."""
     text = (ROOT / "src/lokdocsqr/__init__.py").read_text(encoding="utf-8")
     assert '__version__ = "0.1.0"' in text
     assert '__all__ = ["__version__"]' in text

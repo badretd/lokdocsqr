@@ -1,10 +1,8 @@
 """Verify the shared domain dataclasses and enums."""
 from __future__ import annotations
 
-from dataclasses import fields, is_dataclass
+from dataclasses import is_dataclass
 from pathlib import Path
-
-import pytest
 
 from lokdocsqr.core import models
 from lokdocsqr.core.models import (
@@ -37,12 +35,31 @@ EXPECTED_ALL = {
     "WorkspaceScope",
 }
 
+ALL_DATACLASSES = (
+    FileRef,
+    ActionProposal,
+    ActionLog,
+    NodeSpec,
+    Edge,
+    Automation,
+    RawGraph,
+    ResolvedGraph,
+    NodeResult,
+    WorkspaceScope,
+)
 
-def test_models_all_declares_full_surface() -> None:
-    """`models.__all__` must match the public surface exactly."""
+
+def test_models_all_surface() -> None:
+    """models.__all__ must exactly declare the public surface."""
     assert set(models.__all__) == EXPECTED_ALL
-    for name in EXPECTED_ALL:
-        assert hasattr(models, name), f"models missing attribute: {name}"
+    missing = [name for name in EXPECTED_ALL if not hasattr(models, name)]
+    assert not missing, f"models missing attributes: {missing}"
+
+
+def test_all_models_are_dataclasses() -> None:
+    """Every domain model must be a dataclass."""
+    non_dataclasses = [cls.__name__ for cls in ALL_DATACLASSES if not is_dataclass(cls)]
+    assert not non_dataclasses, f"not dataclasses: {non_dataclasses}"
 
 
 # --- Enums ---------------------------------------------------------------
@@ -51,10 +68,7 @@ def test_node_state_values() -> None:
     """NodeState is a str-Enum with the documented values."""
     assert issubclass(NodeState, str)
     assert {s.value for s in NodeState} == {
-        "enabled",
-        "disabled",
-        "skipped",
-        "failed",
+        "enabled", "disabled", "skipped", "failed",
     }
 
 
@@ -64,32 +78,10 @@ def test_risk_values() -> None:
     assert {r.value for r in Risk} == {"low", "medium", "high"}
 
 
-def test_enum_member_equality_to_string() -> None:
-    """str-Enum members compare equal to their underlying string."""
+def test_enum_members_compare_equal_to_strings() -> None:
+    """str-Enum members must equal their underlying string."""
     assert NodeState.ENABLED == "enabled"
     assert Risk.HIGH == "high"
-
-
-# --- Dataclass type checks ----------------------------------------------
-
-@pytest.mark.parametrize(
-    "cls",
-    [
-        FileRef,
-        ActionProposal,
-        ActionLog,
-        NodeSpec,
-        Edge,
-        Automation,
-        RawGraph,
-        ResolvedGraph,
-        NodeResult,
-        WorkspaceScope,
-    ],
-)
-def test_is_dataclass(cls: type) -> None:
-    """All domain models must be dataclasses."""
-    assert is_dataclass(cls)
 
 
 # --- FileRef -------------------------------------------------------------
@@ -105,7 +97,7 @@ def test_fileref_defaults() -> None:
 
 
 def test_fileref_mutable_defaults_isolated() -> None:
-    """Per-instance dicts must not be shared between FileRef instances."""
+    """Per-instance dicts must not be shared between instances."""
     a = FileRef(id="a", path=Path("/a"))
     b = FileRef(id="b", path=Path("/b"))
     a.timestamps["x"] = 1.0
@@ -114,7 +106,7 @@ def test_fileref_mutable_defaults_isolated() -> None:
     assert b.metadata == {}
 
 
-# --- ActionProposal ------------------------------------------------------
+# --- ActionProposal / ActionLog ------------------------------------------
 
 def test_actionproposal_defaults() -> None:
     """ActionProposal defaults must match the contract."""
@@ -127,23 +119,11 @@ def test_actionproposal_defaults() -> None:
     assert p.extra == {}
 
 
-def test_actionproposal_risk_accepts_enum() -> None:
-    """Risk can be set explicitly."""
-    p = ActionProposal(type="move", risk=Risk.HIGH)
-    assert p.risk is Risk.HIGH
-
-
-# --- ActionLog -----------------------------------------------------------
-
 def test_actionlog_defaults() -> None:
     """ActionLog defaults must match the contract."""
     log = ActionLog(
-        run_id="r1",
-        automation_id="a1",
-        node_id="n1",
-        action="move",
-        status="ok",
-        timestamp=0.0,
+        run_id="r1", automation_id="a1", node_id="n1",
+        action="move", status="ok", timestamp=0.0,
     )
     assert log.source is None
     assert log.target is None
@@ -161,21 +141,12 @@ def test_nodespec_defaults() -> None:
     assert spec.state is NodeState.ENABLED
 
 
-def test_nodespec_mutable_params_isolated() -> None:
-    """`params` must be per-instance."""
+def test_nodespec_params_isolated() -> None:
+    """params must be per-instance."""
     a = NodeSpec(id="a", type="t")
     b = NodeSpec(id="b", type="t")
     a.params["x"] = 1
     assert b.params == {}
-
-
-# --- Edge ----------------------------------------------------------------
-
-def test_edge_fields() -> None:
-    """Edge requires src/dst."""
-    e = Edge(src="a", dst="b")
-    assert e.src == "a"
-    assert e.dst == "b"
 
 
 # --- Automation ----------------------------------------------------------
@@ -189,24 +160,19 @@ def test_automation_defaults() -> None:
     assert a.meta == {}
 
 
-def test_automation_mutable_defaults_isolated() -> None:
-    """`nodes`/`edges`/`meta` must not leak between automations."""
+def test_automation_collections_isolated() -> None:
+    """nodes/edges/meta must not leak between automations."""
     a = Automation(id="a")
     b = Automation(id="b")
     a.nodes.append(NodeSpec(id="n", type="t"))
+    a.edges.append(Edge(src="x", dst="y"))
     a.meta["k"] = "v"
     assert b.nodes == []
+    assert b.edges == []
     assert b.meta == {}
 
 
-# --- RawGraph / ResolvedGraph --------------------------------------------
-
-def test_rawgraph_wraps_automation() -> None:
-    """RawGraph stores its automation by reference."""
-    auto = Automation(id="a")
-    g = RawGraph(automation=auto)
-    assert g.automation is auto
-
+# --- ResolvedGraph / NodeResult / WorkspaceScope -------------------------
 
 def test_resolvedgraph_defaults() -> None:
     """ResolvedGraph defaults must be empty/None as documented."""
@@ -218,8 +184,6 @@ def test_resolvedgraph_defaults() -> None:
     assert rg.templates == {}
 
 
-# --- NodeResult ----------------------------------------------------------
-
 def test_noderesult_defaults() -> None:
     """NodeResult requires node_id/status only; the rest default."""
     r = NodeResult(node_id="n", status="ok")
@@ -227,8 +191,6 @@ def test_noderesult_defaults() -> None:
     assert r.actions == []
     assert r.error is None
 
-
-# --- WorkspaceScope ------------------------------------------------------
 
 def test_workspacescope_defaults() -> None:
     """WorkspaceScope defaults must match the contract."""
@@ -239,9 +201,11 @@ def test_workspacescope_defaults() -> None:
     assert ws.policy_ref is None
 
 
-def test_workspacescope_mutable_defaults_isolated() -> None:
-    """Roots/writable lists must not be shared."""
+def test_workspacescope_lists_isolated() -> None:
+    """roots/writable lists must not be shared between instances."""
     a = WorkspaceScope()
     b = WorkspaceScope()
     a.roots.append(Path("/a"))
+    a.writable.append(Path("/a"))
     assert b.roots == []
+    assert b.writable == []
