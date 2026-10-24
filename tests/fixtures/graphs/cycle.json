@@ -1,0 +1,13 @@
+{
+  "automation": {"id": "auto-cycle"},
+  "nodes": [
+    {"id": "a", "type": "list_files"},
+    {"id": "b", "type": "filter"},
+    {"id": "c", "type": "merge"}
+  ],
+  "edges": [
+    {"source": "a", "target": "b"},
+    {"source": "b", "target": "c"},
+    {"source": "c", "target": "a"}
+  ]
+}

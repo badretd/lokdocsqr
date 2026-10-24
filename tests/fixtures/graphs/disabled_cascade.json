@@ -1,0 +1,14 @@
+{
+  "automation": {"id": "auto-cascade"},
+  "nodes": [
+    {"id": "a", "type": "list_files",  "state": "enabled"},
+    {"id": "b", "type": "filter",      "state": "disabled"},
+    {"id": "c", "type": "move_files",  "state": "enabled"},
+    {"id": "d", "type": "write_file",  "state": "enabled"}
+  ],
+  "edges": [
+    {"source": "a", "target": "b"},
+    {"source": "b", "target": "c"},
+    {"source": "c", "target": "d"}
+  ]
+}

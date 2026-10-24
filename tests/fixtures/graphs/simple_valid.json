@@ -1,0 +1,10 @@
+{
+  "automation": {"id": "auto-simple", "name": "Simple move"},
+  "nodes": [
+    {"id": "n1", "type": "list_files", "params": {"path": "in"}},
+    {"id": "n2", "type": "move_files", "params": {"dest": "out/{year}"}}
+  ],
+  "edges": [
+    {"source": "n1", "target": "n2"}
+  ]
+}

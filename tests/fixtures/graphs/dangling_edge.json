@@ -1,0 +1,9 @@
+{
+  "automation": {"id": "auto-dangling"},
+  "nodes": [
+    {"id": "n1", "type": "list_files"}
+  ],
+  "edges": [
+    {"source": "n1", "target": "does_not_exist"}
+  ]
+}

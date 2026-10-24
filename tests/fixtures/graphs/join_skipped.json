@@ -1,0 +1,14 @@
+{
+  "automation": {"id": "auto-join"},
+  "nodes": [
+    {"id": "a", "type": "list_files", "state": "enabled"},
+    {"id": "b", "type": "filter",     "state": "disabled"},
+    {"id": "c", "type": "list_files", "state": "enabled"},
+    {"id": "d", "type": "merge",      "state": "enabled"}
+  ],
+  "edges": [
+    {"source": "a", "target": "d"},
+    {"source": "b", "target": "d"},
+    {"source": "c", "target": "d"}
+  ]
+}

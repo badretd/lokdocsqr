@@ -1,0 +1,10 @@
+{
+  "automation": {"id": "auto-unknown"},
+  "nodes": [
+    {"id": "n1", "type": "list_files"},
+    {"id": "n2", "type": "totally_unknown_xyz"}
+  ],
+  "edges": [
+    {"source": "n1", "target": "n2"}
+  ]
+}

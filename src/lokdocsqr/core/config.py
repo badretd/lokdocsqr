@@ -19,25 +19,21 @@ class AppConfig:
 
     ``trash_dir`` and ``logs_dir`` default to ``base_dir / ".trash"`` and
     ``base_dir / ".logs"`` respectively; the defaults are materialised in
-    ``__post_init__`` so that the field type stays ``Path`` for callers.
+    ``__post_init__``. The declared type is ``Path | None`` so that "not
+    configured" is representable, while the effective runtime type after
+    construction is ``Path`` for callers.
     """
 
     base_dir: Path
-    trash_dir: Path = field(default_factory=Path)
-    logs_dir: Path = field(default_factory=Path)
+    trash_dir: Path | None = None
+    logs_dir: Path | None = None
     scope_roots: list[Path] = field(default_factory=list)
     default_dry_run: bool = True
 
     def __post_init__(self) -> None:
         self.base_dir = Path(self.base_dir)
-        if self.trash_dir == Path():
-            self.trash_dir = self.base_dir / ".trash"
-        else:
-            self.trash_dir = Path(self.trash_dir)
-        if self.logs_dir == Path():
-            self.logs_dir = self.base_dir / ".logs"
-        else:
-            self.logs_dir = Path(self.logs_dir)
+        self.trash_dir = Path(self.trash_dir) if self.trash_dir else self.base_dir / ".trash"
+        self.logs_dir = Path(self.logs_dir) if self.logs_dir else self.base_dir / ".logs"
         self.scope_roots = [Path(p) for p in self.scope_roots]
 
 
@@ -68,8 +64,8 @@ def load_config(path: Path) -> AppConfig:
     try:
         return AppConfig(
             base_dir=Path(base_raw),
-            trash_dir=Path(data["trash_dir"]) if data.get("trash_dir") else Path(),
-            logs_dir=Path(data["logs_dir"]) if data.get("logs_dir") else Path(),
+            trash_dir=Path(data["trash_dir"]) if data.get("trash_dir") else None,
+            logs_dir=Path(data["logs_dir"]) if data.get("logs_dir") else None,
             scope_roots=[Path(p) for p in data.get("scope_roots", [])],
             default_dry_run=bool(data.get("default_dry_run", True)),
         )
@@ -87,5 +83,5 @@ def save_config(config: AppConfig, path: Path) -> None:
         "scope_roots": [str(p) for p in config.scope_roots],
         "default_dry_run": bool(config.default_dry_run),
     }
-    text = json.dumps(data, indent=2, sort_keys=True) + ""
+    text = json.dumps(data, indent=2, sort_keys=True) + "\n"
     atomic_write(path, text)
