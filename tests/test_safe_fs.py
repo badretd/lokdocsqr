@@ -182,25 +182,30 @@ def test_quarantine_missing_raises(tmp_path: Path) -> None:
         quarantine(tmp_path / "nope", tmp_path / "trash")
 
 
-def test_quarantine_collision_creates_unique_names(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # Force identical timestamps so the collision branch is exercised.
-    fake_time = types.SimpleNamespace(time_ns=lambda: 1_000_000_000, time=lambda: 1.0)
-    monkeypatch.setattr(safe_fs, "time", fake_time)
+def test_quarantine_collision_creates_unique_names(tmp_path, monkeypatch):
+    trash = tmp_path / "trash"
 
-    trash_dir = tmp_path / "trash"
-    first = tmp_path / "file.txt"
-    first.write_text("one")
-    r1 = quarantine(first, trash_dir)
+    src1 = tmp_path / "a.txt"
+    src1.write_text("one")
 
-    second = tmp_path / "file.txt"
-    second.write_text("two")
-    r2 = quarantine(second, trash_dir)
+    src2 = tmp_path / "sub" / "a.txt"
+    src2.parent.mkdir()
+    src2.write_text("two")
 
-    assert r1 != r2
-    assert r1.read_text() == "one"
-    assert r2.read_text() == "two"
+    # Force the same timestamp for both calls → same base_target → collision.
+    FIXED_NS = 1_700_000_000_000_000_000
+    monkeypatch.setattr(safe_fs.time, "time_ns", lambda: FIXED_NS)
+
+    t1 = safe_fs.quarantine(src1, trash)
+    t2 = safe_fs.quarantine(src2, trash)
+
+    assert t1 != t2
+    assert t1.name == f"{FIXED_NS}_a.txt"
+    assert t2.name == f"{FIXED_NS}_a_1.txt"
+    assert t1.read_text() == "one"
+    assert t2.read_text() == "two"
+    assert not src1.exists()
+    assert not src2.exists()
 
 
 def test_trash_uses_trash_reason(tmp_path: Path) -> None:

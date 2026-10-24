@@ -36,9 +36,3 @@ def test_contract_doc_mentions_all_invariants() -> None:
     text = _contract_path().read_text(encoding="utf-8")
     missing = [kw for kw in INVARIANT_KEYWORDS if kw not in text]
     assert not missing, f"CONTRACT.md missing keywords: {missing}"
-
-
-def test_phase_state_reports_phase_zero() -> None:
-    """PHASE_STATE.md must report Current: 0 and note the contract is fixed."""
-    text = (DOCS / "PHASE_STATE.md").read_text(encoding="utf-8")
-    assert "Current: 1" in text

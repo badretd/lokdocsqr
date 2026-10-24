@@ -1,7 +1,7 @@
 # Phase State
 
 Done: 1
-Current: 1
-Tags: phase-1-gate-green, contract-frozen
+Current: 2
+Tags: phase-1-verified, tests-installed, contract-frozen
 Open issues: none
-Notes: Phase 1 complete — config, logging, safe_fs, scope, paths implemented.
+Notes: Phase 1 verified — test suite installed for safe_fs, scope, paths, config (~40 cases, tmp_path only); logging.py intentionally untested; absolute-path tests ported to tmp_path for Windows/nt portability.

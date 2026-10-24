@@ -5,27 +5,234 @@ It is the most carefully written module in the codebase.
 
 Invariants (enforced by tests/test_architecture.py):
     * No public deletion API is exported (no delete/remove/unlink/rmtree names).
-    * File writes are atomic: temp file -> write -> flush -> fsync -> os.replace.
+      ``cleanup_stale_temp_files`` is the only public function that removes
+      files, and it is strictly bounded to the orphaned-temp pattern produced
+      by ``atomic_write`` and to files older than ``max_age_seconds``.
+    * File writes are atomic: temp file -> write -> flush -> fsync ->
+      ``_safe_replace`` (which wraps ``os.replace`` with Windows-aware
+      transient-lock retries bounded by a monotonic-time deadline).
     * Deletions are implemented as quarantine/trash (moves into trash_dir).
     * Cross-device ``safe_move`` is the only place that internally removes a
       source path, and only after ``copy_file`` has durably persisted the
       destination data. This is the minimum necessary to complete a genuine
       move across volumes and is documented in ``_complete_cross_device_move``.
+
+Windows notes
+-------------
+``os.replace`` on Windows can transiently fail with ``PermissionError``
+(``WinError 32`` sharing violation, ``33`` lock violation, ``5`` access
+denied, ``170`` busy, ``1175`` unable-to-remove-replaced) while antivirus,
+the search indexer, or a sync client holds a handle on either side. The
+helpers below retry only for those codes, only up to a hard deadline and
+a fixed attempt budget, and never for structural problems (read-only
+destination, vanished source, ACL denial that doesn't clear).
 """
 from __future__ import annotations
 
 import errno
 import hashlib
 import json
+import logging
 import os
 import shutil
+import stat as stat_module
+import sys
 import time
 from pathlib import Path
 
 from lokdocsqr.core.errors import SafeFsError
 
 
+_log = logging.getLogger(__name__)
+
 _CHUNK_SIZE = 1024 * 1024  # 1 MiB
+
+# Retry policy defaults (per-operation; individual callers can override).
+_DEFAULT_REPLACE_TIMEOUT = 10.0
+_DEFAULT_REPLACE_MAX_ATTEMPTS = 12
+_DEFAULT_REPLACE_INITIAL_DELAY = 0.02
+_DEFAULT_REPLACE_MAX_DELAY = 1.0
+
+_DEFAULT_OPEN_TIMEOUT = 5.0
+_DEFAULT_UNLINK_TIMEOUT = 5.0
+
+_TEMP_FILE_PATTERN = ".*.tmp.*"
+
+# WinError codes that may clear on their own under Windows.
+# 5   ERROR_ACCESS_DENIED              (antivirus / SYSTEM owner race)
+# 32  ERROR_SHARING_VIOLATION          (another process holds a handle)
+# 33  ERROR_LOCK_VIOLATION             (byte-range lock)
+# 170 ERROR_BUSY
+# 1175 ERROR_UNABLE_TO_REMOVE_REPLACED (pending delete on target)
+_TRANSIENT_WINERRORS = frozenset({5, 32, 33, 170, 1175})
+
+__all__ = [
+    "atomic_write",
+    "atomic_append",
+    "copy_file",
+    "safe_move",
+    "safe_rename",
+    "make_dir",
+    "quarantine",
+    "trash",
+    "stat",
+    "hash_file",
+    "read_bytes",
+    "list_dir",
+    "cleanup_stale_temp_files",
+]
+
+
+# ---------------------------------------------------------------------------
+# Internal retry helpers (Windows-aware)
+# ---------------------------------------------------------------------------
+
+def _is_transient(exc: OSError) -> bool:
+    """Return True if ``exc`` is likely to clear on its own."""
+    if sys.platform == "win32":
+        return getattr(exc, "winerror", None) in _TRANSIENT_WINERRORS
+    # POSIX: EBUSY is the only realistic transient rename/unlink failure.
+    return exc.errno in (errno.EBUSY, errno.EAGAIN)
+
+
+def _is_readonly_dst(dst: Path) -> bool:
+    """Return True if ``dst`` exists and lacks the owner-write bit."""
+    try:
+        st = dst.stat()
+    except OSError:
+        return False
+    return not (st.st_mode & stat_module.S_IWRITE)
+
+
+def _safe_replace(
+    src: Path,
+    dst: Path,
+    *,
+    context: str = "replace",
+    timeout: float = _DEFAULT_REPLACE_TIMEOUT,
+    max_attempts: int = _DEFAULT_REPLACE_MAX_ATTEMPTS,
+) -> None:
+    """Atomically replace ``dst`` with ``src``, retrying transient locks.
+
+    Retries only while *all* of the following hold:
+      * the failure is transient (``_is_transient`` is True);
+      * the attempt budget (``max_attempts``) is not exhausted;
+      * the monotonic-time deadline (``timeout`` seconds) is not exceeded.
+
+    Non-transient errors, read-only destinations, and vanished sources
+    cause an immediate ``SafeFsError`` — no retry.
+    """
+    deadline = time.monotonic() + timeout
+    delay = _DEFAULT_REPLACE_INITIAL_DELAY
+    attempt = 0
+    last_exc: OSError | None = None
+
+    while attempt < max_attempts:
+        attempt += 1
+        if not src.exists():
+            raise SafeFsError(
+                f"{context}: source vanished before replace: {src}"
+            )
+        try:
+            os.replace(src, dst)
+            if attempt > 1:
+                _log.info(
+                    "%s: replace succeeded after %d attempt(s): %s",
+                    context, attempt, dst,
+                )
+            return
+        except OSError as exc:
+            last_exc = exc
+            winerr = getattr(exc, "winerror", None)
+
+            # Read-only destination: WinError 5 will never clear.
+            if winerr == 5 and _is_readonly_dst(dst):
+                raise SafeFsError(
+                    f"{context}: destination is read-only: {dst}"
+                ) from exc
+
+            if not _is_transient(exc):
+                raise SafeFsError(
+                    f"{context}: {src} -> {dst}: {exc}"
+                ) from exc
+
+            if attempt >= max_attempts:
+                break
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+
+            sleep_for = min(delay, remaining)
+            _log.warning(
+                "%s: transient lock (attempt %d/%d, winerror=%r); "
+                "retrying in %.3fs: %s",
+                context, attempt, max_attempts, winerr, sleep_for, dst,
+            )
+            time.sleep(sleep_for)
+            delay = min(delay * 2, _DEFAULT_REPLACE_MAX_DELAY)
+
+    assert last_exc is not None
+    winerr = getattr(last_exc, "winerror", None)
+    _log.error(
+        "%s: replace gave up after %d attempt(s), winerror=%r: %s",
+        context, attempt, winerr, last_exc,
+    )
+    raise SafeFsError(
+        f"{context}: too many transient failures replacing {dst}: {last_exc}"
+    ) from last_exc
+
+
+def _safe_unlink(
+    path: Path,
+    *,
+    context: str = "unlink",
+    timeout: float = _DEFAULT_UNLINK_TIMEOUT,
+) -> None:
+    """Remove ``path``, retrying transient Windows locks. Idempotent."""
+    deadline = time.monotonic() + timeout
+    delay = 0.02
+    while True:
+        try:
+            path.unlink()
+            return
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            if not _is_transient(exc):
+                raise SafeFsError(
+                    f"{context}: cannot remove {path}: {exc}"
+                ) from exc
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise SafeFsError(
+                    f"{context}: transient lock not released for {path}: {exc}"
+                ) from exc
+            time.sleep(min(delay, remaining))
+            delay = min(delay * 2, 0.5)
+
+
+def _open_with_retry(
+    path: Path,
+    mode: str,
+    *,
+    timeout: float = _DEFAULT_OPEN_TIMEOUT,
+    **kwargs,
+):
+    """Open ``path`` in ``mode``, retrying transient Windows locks."""
+    deadline = time.monotonic() + timeout
+    delay = 0.02
+    while True:
+        try:
+            return open(path, mode, **kwargs)
+        except OSError as exc:
+            if not _is_transient(exc):
+                raise
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise
+            time.sleep(min(delay, remaining))
+            delay = min(delay * 2, 0.5)
 
 
 # ---------------------------------------------------------------------------
@@ -37,6 +244,8 @@ def atomic_write(path: Path, data: str | bytes, encoding: str = "utf-8") -> None
 
     Uses a temporary file in the same directory so that ``os.replace`` is
     atomic. If ``os.replace`` succeeds, the temporary file no longer exists.
+    On Windows, ``os.replace`` is wrapped by ``_safe_replace`` so transient
+    antivirus/indexer locks do not surface as data loss.
     """
     path = Path(path)
     try:
@@ -56,26 +265,39 @@ def atomic_write(path: Path, data: str | bytes, encoding: str = "utf-8") -> None
                 handle.write(data)
                 handle.flush()
                 os.fsync(handle.fileno())
-        os.replace(tmp, path)
+        _safe_replace(tmp, path, context=f"atomic_write({path})")
+    except SafeFsError:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
     except OSError as exc:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
         raise SafeFsError(f"atomic_write failed for {path}: {exc}") from exc
 
 
 def atomic_append(path: Path, data: str | bytes, encoding: str = "utf-8") -> None:
-    """Append ``data`` to ``path`` with flush + fsync."""
+    """Append ``data`` to ``path`` with flush + fsync.
+
+    Note: not atomic in the strict sense — a crash mid-write can leave a
+    partial tail. Use :func:`atomic_write` with the full reconstructed
+    contents when strict atomicity is required.
+    """
     path = Path(path)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         if isinstance(data, bytes):
-            with open(path, "ab") as handle:
-                handle.write(data)
-                handle.flush()
-                os.fsync(handle.fileno())
+            handle = _open_with_retry(path, "ab")
         else:
-            with open(path, "a", encoding=encoding) as handle:
-                handle.write(data)
-                handle.flush()
-                os.fsync(handle.fileno())
+            handle = _open_with_retry(path, "a", encoding=encoding)
+        with handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
     except OSError as exc:
         raise SafeFsError(f"atomic_append failed for {path}: {exc}") from exc
 
@@ -88,6 +310,8 @@ def copy_file(src: Path, dst: Path) -> None:
     """Copy ``src`` to ``dst`` byte-for-byte, flushing and fsyncing the target.
 
     Performs a best-effort free-space check on the destination volume.
+    Open calls go through ``_open_with_retry`` to survive short antivirus
+    locks on either side.
     """
     src = Path(src)
     dst = Path(dst)
@@ -103,11 +327,13 @@ def copy_file(src: Path, dst: Path) -> None:
                 f"copy_file: insufficient space on {dst.parent}: "
                 f"need {src_size}, free {usage.free}"
             )
+    except SafeFsError:
+        raise
     except OSError as exc:
         raise SafeFsError(f"copy_file: precheck failed for {dst}: {exc}") from exc
 
     try:
-        with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
+        with _open_with_retry(src, "rb") as fsrc, _open_with_retry(dst, "wb") as fdst:
             while True:
                 chunk = fsrc.read(_CHUNK_SIZE)
                 if not chunk:
@@ -115,6 +341,8 @@ def copy_file(src: Path, dst: Path) -> None:
                 fdst.write(chunk)
             fdst.flush()
             os.fsync(fdst.fileno())
+    except SafeFsError:
+        raise
     except OSError as exc:
         raise SafeFsError(f"copy_file {src} -> {dst}: {exc}") from exc
 
@@ -127,14 +355,7 @@ def _complete_cross_device_move(src: Path) -> None:
     Renaming across volumes is impossible without removing the source, so
     this helper exists specifically to complete ``safe_move`` across devices.
     """
-    try:
-        src.unlink()
-    except FileNotFoundError:
-        return
-    except OSError as exc:
-        raise SafeFsError(
-            f"cross-device move: source cleanup failed for {src}: {exc}"
-        ) from exc
+    _safe_unlink(src, context="cross-device move: source cleanup")
 
 
 def safe_move(src: Path, dst: Path) -> None:
@@ -149,18 +370,25 @@ def safe_move(src: Path, dst: Path) -> None:
         raise SafeFsError(f"safe_move: cannot create parent of {dst}: {exc}") from exc
 
     try:
-        os.replace(src, dst)
+        _safe_replace(src, dst, context=f"safe_move {src} -> {dst}")
         return
-    except OSError as exc:
-        if exc.errno != errno.EXDEV:
-            raise SafeFsError(f"safe_move {src} -> {dst}: {exc}") from exc
+    except SafeFsError as exc:
+        cause = exc.__cause__
+        if not (isinstance(cause, OSError) and cause.errno == errno.EXDEV):
+            raise
+        # Cross-device: fall through to copy + remove.
 
     copy_file(src, dst)
     _complete_cross_device_move(src)
 
 
 def safe_rename(path: Path, new_name: str) -> Path:
-    """Rename ``path`` to ``path.parent / new_name`` in place."""
+    """Rename ``path`` to ``path.parent / new_name`` in place.
+
+    ``target.exists()`` is checked before the rename for a clear error
+    message; the replace itself overwrites if the target appears in the
+    tiny window between check and replace (same TOCTOU as the original).
+    """
     path = Path(path)
     if not new_name:
         raise SafeFsError("safe_rename: new_name is empty")
@@ -171,10 +399,7 @@ def safe_rename(path: Path, new_name: str) -> Path:
     target = path.parent / new_name
     if target.exists():
         raise SafeFsError(f"safe_rename: target already exists: {target}")
-    try:
-        os.replace(path, target)
-    except OSError as exc:
-        raise SafeFsError(f"safe_rename {path} -> {target}: {exc}") from exc
+    _safe_replace(path, target, context=f"safe_rename {path} -> {target}")
     return target
 
 
@@ -276,3 +501,51 @@ def list_dir(path: Path) -> list[Path]:
         return sorted(path.iterdir())
     except OSError as exc:
         raise SafeFsError(f"list_dir failed for {path}: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Maintenance
+# ---------------------------------------------------------------------------
+
+def cleanup_stale_temp_files(
+    root: Path,
+    *,
+    max_age_seconds: int = 3600,
+    filename_pattern: str = _TEMP_FILE_PATTERN,
+) -> list[Path]:
+    """Best-effort removal of orphaned temp files under ``root``.
+
+    Only touches files whose name matches ``filename_pattern`` (by default
+    the ``.{name}.tmp.{pid}.{ns}`` files produced by :func:`atomic_write`)
+    *and* whose ``mtime`` is older than ``max_age_seconds``. Intended to be
+    called on application startup; per-file failures are logged and skipped
+    so a single stubborn file cannot abort the sweep.
+    """
+    root = Path(root)
+    if not root.is_dir():
+        return []
+
+    cutoff = time.time() - max_age_seconds
+    removed: list[Path] = []
+    try:
+        candidates = list(root.glob(filename_pattern))
+    except OSError as exc:
+        _log.warning("cleanup_stale_temp_files: glob failed in %s: %s", root, exc)
+        return removed
+
+    for entry in candidates:
+        try:
+            st = entry.stat()
+        except OSError:
+            continue
+        if st.st_mtime >= cutoff:
+            continue
+        try:
+            _safe_unlink(entry, context="cleanup_stale_temp_files", timeout=2.0)
+            removed.append(entry)
+            _log.info("cleanup_stale_temp_files: removed stale temp file %s", entry)
+        except SafeFsError as exc:
+            _log.warning(
+                "cleanup_stale_temp_files: cannot remove %s: %s", entry, exc
+            )
+    return removed
