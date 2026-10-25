@@ -22,6 +22,10 @@ this conftest is a no-op.
 """
 import sys
 import types
+from types import SimpleNamespace
+
+import pytest
+
 from pathlib import Path
 
 
@@ -79,3 +83,25 @@ def decorator_style_for(class_name: str, module_filename: str) -> str:
                 return "factory"
             return f"other:{type(dec).__name__}"
     return "no-class"
+
+class _ScopeStub:
+    """Minimal stand-in for ctx.scope used by fs_ops.check_scope."""
+
+    def __init__(self, roots):
+        self.roots = [Path(r).resolve() for r in roots]
+
+    def check(self, path) -> bool:
+        p = Path(path).resolve()
+        return any(p == r or r in p.parents for r in self.roots)
+
+@pytest.fixture
+def ctx(tmp_path, monkeypatch):
+    # render_template() rejects absolute target/target_dir; the node is
+    # designed to run with a relative-path workflow base — that base is CWD.
+    monkeypatch.chdir(tmp_path)
+    return SimpleNamespace(
+        run_id="test-run",
+        automation_id="test-auto",
+        audit=[],
+        scope=_ScopeStub([tmp_path]),
+    )
