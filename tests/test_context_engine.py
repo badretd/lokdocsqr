@@ -200,7 +200,6 @@ def test_payload_applies_default_port_when_other_edge_exists(tmp_path: Path) -> 
 
 
 def test_payload_default_port_without_any_edge(tmp_path: Path) -> None:
-    # BUG: core/executor/engine.py — _build_payload returns {} before defaults.
     target = _Node("t")
     doc = make_doc([node_spec("t", inputs=[port("in", default="D")])], [])
     graph = resolved(doc, ["t"], {"t": target})
@@ -209,7 +208,6 @@ def test_payload_default_port_without_any_edge(tmp_path: Path) -> None:
 
 
 def test_required_port_without_edge_raises_before_node_run(tmp_path: Path) -> None:
-    # BUG: core/executor/engine.py — _build_payload returns {} before validation.
     target = _Node("t")
     doc = make_doc([node_spec("t", inputs=[port("req", required=True)])], [])
     graph = resolved(doc, ["t"], {"t": target})

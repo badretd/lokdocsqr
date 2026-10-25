@@ -15,6 +15,16 @@ class Node(ABC):
 
     ``ctx`` is intentionally typed as ``Any`` to avoid a circular import
     with ``core.executor.context.ExecutionContext`` (introduced in Phase 4).
+
+    Filesystem policy
+    -----------------
+    Nodes that need to read files may use ``safe_fs.read_bytes`` /
+    ``safe_fs.list_dir`` / ``safe_fs.stat``. Nodes that need to **mutate** the
+    filesystem must use ``safe_fs`` functions (``safe_move``, ``safe_rename``,
+    ``atomic_write``, ``quarantine``/``trash``). Direct ``open(..., 'w'/'a')``,
+    ``os.replace``, ``shutil.*``, ``Path.unlink``, ``Path.write_text`` and
+    ``Path.rename`` are forbidden — see ``lokdocsqr.core.safe_fs`` docstring for
+    the full policy and the list of documented read-only callers.
     """
 
     #: Unique, stable identifier of the node type (set by subclasses).

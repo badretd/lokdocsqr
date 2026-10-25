@@ -1,4 +1,10 @@
-"""Path resolution and safe template rendering."""
+"""Path resolution and safe template rendering.
+
+Both functions here operate on strings and ``Path`` objects only —
+``os.path.abspath`` and ``Path.is_absolute`` are used for normalisation, not
+for I/O. Any actual filesystem mutation (move, write, quarantine) must go
+through :mod:`lokdocsqr.core.safe_fs`.
+"""
 from __future__ import annotations
 
 import os

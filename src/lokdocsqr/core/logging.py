@@ -1,7 +1,13 @@
 """Structured logging setup for LokDocSQR.
 
-This module must not import core.safe_fs (architectural invariant).
-Only the standard library logging machinery is used here.
+This module must not import core.safe_fs (architectural invariant): logging
+bootstraps before :mod:`safe_fs` is usable, and a failure inside ``safe_fs``
+must not be able to silence log output. As a direct consequence, this module
+is the single documented exemption from the rule "all filesystem mutations go
+through ``safe_fs``" — it creates ``logs_dir`` and opens the rotating log
+file directly. If you are tempted to add another exemption, add it to the
+allowed list in ``tests/test_architecture.py::test_invariant_9_mutation_ban``
+and to the "Known read-only callers" block in ``core/safe_fs.py`` instead.
 """
 from __future__ import annotations
 

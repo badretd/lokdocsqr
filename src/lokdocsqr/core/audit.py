@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Iterator
 
 from lokdocsqr.core import safe_fs
+from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import SafeFsError
 from lokdocsqr.core.models import ActionLog, RollbackOp
 from lokdocsqr.core.scope import ScopeManager
@@ -33,8 +34,6 @@ class AuditLog:
 
     def iter_all(self) -> Iterator[ActionLog]:
         """Yield every parseable ActionLog, skipping malformed lines."""
-        if not self.path.exists():
-            return
 
         try:
             raw_bytes = safe_fs.read_bytes(self.path)

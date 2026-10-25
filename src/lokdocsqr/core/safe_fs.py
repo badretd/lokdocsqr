@@ -1,10 +1,42 @@
-"""Safe filesystem operations.
+"""Safe filesystem operations — mutation layer.
 
-This is the single module in the project allowed to touch the filesystem.
-It is the most carefully written module in the codebase.
+This module is the single place in the project where filesystem **mutations**
+happen: writes, atomic replace, move, rename, quarantine/trash, and the
+internal source cleanup that completes a cross-device move. Every operation
+below is written with the following invariants in mind.
+
+Read-only filesystem access (``Path.exists``, ``Path.read_text``, ``Path.stat``,
+``Path.resolve``, ``Path.is_symlink``, ``os.path.*`` normalisation) is
+permitted in other production modules — config loading, logging setup, path
+resolution, scope checking, the audit reader — because none of those can
+corrupt data by themselves. If such a module ever needs to *write*, *move*,
+*rename* or *remove*, it must call into this module, not into
+``open(..., 'w'/'a')``, ``os.replace``, ``shutil.*`` or ``Path.unlink``
+directly.
+
+Known read-only callers (this list is enforced by
+``tests/test_architecture.py::test_invariant_9_mutation_ban``):
+
+    * ``core/config.py``  — reads the JSON config via ``path.read_text``;
+      writes go through :func:`atomic_write`.
+    * ``core/logging.py`` — creates ``logs_dir`` and opens the rotating log
+      file directly. This is the single documented exemption: logging must
+      bootstrap before :mod:`safe_fs` is usable, and a failure in
+      ``safe_fs`` must not be able to silence log output. The exemption is
+      scoped to this file only.
+    * ``core/paths.py``   — normalises and validates path strings
+      (``os.path.abspath``, ``Path.is_absolute``).
+    * ``core/scope.py``   — resolves paths and inspects symlinks as part of
+      the scope gate, before any mutation is attempted.
+    * ``core/audit.py``   — reads via :func:`read_bytes` and appends via
+      :func:`atomic_append`; the empty-file probe uses ``path.exists()`` to
+      avoid the cost of an exception-driven read.
+    * ``core/graph/validator.py`` — inspects path-shaped node parameters as
+      strings via ``render_template``; never opens the filesystem.
 
 Invariants (enforced by tests/test_architecture.py):
-    * No public deletion API is exported (no delete/remove/unlink/rmtree names).
+    * All mutations go through this module. No public deletion API is
+      exported (no delete/remove/unlink/rmtree names).
       ``cleanup_stale_temp_files`` is the only public function that removes
       files, and it is strictly bounded to the orphaned-temp pattern produced
       by ``atomic_write`` and to files older than ``max_age_seconds``.
@@ -16,6 +48,9 @@ Invariants (enforced by tests/test_architecture.py):
       source path, and only after ``copy_file`` has durably persisted the
       destination data. This is the minimum necessary to complete a genuine
       move across volumes and is documented in ``_complete_cross_device_move``.
+
+Test code (``tests/``) is exempt from this policy; it uses ``Path.write_text``
+and friends freely.
 
 Windows notes
 -------------

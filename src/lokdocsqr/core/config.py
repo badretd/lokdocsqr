@@ -1,7 +1,9 @@
 """Application configuration load/save.
 
-Writes go through core.safe_fs.atomic_write (architectural invariant).
-Reads use pathlib + json only.
+Writes go through ``core.safe_fs.atomic_write`` (architectural invariant).
+Reads use ``pathlib`` + ``json`` only — read-only access outside
+:mod:`safe_fs` is permitted; only mutations are gated there (see
+``core/safe_fs.py`` docstring for the full policy).
 """
 from __future__ import annotations
 

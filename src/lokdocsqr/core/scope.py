@@ -2,6 +2,12 @@
 
 Every path that a node or executor wants to use must pass through
 ``ScopeManager.check`` before any safe_fs call.
+
+``ScopeManager`` performs read-only filesystem inspection
+(``Path.resolve``, ``Path.is_symlink``) as part of the gate that runs
+*before* any mutation. Actual mutations go through
+:mod:`lokdocsqr.core.safe_fs` — see its docstring for the full read/write
+policy.
 """
 from __future__ import annotations
 

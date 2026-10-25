@@ -17,7 +17,16 @@ __all__ = ["ExecutionContext"]
 
 @dataclass
 class ExecutionContext:
-    """Mutable state shared by the executor and nodes for one run."""
+    """Mutable state shared by the executor and nodes for one run.
+    
+    Per-run execution context passed to every node.
+
+    The context itself never mutates the filesystem. It exposes ``scope`` (the
+    gate), ``audit`` (append-only log, routed through ``safe_fs``), and
+    ``config``; node handlers must route their own mutations through
+    :mod:`lokdocsqr.core.safe_fs`. See its docstring for what "read-only access"
+    means and where the exemptions are.
+    """
 
     scope: ScopeManager
     config: AppConfig

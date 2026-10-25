@@ -80,7 +80,6 @@ def test_actionlog_to_dict_converts_path_in_extra() -> None:
 
 
 def test_actionlog_from_dict_missing_key_raises_keyerror() -> None:
-    # BUG: core/models.py — from_dict uses data.get(...) and never raises.
     with pytest.raises(KeyError):
         ActionLog.from_dict({})
 
@@ -127,7 +126,6 @@ def test_rollbackop_constructs() -> None:
 
 
 def test_runresult_to_dict_serializes_rollback_plan() -> None:
-    # BUG: core/models.py — RunResult.to_dict() is absent.
     result = RunResult(
         run_id="r",
         automation_id="a",

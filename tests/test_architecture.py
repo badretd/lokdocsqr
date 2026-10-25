@@ -27,6 +27,31 @@ FORBIDDEN_GUI_SAFE_FS = (
 )
 BAD_PUBLIC_PARTS = ("delete", "remove", "rmtree", "unlink")
 
+READONLY_FS_ALLOWED = {
+    CORE / "config.py",
+    CORE / "paths.py",
+    CORE / "scope.py",
+    CORE / "audit.py",
+    CORE / "graph" / "validator.py",
+    CORE / "executor" / "context.py",
+}
+
+MUTATION_FS_ALLOWED = {
+    CORE / "logging.py",
+}
+
+_FORBIDDEN_MUTATION_ATTRS = {
+    "write_text", "write_bytes", "rename", "replace", "unlink", "rmdir",
+    "mkdir", "touch", "chmod", "symlink_to", "hardlink_to",
+}
+_FORBIDDEN_OS_ATTRS = {
+    "remove", "unlink", "rename", "replace", "rmdir", "makedirs", "mkdir",
+    "chmod", "link", "symlink",
+}
+_FORBIDDEN_SHUTIL_ATTRS = {
+    "copy", "copy2", "copyfile", "copytree", "move", "rmtree",
+}
+
 
 def _python_files(base: Path) -> list[Path]:
     """Return sorted Python files below a directory."""
@@ -247,3 +272,32 @@ def test_no_delete_calls_in_audit_and_executor() -> None:
             if isinstance(node, ast.Call) and _is_forbidden_call(node):
                 violations.append(f"{relative} contains a forbidden deletion call")
     assert not violations, "Phase 4 delete-ban violations:\n" + "\n".join(violations)
+
+def _is_forbidden_mutation(call: ast.Call) -> bool:
+    func = call.func
+    if not isinstance(func, ast.Attribute):
+        return False
+    attr = func.attr
+    if attr in _FORBIDDEN_MUTATION_ATTRS:
+        return True
+    if isinstance(func.value, ast.Name):
+        if func.value.id == "os" and attr in _FORBIDDEN_OS_ATTRS:
+            return True
+        if func.value.id == "shutil" and attr in _FORBIDDEN_SHUTIL_ATTRS:
+            return True
+    return False
+
+
+def test_invariant_9_mutation_ban() -> None:
+    """Only safe_fs (and the documented logging exemption) may mutate the FS."""
+    allowed = READONLY_FS_ALLOWED | MUTATION_FS_ALLOWED | {SAFE_FS}
+    violations: list[str] = []
+    for path in _python_files(SRC):
+        if path in allowed:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and _is_forbidden_mutation(node):
+                rel = path.relative_to(ROOT)
+                violations.append(f"{rel}:{node.lineno} forbidden mutation call")
+    assert not violations, "Mutation-ban violations:\n" + "\n".join(violations)
