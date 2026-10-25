@@ -250,6 +250,10 @@ class ActionLog:
     risk: Risk = Risk.LOW
     timestamp: str = field(default_factory=_utc_now_iso)
     rollback_eligible: bool = False
+    original_path: str | None = None
+    trash_path: str | None = None
+    sidecar_path: str | None = None
+    hash_before: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
     dry_run: bool = False
 
@@ -329,6 +333,11 @@ class NodeResult:
     attempts: int = 1
     duration_seconds: float = 0.0
 
+    # Phase 5c: payload emitted by fs_ops.* / consumed by downstream nodes.
+    # Added at end with default None so 5a/5b callers that don't pass
+    # payload= keep working unchanged (API-drift 5b → 5c).
+    payload: dict[str, Any] | None = None
+
 
 @dataclass
 class RollbackOp:
@@ -354,6 +363,7 @@ class RunResult:
     started_at: str = field(default_factory=_utc_now_iso)
     finished_at: str | None = None
     rollback_plan: list[RollbackOp] = field(default_factory=list)
+
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe dictionary representation of this run."""
         return {

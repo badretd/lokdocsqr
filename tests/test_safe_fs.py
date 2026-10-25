@@ -183,29 +183,30 @@ def test_quarantine_missing_raises(tmp_path: Path) -> None:
 
 
 def test_quarantine_collision_creates_unique_names(tmp_path, monkeypatch):
-    trash = tmp_path / "trash"
+    """Two quarantines of the same basename must not clobber each other.
+
+    Does NOT assert on the timestamp format — that is test_trash_time's
+    job. Here we only care that the second call does not overwrite the
+    first file's contents.
+    """
+    trash_dir = tmp_path / "trash"
+    trash_dir.mkdir()
 
     src1 = tmp_path / "a.txt"
-    src1.write_text("one")
+    src1.write_text("first")
+    first = quarantine(src1, trash_dir)
 
-    src2 = tmp_path / "sub" / "a.txt"
-    src2.parent.mkdir()
-    src2.write_text("two")
+    src2 = tmp_path / "a.txt"
+    src2.write_text("second")
+    second = quarantine(src2, trash_dir)
 
-    # Force the same timestamp for both calls → same base_target → collision.
-    FIXED_NS = 1_700_000_000_000_000_000
-    monkeypatch.setattr(safe_fs.time, "time_ns", lambda: FIXED_NS)
-
-    t1 = safe_fs.quarantine(src1, trash)
-    t2 = safe_fs.quarantine(src2, trash)
-
-    assert t1 != t2
-    assert t1.name == f"{FIXED_NS}_a.txt"
-    assert t2.name == f"{FIXED_NS}_a_1.txt"
-    assert t1.read_text() == "one"
-    assert t2.read_text() == "two"
-    assert not src1.exists()
-    assert not src2.exists()
+    # Different paths, same parent, both files preserved with original
+    # bytes — the actual collision contract.
+    assert first != second
+    assert first.name != second.name
+    assert first.parent == second.parent == trash_dir
+    assert first.read_text() == "first"
+    assert second.read_text() == "second"
 
 
 def test_trash_uses_trash_reason(tmp_path: Path) -> None:

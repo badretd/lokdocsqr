@@ -62,15 +62,18 @@ class ScopeManager:
         except OSError as exc:
             raise ScopeViolation(f"Cannot resolve path {path}: {exc}") from exc
 
+        # Reject a symlink *leaf* only when ``allow_symlinks`` is off.
+        # Ancestor symlinks (Windows junctions in %TEMP%, /tmp → /private/tmp
+        # on macOS, etc.) are followed by ``resolve()`` and then vetted by
+        # the ``resolved.relative_to(root)`` check below, so they cannot
+        # escape the scope. Rejecting ancestors here caused false positives
+        # on hosts whose temp root is a reparse point.
         if not self._allow_symlinks:
-            for ancestor in (path, *path.parents):
-                try:
-                    if ancestor.is_symlink():
-                        raise ScopeViolation(
-                            f"Symlink not allowed in path chain: {ancestor}"
-                        )
-                except OSError:
-                    continue
+            try:
+                if path.is_symlink():
+                    raise ScopeViolation(f"Symlink not allowed: {path}")
+            except OSError:
+                pass
 
         roots = self._writable if write else self._roots
         if not roots:

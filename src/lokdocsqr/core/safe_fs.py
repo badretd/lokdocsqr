@@ -74,6 +74,7 @@ import stat as stat_module
 import sys
 import time
 from pathlib import Path
+from datetime import datetime, timezone
 
 from lokdocsqr.core.errors import SafeFsError
 
@@ -458,8 +459,14 @@ def quarantine(path: Path, trash_dir: Path, reason: str = "quarantined") -> Path
         raise SafeFsError(f"quarantine: path does not exist: {path}")
 
     make_dir(trash_dir)
-    timestamp = time.time()
-    base_target = trash_dir / f"{time.time_ns()}_{path.name}"
+    # ``time.time()`` is patched by freezegun, so this yields the frozen
+    # wall clock under tests and real time in production. Formatting it
+    # as YYYYmmddTHHMMSS keeps the trash path human-readable, sortable
+    # by name, and lets test_trash_time assert on the year substring.
+    stamp = datetime.fromtimestamp(time.time(), tz=timezone.utc).strftime(
+        "%Y%m%dT%H%M%S"
+    )
+    base_target = trash_dir / f"{stamp}_{path.name}"
     target = base_target
     counter = 0
     while target.exists():
@@ -474,11 +481,10 @@ def quarantine(path: Path, trash_dir: Path, reason: str = "quarantined") -> Path
     meta = {
         "original_path": str(path.absolute()),
         "reason": reason,
-        "timestamp": timestamp,
+        "timestamp": time.time(),
     }
     atomic_write(sidecar, json.dumps(meta, indent=2) + "\n")
     return target
-
 
 def trash(path: Path, trash_dir: Path) -> Path:
     """Move ``path`` into the trash directory (convenience wrapper)."""

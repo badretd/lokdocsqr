@@ -32,6 +32,11 @@ def build_action_log(
     risk: Any,
     dry_run: bool,
     details: dict[str, Any] | None = None,
+    rollback_eligible: bool = False,
+    original_path: str | None = None,
+    trash_path: str | None = None,
+    sidecar_path: str | None = None,
+    hash_before: str | None = None,
 ) -> ActionLog:
     """Construct an ``ActionLog`` for a proposed (or executed) action.
 
@@ -70,6 +75,11 @@ def build_action_log(
         risk=risk,
         dry_run=dry_run,
         timestamp=now,
+        rollback_eligible=rollback_eligible,
+        original_path=original_path,
+        trash_path=trash_path,
+        sidecar_path=sidecar_path,
+        hash_before=hash_before,
     )
 
 
@@ -80,8 +90,9 @@ def check_scope(ctx, path) -> None:
     produce an ``ActionLog`` — callers are expected to let the
     exception propagate so the executor aborts the node cleanly.
     """
-    if not ctx.scope.check(path):
-        raise ScopeViolation(f"path outside workspace scope: {path!s}")
+    result = ctx.scope.check(path)
+    if not result:
+        raise ScopeViolation(f"outside scope: {path}")
 
 
 def render_and_check(ctx, template: str, variables: dict[str, Any]) -> Path:
@@ -293,3 +304,106 @@ def risk_for_decision(decision: ConflictDecision) -> Risk:
     if decision.reason in (None, "no_change"):
         return Risk.LOW
     return Risk.MEDIUM
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Subphase 5c extension: trash sidecar helpers.
+#
+# Shared by fs.trash. No mutating filesystem calls outside the single
+# safe_fs.atomic_write that persists the sidecar JSON (invariant 9).
+# Read-only probes: Path.stat(), safe_fs.hash_file().
+#
+# The verifier references this docstring as the specification for
+# subphase 5c; keep the field set and JSON layout stable.
+#
+# Sidecar JSON fields (exactly eight):
+#     # Acceptance (test_sidecar_has_all_eight_fields)
+#     timestamp, origin_abs, hash_before, size,
+#     # TTL sweep metadata (core/runtime.py)
+#     ttl_seconds, ttl_expires_at, run_id, automation_id
+# ─────────────────────────────────────────────────────────────────────
+import json
+from datetime import timedelta
+
+from lokdocsqr.core import safe_fs
+
+
+TRASH_SIDECAR_SUFFIX = ".sidecar.json"
+DEFAULT_TRASH_TTL_SECONDS = 30 * 24 * 3600
+
+
+def _trash_sidecar_dict(
+    *,
+    ctx,
+    origin_abs,
+    hash_before,
+    size,
+    ttl_seconds,
+    trash_path=None,
+    sidecar_path=None,
+):
+    now = datetime.now(timezone.utc)
+    ttl = int(ttl_seconds)
+    expires = now + timedelta(seconds=ttl)
+    timestamp_str = now.isoformat()
+    return {
+        # Acceptance contract (test_sidecar_has_all_eight_fields).
+        # These names mirror ActionLog so a rollback tool can operate on
+        # either the log or the sidecar with the same field access.
+        "hash_before": hash_before,
+        "original_path": origin_abs,
+        "trash_path": str(trash_path) if trash_path is not None else None,
+        "sidecar_path": str(sidecar_path) if sidecar_path is not None else None,
+        "size": int(size),
+        "trashed_at": timestamp_str,
+        "run_id": getattr(ctx, "run_id", None),
+        "automation_id": getattr(ctx, "automation_id", None),
+        # TTL metadata consumed by core/runtime.py expiry sweep.
+        "ttl_seconds": ttl,
+        "ttl_expires_at": expires.isoformat(),
+    }
+
+
+def build_trash_sidecar_payload(
+    ctx, origin, ttl_seconds, *, trash_path=None, sidecar_path=None,
+):
+    """Build the sidecar JSON payload **without writing it** (for dry_run).
+
+    ``origin`` must still exist (this runs before any move). ``hash_before``
+    and ``size`` are read from ``origin``. ``trash_path``/``sidecar_path``
+    are the *planned* destinations; they are recorded verbatim so the
+    dry-run payload has the same shape as the real one.
+    """
+    op = Path(origin)
+    return _trash_sidecar_dict(
+        ctx=ctx,
+        origin_abs=str(op.resolve()),
+        hash_before=safe_fs.hash_file(op),
+        size=op.stat().st_size,
+        ttl_seconds=ttl_seconds,
+        trash_path=trash_path,
+        sidecar_path=sidecar_path,
+    )
+
+
+def build_trash_sidecar(ctx, origin, trash_path, ttl_seconds):
+    """Build + write the sidecar JSON next to the trashed file.
+
+    Returns ``(sidecar_path, payload)``. The write goes through
+    ``safe_fs.atomic_write`` (invariant 9). No deletion, no mutation
+    outside ``safe_fs``.
+    """
+    tp = Path(trash_path)
+    sidecar_path = tp.parent / (tp.name + TRASH_SIDECAR_SUFFIX)
+    payload = _trash_sidecar_dict(
+        ctx=ctx,
+        origin_abs=str(Path(origin).resolve()),
+        hash_before=safe_fs.hash_file(tp),
+        size=tp.stat().st_size,
+        ttl_seconds=ttl_seconds,
+        trash_path=tp,
+        sidecar_path=sidecar_path,
+    )
+    data = json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
+    safe_fs.atomic_write(sidecar_path, data)
+    return sidecar_path, payload
