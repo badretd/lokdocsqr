@@ -251,6 +251,7 @@ class ActionLog:
     timestamp: str = field(default_factory=_utc_now_iso)
     rollback_eligible: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
+    dry_run: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe dictionary representation of this log entry."""
@@ -306,6 +307,7 @@ class ActionLog:
             source=None if source is None else str(source),
             target=None if target is None else str(target),
             status=str(data.get("status") or "planned"),
+            dry_run=bool(data.get("dry_run", False)),
             reason=str(data.get("reason") or ""),
             confidence=confidence,
             risk=risk,

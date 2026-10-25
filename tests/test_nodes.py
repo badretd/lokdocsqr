@@ -1,4 +1,9 @@
-"""Phase 5a — per-node behavior (items 1, 3, 4, inv.5).
+"""Phase 5 — behavioural tests for fs_ops nodes.
+
+Merged from:
+  - Subphase 5b: fs.rename / fs.copy / fs.move behavioural tests
+  - Phase 5a: per-node behavior (make_dir, write_file), render_and_check,
+    invariants.
 
 Runtime tests use MagicMock for ctx and monkeypatch for safe_fs spies. The
 FS-purity and ordering tests mock `build_action_log` because they don't test
@@ -10,29 +15,49 @@ Known code bug (out of scope for these tests, flagged by the smoke test):
 """
 from __future__ import annotations
 
+from contextlib import ExitStack
 from pathlib import Path
-from unittest.mock import MagicMock
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lokdocsqr.core.errors import ScopeViolation
-from lokdocsqr.core.models import Risk
-from lokdocsqr.nodes.fs_ops._common import (
-    assert_dry_run_no_side_effects,
-    build_action_log,
-    render_and_check,
-)
-from lokdocsqr.nodes.fs_ops.make_dir import MakeDirNode
-from lokdocsqr.nodes.fs_ops.write_file import WriteFileNode
+try:
+    from lokdocsqr.nodes.fs_ops import copy as copy_mod
+    from lokdocsqr.nodes.fs_ops import move as move_mod
+    from lokdocsqr.nodes.fs_ops import rename as rename_mod
+    from lokdocsqr.core.errors import SafeFsError, ScopeViolation
+    from lokdocsqr.core.models import Risk
+    from lokdocsqr.nodes.fs_ops._common import (
+        assert_dry_run_no_side_effects,
+        build_action_log,
+        render_and_check,
+    )
+    from lokdocsqr.nodes.fs_ops.make_dir import MakeDirNode
+    from lokdocsqr.nodes.fs_ops.write_file import WriteFileNode
+except ImportError as exc:  # pragma: no cover
+    pytest.skip(
+        f"fs_ops nodes not installed: {exc!r}",
+        allow_module_level=True,
+    )
 
 
-_NODES = [
-    pytest.param(MakeDirNode, id="make_dir"),
-    pytest.param(WriteFileNode, id="write_file"),
-]
+# ══════════════════════════════════════════════════════════════════
+# Shared test infrastructure
+# ══════════════════════════════════════════════════════════════════
+
+def _ctx():
+    """Minimal ctx for rename / copy / move behavioural tests."""
+    ctx = MagicMock()
+    ctx.scope.check = MagicMock()
+    ctx.run_id = "run-test"
+    ctx.automation_id = "auto-test"
+    ctx.audit = MagicMock()
+    return ctx
 
 
 def _make_ctx(*, allow_scope: bool = True, roots: list[Path] | None = None) -> MagicMock:
+    """Richer ctx for make_dir / write_file / render_and_check tests."""
     ctx = MagicMock()
     ctx.run_id = "run-test"
     ctx.automation_id = "auto-test"
@@ -48,6 +73,12 @@ def _payload(node_cls: type, path: str, **extra) -> dict:
         payload["content"] = "hello"
     payload.update(extra)
     return payload
+
+
+_NODES = [
+    pytest.param(MakeDirNode, id="make_dir"),
+    pytest.param(WriteFileNode, id="write_file"),
+]
 
 
 @pytest.fixture
@@ -86,9 +117,9 @@ def mute_build_action_log(monkeypatch):
         )
 
 
-# --------------------------------------------------------------------------
+# ══════════════════════════════════════════════════════════════════
 # Smoke: ActionLog / build_action_log contract
-# --------------------------------------------------------------------------
+# ══════════════════════════════════════════════════════════════════
 
 def test_build_action_log_constructs_action_log() -> None:
     """build_action_log must be able to construct the model it targets.
@@ -105,9 +136,32 @@ def test_build_action_log_constructs_action_log() -> None:
     assert log is not None
 
 
-# --------------------------------------------------------------------------
-# Invariant 5
-# --------------------------------------------------------------------------
+# ══════════════════════════════════════════════════════════════════
+# describe() schemas
+# ══════════════════════════════════════════════════════════════════
+
+def test_rename_describe():
+    desc = rename_mod.RenameNode().describe()
+    assert desc["id"] == "fs.rename"
+    assert desc["title"] == "Rename File(s)"
+    assert {"template", "conflict_policy"} <= set(desc["params"])
+
+
+def test_copy_describe():
+    desc = copy_mod.CopyNode().describe()
+    assert desc["id"] == "fs.copy"
+    assert {"template", "conflict_policy", "check_free_space"} <= set(desc["params"])
+
+
+def test_move_describe():
+    desc = move_mod.MoveNode().describe()
+    assert desc["id"] == "fs.move"
+    assert {"template", "conflict_policy", "cross_volume"} <= set(desc["params"])
+
+
+# ══════════════════════════════════════════════════════════════════
+# Invariant 5 — run / dry_run declared per class
+# ══════════════════════════════════════════════════════════════════
 
 @pytest.mark.parametrize("node_cls", _NODES)
 def test_run_and_dry_run_declared_per_class(node_cls: type) -> None:
@@ -117,9 +171,9 @@ def test_run_and_dry_run_declared_per_class(node_cls: type) -> None:
     assert callable(node_cls.__dict__["dry_run"])
 
 
-# --------------------------------------------------------------------------
+# ══════════════════════════════════════════════════════════════════
 # render_and_check (items 3 & 4)
-# --------------------------------------------------------------------------
+# ══════════════════════════════════════════════════════════════════
 
 def test_render_and_check_rejects_dotdot_after_render(render_template_identity) -> None:
     ctx = _make_ctx()
@@ -143,9 +197,9 @@ def test_render_and_check_returns_path_on_valid() -> None:
     assert result == Path("safe/file")
 
 
-# --------------------------------------------------------------------------
-# run ordering & scope guard (items 3, 4, 7)
-# --------------------------------------------------------------------------
+# ══════════════════════════════════════════════════════════════════
+# make_dir / write_file: run ordering & scope guard (items 3, 4, 7)
+# ══════════════════════════════════════════════════════════════════
 
 @pytest.mark.parametrize("node_cls", _NODES)
 def test_run_rejects_dotdot_without_mutation(
@@ -196,9 +250,9 @@ def test_run_scope_check_precedes_mutation(
     assert all(calls[i][0] == "scope.check" for i in range(first_safe_fs)), calls
 
 
-# --------------------------------------------------------------------------
-# dry_run purity (item 1)
-# --------------------------------------------------------------------------
+# ══════════════════════════════════════════════════════════════════
+# make_dir / write_file: dry_run purity (item 1)
+# ══════════════════════════════════════════════════════════════════
 
 @pytest.mark.parametrize("node_cls", _NODES)
 def test_dry_run_no_side_effects_snapshot(
@@ -217,3 +271,229 @@ def test_dry_run_does_not_call_safe_fs(
     ctx = _make_ctx(allow_scope=True)
     node_cls().dry_run(ctx, _payload(node_cls, "any/path"))
     assert safe_fs_spy == []
+
+
+# ══════════════════════════════════════════════════════════════════
+# fs.rename: template edge cases
+# ══════════════════════════════════════════════════════════════════
+
+def test_rename_empty_render_raises(tmp_path):
+    src = tmp_path / "foo.txt"
+    src.write_text("x")
+    node = rename_mod.RenameNode(template="X")
+    with patch.object(rename_mod, "render_template", return_value="   "):
+        with pytest.raises(ValueError, match="rendered to empty"):
+            node.dry_run(_ctx(), {"source": str(src)})
+
+
+def test_rename_dotdot_in_render_raises(tmp_path):
+    src = tmp_path / "foo.txt"
+    src.write_text("x")
+    node = rename_mod.RenameNode(template="X")
+    with patch.object(
+        rename_mod, "render_template", return_value="../evil.txt"
+    ):
+        with pytest.raises(ScopeViolation):
+            node.dry_run(_ctx(), {"source": str(src)})
+
+
+def test_rename_no_change_returns_skip(tmp_path):
+    src = tmp_path / "foo.txt"
+    src.write_text("x")
+    node = rename_mod.RenameNode(template="{name}{ext}")
+    with patch.object(rename_mod, "render_template", return_value="foo.txt"):
+        log = node.dry_run(_ctx(), {"source": str(src)})
+    assert log.reason == "no_change"
+    assert log.action_type == "rename"
+    assert log.dry_run is True
+
+
+def test_rename_appends_source_suffix_when_missing(tmp_path):
+    src = tmp_path / "foo.txt"
+    src.write_text("x")
+    node = rename_mod.RenameNode(template="X")
+    with ExitStack() as st:
+        st.enter_context(patch.object(
+            rename_mod, "render_template", return_value="bar"
+        ))
+        mock_ren = st.enter_context(patch.object(
+            rename_mod.safe_fs, "safe_rename"
+        ))
+        node.run(_ctx(), {"source": str(src)})
+    mock_ren.assert_called_once()
+    args = mock_ren.call_args[0]
+    assert args[0] == src
+    assert args[1] == "bar.txt"
+
+
+def test_rename_same_parent_uses_safe_rename(tmp_path):
+    src = tmp_path / "foo.txt"
+    src.write_text("x")
+    node = rename_mod.RenameNode(template="X")
+    with ExitStack() as st:
+        st.enter_context(patch.object(
+            rename_mod, "render_template", return_value="bar.txt"
+        ))
+        mock_ren = st.enter_context(patch.object(
+            rename_mod.safe_fs, "safe_rename"
+        ))
+        mock_mov = st.enter_context(patch.object(
+            rename_mod.safe_fs, "safe_move"
+        ))
+        node.run(_ctx(), {"source": str(src)})
+    mock_ren.assert_called_once()
+    mock_mov.assert_not_called()
+
+
+def test_rename_different_parent_uses_safe_move(tmp_path):
+    src = tmp_path / "foo.txt"
+    src.write_text("x")
+    target = tmp_path / "sub" / "bar.txt"
+    node = rename_mod.RenameNode(template="X")
+    with ExitStack() as st:
+        st.enter_context(patch.object(
+            rename_mod, "render_template", return_value=str(target)
+        ))
+        mock_ren = st.enter_context(patch.object(
+            rename_mod.safe_fs, "safe_rename"
+        ))
+        mock_mov = st.enter_context(patch.object(
+            rename_mod.safe_fs, "safe_move"
+        ))
+        node.run(_ctx(), {"source": str(src)})
+    mock_mov.assert_called_once()
+    mock_ren.assert_not_called()
+
+
+def test_rename_dry_run_does_not_mutate(tmp_path):
+    src = tmp_path / "foo.txt"
+    src.write_text("x")
+    node = rename_mod.RenameNode(template="X")
+    with ExitStack() as st:
+        st.enter_context(patch.object(
+            rename_mod, "render_template", return_value="bar.txt"
+        ))
+        mock_ren = st.enter_context(patch.object(
+            rename_mod.safe_fs, "safe_rename"
+        ))
+        mock_mov = st.enter_context(patch.object(
+            rename_mod.safe_fs, "safe_move"
+        ))
+        log = node.dry_run(_ctx(), {"source": str(src)})
+    mock_ren.assert_not_called()
+    mock_mov.assert_not_called()
+    assert log.dry_run is True
+
+
+# ══════════════════════════════════════════════════════════════════
+# fs.copy: free-space precheck
+# ══════════════════════════════════════════════════════════════════
+
+def test_copy_insufficient_space_raises_before_copy(tmp_path):
+    src = tmp_path / "source.bin"
+    src.write_bytes(b"x" * 100)
+    target = tmp_path / "target.bin"
+    node = copy_mod.CopyNode(template="X", check_free_space=True)
+    with ExitStack() as st:
+        st.enter_context(patch.object(
+            copy_mod, "render_and_check", return_value=target
+        ))
+        mock_du = st.enter_context(patch.object(
+            copy_mod.shutil, "disk_usage",
+            return_value=SimpleNamespace(total=1000, used=950, free=50),
+        ))
+        mock_copy = st.enter_context(patch.object(
+            copy_mod.safe_fs, "copy_file"
+        ))
+        with pytest.raises(SafeFsError, match="insufficient_space"):
+            node.run(_ctx(), {"source": str(src)})
+    mock_du.assert_called_once()
+    mock_copy.assert_not_called()
+
+
+def test_copy_dry_run_still_probes_free_space(tmp_path):
+    src = tmp_path / "source.bin"
+    src.write_bytes(b"x" * 100)
+    target = tmp_path / "target.bin"
+    node = copy_mod.CopyNode(template="X", check_free_space=True)
+    with ExitStack() as st:
+        st.enter_context(patch.object(
+            copy_mod, "render_and_check", return_value=target
+        ))
+        st.enter_context(patch.object(
+            copy_mod.shutil, "disk_usage",
+            return_value=SimpleNamespace(total=1000, used=950, free=50),
+        ))
+        mock_copy = st.enter_context(patch.object(
+            copy_mod.safe_fs, "copy_file"
+        ))
+        with pytest.raises(SafeFsError, match="insufficient_space"):
+            node.dry_run(_ctx(), {"source": str(src)})
+    mock_copy.assert_not_called()
+
+
+def test_copy_skips_free_space_when_disabled(tmp_path):
+    src = tmp_path / "source.bin"
+    src.write_bytes(b"x" * 100)
+    target = tmp_path / "target.bin"
+    node = copy_mod.CopyNode(template="X", check_free_space=False)
+    with ExitStack() as st:
+        st.enter_context(patch.object(
+            copy_mod, "render_and_check", return_value=target
+        ))
+        mock_du = st.enter_context(patch.object(
+            copy_mod.shutil, "disk_usage"
+        ))
+        mock_copy = st.enter_context(patch.object(
+            copy_mod.safe_fs, "copy_file"
+        ))
+        node.run(_ctx(), {"source": str(src)})
+    mock_du.assert_not_called()
+    mock_copy.assert_called_once()
+
+
+# ══════════════════════════════════════════════════════════════════
+# fs.move: delegation + dry-run purity
+# ══════════════════════════════════════════════════════════════════
+
+def test_move_uses_safe_move(tmp_path):
+    src = tmp_path / "foo.txt"
+    src.write_text("x")
+    target = tmp_path / "bar.txt"
+    node = move_mod.MoveNode(template="X")
+    with ExitStack() as st:
+        st.enter_context(patch.object(
+            move_mod, "render_and_check", return_value=target
+        ))
+        mock_mov = st.enter_context(patch.object(
+            move_mod.safe_fs, "safe_move"
+        ))
+        node.run(_ctx(), {"source": str(src)})
+    mock_mov.assert_called_once()
+
+
+def test_move_dry_run_does_not_mutate(tmp_path):
+    src = tmp_path / "foo.txt"
+    src.write_text("x")
+    target = tmp_path / "bar.txt"
+    node = move_mod.MoveNode(template="X")
+    with ExitStack() as st:
+        st.enter_context(patch.object(
+            move_mod, "render_and_check", return_value=target
+        ))
+        mock_mov = st.enter_context(patch.object(
+            move_mod.safe_fs, "safe_move"
+        ))
+        log = node.dry_run(_ctx(), {"source": str(src)})
+    mock_mov.assert_not_called()
+    assert log.dry_run is True
+
+
+# ══════════════════════════════════════════════════════════════════
+# fs.move: reserved cross_volume flag is stored
+# ══════════════════════════════════════════════════════════════════
+
+def test_move_cross_volume_flag_roundtrips():
+    node = move_mod.MoveNode(cross_volume=False)
+    assert node.cross_volume is False
+    assert node.describe()["params"]["cross_volume"]["default"] is False

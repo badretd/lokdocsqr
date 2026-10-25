@@ -12,5 +12,8 @@ and therefore populates the ``NodeRegistry`` with:
 from . import make_dir, write_file  # noqa: F401  (registers nodes)
 from .make_dir import MakeDirNode
 from .write_file import WriteFileNode
+from .copy import CopyNode
+from .move import MoveNode
+from .rename import RenameNode
 
-__all__ = ["MakeDirNode", "WriteFileNode"]
+__all__ = ["MakeDirNode", "WriteFileNode", "CopyNode", "MoveNode", "RenameNode"]
