@@ -12,3 +12,5 @@ wheels/
 packaging/tesseract/*.exe
 packaging/tesseract/*.dll
 packaging/tesseract/tessdata/*.traineddata
+vendor/
+*.traineddata

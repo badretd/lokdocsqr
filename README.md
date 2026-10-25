@@ -41,11 +41,11 @@ Two binaries from one codebase:
 
 Following the plan in [`modules.md`](./docs/modules.md), section 8. The order is:
 
-- [ ] `core/safe_fs.py`, `core/errors.py`, `core/models.py`, `core/scope.py`
-- [ ] `core/node_api/*`, `core/plugins.py`, `core/events.py`,
+- [x] `core/safe_fs.py`, `core/errors.py`, `core/models.py`, `core/scope.py`
+- [x] `core/node_api/*`, `core/plugins.py`, `core/events.py`,
       `core/logging.py`, `core/config.py`
-- [ ] `core/graph/*` (parser → validator → resolver → builder)
-- [ ] `core/executor/*`, `core/policy.py`, `core/audit.py`
+- [x] `core/graph/*` (parser → validator → resolver → builder)
+- [x] `core/executor/*`, `core/policy.py`, `core/audit.py`
 - [ ] `nodes/fs_ops/*`, `nodes/access/*`
 - [ ] `nodes/planning/*` (Build Action Plan → Policy Guard → Verify → Audit)
 - [ ] `nodes/flow/*`, `nodes/utils/*`

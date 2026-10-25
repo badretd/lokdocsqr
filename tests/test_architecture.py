@@ -40,15 +40,19 @@ MUTATION_FS_ALLOWED = {
     CORE / "logging.py",
 }
 
-_FORBIDDEN_MUTATION_ATTRS = {
-    "write_text", "write_bytes", "rename", "replace", "unlink", "rmdir",
-    "mkdir", "touch", "chmod", "symlink_to", "hardlink_to",
+# Mutation methods. `replace` is included for Path but only matched when the
+# receiver chain literally contains "Path" (see `_ast_mutation_hits`) — this
+# matches acceptance item 2's grep and avoids false positives on str.replace(),
+# e.g. `rendered.replace("\\", "/")` in nodes/fs_ops/_common.py.
+_PATH_MUT = {
+    "write_text", "write_bytes", "rename", "replace", "touch",
+    "mkdir", "rmdir", "unlink", "chmod", "symlink_to", "hardlink_to",
 }
-_FORBIDDEN_OS_ATTRS = {
-    "remove", "unlink", "rename", "replace", "rmdir", "makedirs", "mkdir",
-    "chmod", "link", "symlink",
+_OS_MUT = {
+    "remove", "unlink", "rename", "replace", "rmdir", "mkdir",
+    "makedirs", "chmod", "link", "symlink",
 }
-_FORBIDDEN_SHUTIL_ATTRS = {
+_SH_MUT = {
     "copy", "copy2", "copyfile", "copytree", "move", "rmtree",
 }
 
@@ -78,7 +82,7 @@ def _module_matches(module: str, prefix: str) -> bool:
 
 
 def _is_forbidden_call(call: ast.Call) -> bool:
-    """Return True for forbidden filesystem mutation calls."""
+    """Return True for forbidden deletion calls (invariant 3)."""
     func = call.func
     if not isinstance(func, ast.Attribute):
         return False
@@ -123,6 +127,75 @@ def _base_name(base: ast.expr) -> str | None:
     if isinstance(base, ast.Attribute):
         return base.attr
     return None
+
+
+def _attr_chain(node: ast.AST) -> list[str]:
+    """Return dotted chain (``a.b.c`` -> ``['a','b','c']``) or ``[]``."""
+    parts: list[str] = []
+    cur = node
+    while isinstance(cur, ast.Attribute):
+        parts.append(cur.attr)
+        cur = cur.value
+    if isinstance(cur, ast.Name):
+        parts.append(cur.id)
+        parts.reverse()
+        return parts
+    return []
+
+
+def _open_write_mode(call: ast.Call) -> str | None:
+    """Return the mode string if ``open(...)`` is called with a write/append mode."""
+    candidates = list(call.args[1:]) + [
+        kw.value for kw in call.keywords if kw.arg == "mode"
+    ]
+    for arg in candidates:
+        if (
+            isinstance(arg, ast.Constant)
+            and isinstance(arg.value, str)
+            and arg.value
+            and arg.value[0] in "wax"
+        ):
+            return arg.value
+    return None
+
+
+def _ast_mutation_hits(path: Path):
+    """Yield ``(lineno, reason)`` for forbidden FS mutation calls.
+
+    Aligned with acceptance item 2:
+      * ``open(...)`` with a write/append mode
+      * ``os.<mutator>(...)``
+      * ``shutil.<mutator>(...)``
+      * ``<chain containing "Path">.<mutator>(...)`` — this catches the
+        literal ``Path.replace(...)`` form the item-2 grep matches, but
+        does NOT flag ``x.replace(...)`` on a plain variable (which is
+        usually ``str.replace``).
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+
+        func = node.func
+        if isinstance(func, ast.Name) and func.id == "open":
+            if _open_write_mode(node) is not None:
+                yield node.lineno, "open(..., <write mode>)"
+            continue
+
+        if not isinstance(func, ast.Attribute):
+            continue
+
+        chain = _attr_chain(func)
+        if len(chain) < 2:
+            continue
+
+        root, attr = chain[0], chain[-1]
+        if root == "os" and attr in _OS_MUT:
+            yield node.lineno, ".".join(chain)
+        elif root == "shutil" and attr in _SH_MUT:
+            yield node.lineno, ".".join(chain)
+        elif attr in _PATH_MUT and "Path" in chain:
+            yield node.lineno, ".".join(chain)
 
 
 def test_invariant_1_layering() -> None:
@@ -255,6 +328,7 @@ def test_invariant_8_executor_isolation() -> None:
                 violations.append(f"{relative} imports {module}")
     assert not violations, "Executor isolation violations:\n" + "\n".join(violations)
 
+
 # === Phase 4 extra arch invariant: no delete calls in audit/executor ===
 def test_no_delete_calls_in_audit_and_executor() -> None:
     """Invariant 3 must also hold for core/audit.py and core/executor/*.py."""
@@ -273,20 +347,6 @@ def test_no_delete_calls_in_audit_and_executor() -> None:
                 violations.append(f"{relative} contains a forbidden deletion call")
     assert not violations, "Phase 4 delete-ban violations:\n" + "\n".join(violations)
 
-def _is_forbidden_mutation(call: ast.Call) -> bool:
-    func = call.func
-    if not isinstance(func, ast.Attribute):
-        return False
-    attr = func.attr
-    if attr in _FORBIDDEN_MUTATION_ATTRS:
-        return True
-    if isinstance(func.value, ast.Name):
-        if func.value.id == "os" and attr in _FORBIDDEN_OS_ATTRS:
-            return True
-        if func.value.id == "shutil" and attr in _FORBIDDEN_SHUTIL_ATTRS:
-            return True
-    return False
-
 
 def test_invariant_9_mutation_ban() -> None:
     """Only safe_fs (and the documented logging exemption) may mutate the FS."""
@@ -295,9 +355,7 @@ def test_invariant_9_mutation_ban() -> None:
     for path in _python_files(SRC):
         if path in allowed:
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and _is_forbidden_mutation(node):
-                rel = path.relative_to(ROOT)
-                violations.append(f"{rel}:{node.lineno} forbidden mutation call")
+        rel = path.relative_to(ROOT)
+        for lineno, reason in _ast_mutation_hits(path):
+            violations.append(f"{rel}:{lineno} {reason}")
     assert not violations, "Mutation-ban violations:\n" + "\n".join(violations)
