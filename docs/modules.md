@@ -183,6 +183,31 @@ Node contract (`ABC`): `id`, `title`, `inputs`, `outputs`, `run(ctx, payload)`, 
 
 Every node is a class deriving from `core.node_api.base.Node` and decorated with `@register_node`. Nodes never import `gui`. Nodes that touch the disk go through `core.safe_fs` and `core.scope`.
 
+### 4.0 Internal helper modules
+
+Node families share package-private helper modules. They are **not** registered
+nodes, not part of the plugin API, and not imported outside their node family:
+
+- `nodes/fs_ops/_common.py` — shared helpers: `build_action_log`,
+  `render_and_check`, `resolve_conflict_policy`, `build_trash_sidecar`.
+- `nodes/fs_ops/_base.py` — `FsOpsBase(Node)`: `_run_template(ctx, payload)`
+  scaffolding so concrete nodes declare only `run`/`dry_run` as thin wrappers.
+
+**Rules:**
+
+1. Underscore-prefixed modules are exempt from `CONTRACT.md` invariant 5.
+2. **No `@register_node`-decorated class may live in an underscore module.**
+   Enforced by `test_invariant_5_no_registered_nodes_in_underscore_modules`.
+3. A helper reused across node families (fs_ops + access + flow) is promoted
+   to `nodes/_common.py` / `nodes/_base.py` and documented there.
+
+#### 4.0.1 Invariant 5 interaction
+
+Concrete node classes must still declare `run` and `dry_run` in the class body
+(not inherited from `FsOpsBase`). The `_*.py` exemption in rule 1 is scoped to
+internal helper modules only; it is not a mechanism for concrete nodes to skip
+the contract. `CONTRACT.md` §Notes records this explicitly.
+
 ### 4.1 `nodes/triggers/`
 | File | Node |
 |---|---|

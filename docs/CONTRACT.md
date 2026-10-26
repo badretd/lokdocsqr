@@ -1,9 +1,6 @@
 # LokDocSQR Architecture Contract
 
-Enforced by `tests/test_architecture.py` at every phase gate. Invariants 6 and 7
-are present as `@pytest.mark.skip` stubs until the Phase-5 node-level tests
-(`tests/test_dry_run.py`, `tests/test_scope_first.py`) land; they are counted
-as part of the contract for phase gating but do not currently execute.
+Enforced by `tests/test_architecture.py` at every phase gate.
 
 | ID | Rule | Enforcement |
 |----|------|-------------|
@@ -12,8 +9,8 @@ as part of the contract for phase gating but do not currently execute.
 | 3 | **Delete ban.** Outside `src/lokdocsqr/core/safe_fs.py`, no module under `src/lokdocsqr/` may call `os.remove`, `os.unlink`, `os.rmdir`, `shutil.rmtree`, or `.unlink()`, and may not do `from os import remove\|unlink\|rmdir` / `from shutil import rmtree`. | `test_invariant_3_delete_ban` — AST call scan; re-checked for `core/audit.py` and `core/executor/*` by `test_no_delete_calls_in_audit_and_executor`. |
 | 4 | **No-delete API.** `core/safe_fs.py` must not expose public `delete`, `remove`, `rmtree`, or `unlink` — no module-level `def`/`class`/assignment, no public method, no entry in `__all__`. | `test_invariant_4_no_delete_api` — AST public-name scan. |
 | 5 | **Node contract.** Every concrete class in `src/lokdocsqr/nodes/` whose base name is `Node` or ends in `Node` must define both `run` and `dry_run`. Classes that inherit `ABC`/`ABCMeta` or mark either method with `@abstractmethod` are exempt. | `test_invariant_5_node_contract` — AST class scan. |
-| 6 | **Dry-run purity.** `dry_run()` must not mutate the filesystem. | `test_invariant_6_dry_run_purity` (currently `@pytest.mark.skip`); Phase-5 filesystem tests will replace it. |
-| 7 | **Scope-first.** `fs_ops` nodes must call `scope.check()` before any `safe_fs.*` call. | `test_invariant_7_scope_first` (currently `@pytest.mark.skip`); Phase-5 node tests will replace it. |
+| 6 | **Dry-run purity.** `dry_run()` must not mutate the filesystem. | `tests/test_dry_run.py::check_invariant_6` (called from `test_invariant_6_dry_run_purity`). |
+| 7 | **Scope-first.** `fs_ops` nodes must call `scope.check()` before any `safe_fs.*` call. | `tests/test_scope_first.py::check_invariant_7` (called from `test_invariant_7_scope_first`). |
 | 8 | **Executor isolation.** No module under `src/lokdocsqr/core/executor/` may import `lokdocsqr.nodes.*` (concrete nodes). | `test_invariant_8_executor_isolation` — AST import scan. |
 | 9 | **Mutation ban.** Outside `src/lokdocsqr/core/safe_fs.py` and the single documented exemption `src/lokdocsqr/core/logging.py`, no module under `src/lokdocsqr/` may call a filesystem-mutating API — see the enumerated list in the "Filesystem access policy" section below. Read-only access is not restricted. | `test_invariant_9_mutation_ban` — AST call scan against `READONLY_FS_ALLOWED` / `MUTATION_FS_ALLOWED`. |
 
@@ -71,6 +68,33 @@ not a code bug.
 
 ## Notes
 
+- **Invariants 6 and 7 — call-time enforcement.** Both invariants are
+  now enforced by live tests. `tests/test_dry_run.py::check_invariant_6`
+  snapshots the workspace before and after every fs_ops node's
+  `dry_run()` and fails on any mutation. `tests/test_scope_first.py::
+  check_invariant_7` installs a `ScopeFirstTracker` that wraps both
+  `ctx.scope.check` and every mutating `safe_fs.*` method; a mutating
+  call whose path was not previously passed through `scope.check` raises
+  `RuntimeError("scope.check not called before safe_fs.<name>(<path>)")`
+  *at the call site*, not after the mutation lands. Both checkers are
+  invoked from `tests/test_architecture.py` so the phase gate exercises
+  them.
+
+- **Invariant 5 and underscore helper modules.** Files matching
+  `src/lokdocsqr/nodes/**/_*.py` remain exempt from invariant 5 as
+  internal helper modules (`_base.py`, `_common.py`). The exemption is
+  guarded by `test_invariant_5_no_registered_nodes_in_underscore_modules`,
+  which fails if any `@register_node`-decorated class appears in an
+  underscore module — so the exemption cannot hide a real node from the
+  contract.
+
+- **ZipFile write-pattern AST invariant.** `archive.py` never opens a
+  filesystem path with `zipfile.ZipFile(..., mode="w"/"a"/"x")`;
+  archives for writing are built in `io.BytesIO` and committed via
+  `safe_fs.atomic_write`. Enforced by
+  `test_zipfile_never_opens_path_for_write`, which also rejects any
+  `.extract(...)` / `.extractall(...)` call in `archive.py`.
+
 - **Relative imports are resolved.** `test_architecture.py` normalises relative
   import syntax against the containing package, so `from ..gui import x` is
   treated as `lokdocsqr.gui` — the layering rules cannot be bypassed with
@@ -84,16 +108,15 @@ not a code bug.
   `safe_fs.py` is flagged, even if it is a custom method — this matches the
   intent of the rule. `os.remove` / `os.unlink` / `os.rmdir` / `shutil.rmtree`
   and their `from ... import ...` sources are flagged as well.
-- **Invariant 5 is per-class.** A subclass that relies on `Node.run` without
-  overriding it will be flagged. This is deliberate in early phases — every
-  concrete node should declare its own `run` / `dry_run` so the contract is
-  visible at the definition site.
+- **Invariant 5 and internal base classes.** Files matching
+  `src/lokdocsqr/nodes/**/_*.py` are exempt from invariant 5: they exist to
+  hold shared scaffolding (`_base.py`) and helpers (`_common.py`), not concrete
+  nodes. **Guard:** `test_invariant_5_no_registered_nodes_in_underscore_modules`
+  ensures no `@register_node`-decorated class appears in an underscore module —
+  otherwise the exemption could hide a real node from the contract.
 - **Invariant 9 is call-based.** Only calls to the enumerated APIs are
   flagged. Reading a `Path` attribute, constructing a `Path`, or calling
   `open(..., "r")` is not. `open(..., "w" / "a" / "x")` is a known blind spot
   handled by review; see the note above.
-- **Invariants 6 and 7.** Both tests are currently `@pytest.mark.skip` pending
-  Phase 5. They participate in phase gating by name; the actual assertions
-  arrive with `tests/test_dry_run.py` and `tests/test_scope_first.py`.
 - **Gate activity.** Invariants 1–5 and 8–9 are checked from Phase 0 onward and
   pass vacuously when the scanned tree does not yet contain matching modules.

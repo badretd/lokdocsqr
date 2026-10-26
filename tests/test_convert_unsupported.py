@@ -1,8 +1,22 @@
 """Unimplemented MIME pair must raise converter_not_available with hint."""
+import os
+
 import pytest
 
 from lokdocsqr.core.errors import NodeExecutionError
 from lokdocsqr.nodes.fs_ops.convert import CONVERTERS, ConvertNode
+
+
+# CWD guard — see note in tests/test_archive_7z.py.
+_ORIGINAL_CWD = os.getcwd()
+
+
+@pytest.fixture(autouse=True)
+def _restore_cwd():
+    try:
+        yield
+    finally:
+        os.chdir(_ORIGINAL_CWD)
 
 
 def test_no_pdf_source_converter_is_registered():

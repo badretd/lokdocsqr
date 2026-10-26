@@ -1,10 +1,23 @@
 """dry_run() must not touch the filesystem and must never open ZipFile for write."""
+import os
 import zipfile
 from pathlib import Path
 
 import pytest
 
 from lokdocsqr.nodes.fs_ops.archive import ArchiveNode
+
+
+# CWD guard — see note in tests/test_archive_7z.py.
+_ORIGINAL_CWD = os.getcwd()
+
+
+@pytest.fixture(autouse=True)
+def _restore_cwd():
+    try:
+        yield
+    finally:
+        os.chdir(_ORIGINAL_CWD)
 
 
 def _snapshot(root: Path) -> dict:

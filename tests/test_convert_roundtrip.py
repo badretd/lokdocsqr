@@ -2,6 +2,7 @@
 import csv
 import io
 import json
+import os
 
 import pytest
 
@@ -11,6 +12,18 @@ from lokdocsqr.nodes.fs_ops.convert import (
     _csv_to_json,
     _json_to_csv,
 )
+
+
+# CWD guard — see note in tests/test_archive_7z.py.
+_ORIGINAL_CWD = os.getcwd()
+
+
+@pytest.fixture(autouse=True)
+def _restore_cwd():
+    try:
+        yield
+    finally:
+        os.chdir(_ORIGINAL_CWD)
 
 
 def _canon(rows):

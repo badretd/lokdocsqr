@@ -1,9 +1,22 @@
 """Conflict-policy behaviour during extract."""
+import os
 import zipfile
 
 import pytest
 
 from lokdocsqr.nodes.fs_ops.archive import ArchiveNode
+
+
+# CWD guard — see note in tests/test_archive_7z.py.
+_ORIGINAL_CWD = os.getcwd()
+
+
+@pytest.fixture(autouse=True)
+def _restore_cwd():
+    try:
+        yield
+    finally:
+        os.chdir(_ORIGINAL_CWD)
 
 
 def _make_zip(path, entries):

@@ -266,6 +266,10 @@ class ArchiveNode(FsNode):
             confidence=1.0,
             risk=Risk.LOW,
             dry_run=dry_run,
+            extra={
+                "sources": [str(s) for s in sources],
+                "format": fmt,
+            },
         )
 
     def _run_create(self, ctx, payload):

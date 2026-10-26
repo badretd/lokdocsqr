@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
-from lokdocsqr.core import safe_fs
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import SafeFsError
 from lokdocsqr.core.models import ActionLog, RollbackOp
@@ -15,6 +15,23 @@ from lokdocsqr.core.scope import ScopeManager
 logger = logging.getLogger(__name__)
 
 __all__ = ["AuditLog"]
+
+
+def _json_default(obj: Any) -> Any:
+    """Fallback serializer for dataclass fields that json can't handle.
+
+    ActionLog carries ``datetime`` timestamps (and potentially ``Path``
+    objects from older node implementations). Both are routinely written
+    to the on-disk audit log and re-read verbatim, so ISO-8601 / str
+    are the canonical representations.
+    """
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, Path):
+        return str(obj)
+    raise TypeError(
+        f"Object of type {type(obj).__name__} is not JSON serializable"
+    )
 
 
 class AuditLog:
@@ -29,7 +46,11 @@ class AuditLog:
 
     def append(self, log: ActionLog) -> None:
         """Append one ActionLog as a single JSON line."""
-        line = json.dumps(log.to_dict(), ensure_ascii=False) + "\n"
+        line = json.dumps(
+            log.to_dict(),
+            ensure_ascii=False,
+            default=_json_default,
+        ) + "\n"
         safe_fs.atomic_append(self.path, line)
 
     def iter_all(self) -> Iterator[ActionLog]:

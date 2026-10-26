@@ -1,0 +1,88 @@
+{
+  "id": "golden_fs_ops",
+  "title": "Golden fs_ops chain",
+  "description": "Exercises all 9 fs_ops node types in the acceptance order. Template fields (path_template/template/target/target_dir) are relative to ctx.workspace; source/sources/path may use {base} to point outside the workspace-relative tree.",
+  "nodes": [
+    {
+      "id": "n_make_dir",
+      "type": "fs.make_dir",
+      "params": {"path_template": "work"}
+    },
+    {
+      "id": "n_write_file_a",
+      "type": "fs.write_file",
+      "params": {
+        "path_template": "work/a.txt",
+        "content": "alpha",
+        "mode": "write",
+        "create_parents": false
+      }
+    },
+    {
+      "id": "n_write_file_z",
+      "type": "fs.write_file",
+      "params": {
+        "path_template": "work/z.txt",
+        "content": "zeta",
+        "mode": "write",
+        "create_parents": false
+      }
+    },
+    {
+      "id": "n_rename",
+      "type": "fs.rename",
+      "params": {
+        "source": "{base}/work/a.txt",
+        "template": "b.txt",
+        "conflict_policy": "skip"
+      }
+    },
+    {
+      "id": "n_copy",
+      "type": "fs.copy",
+      "params": {
+        "source": "{base}/work/b.txt",
+        "template": "c.txt",
+        "conflict_policy": "skip"
+      }
+    },
+    {
+      "id": "n_move",
+      "type": "fs.move",
+      "params": {
+        "source": "{base}/work/c.txt",
+        "template": "d.txt",
+        "conflict_policy": "skip"
+      }
+    },
+    {
+      "id": "n_tag",
+      "type": "fs.tag",
+      "params": {
+        "path": "{base}/work/b.txt",
+        "tags": ["x", "y"],
+        "mode": "set"
+      }
+    },
+    {
+      "id": "n_archive",
+      "type": "fs.archive",
+      "params": {
+        "operation": "create",
+        "sources": ["{base}/work/b.txt"],
+        "target": "work/out.zip",
+        "format": "zip",
+        "overwrite": true
+      }
+    },
+    {
+      "id": "n_trash",
+      "type": "fs.trash",
+      "params": {
+        "path": "{base}/work/z.txt",
+        "ttl_seconds": 3600
+      }
+    }
+  ],
+  "edges": []
+}

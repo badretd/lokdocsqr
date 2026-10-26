@@ -36,6 +36,20 @@ from ._common import (
 )
 
 
+# The set of ``action_type`` values that
+# :meth:`lokdocsqr.core.audit.AuditLog.build_rollback_plan` can reverse.
+# Must stay in sync with the branches in ``core/audit.py``:
+#
+#   * "move"   → "move_back"
+#   * "rename" → "move_back"
+#   * "trash"  → "restore_from_trash"  (handled by fs.trash, not here)
+#   * "copy"   → NOT reversible (source remains; audit skips it)
+#
+# ``fs.trash`` does not inherit from ``FsTemplateNode`` and sets
+# ``rollback_eligible=True`` explicitly in its own ``run``.
+_ROLLBACKABLE_ACTIONS = frozenset({"move", "rename"})
+
+
 class FsNode(Node):
     """Shared plumbing for fs_ops nodes.
 
@@ -185,6 +199,33 @@ class FsTemplateNode(FsNode):
         decision: ConflictDecision,
         dry_run: bool,
     ) -> ActionLog:
+        """Assemble the :class:`ActionLog` for this step.
+
+        ``status`` and ``rollback_eligible`` are derived from what the
+        step actually did:
+
+          * dry_run + proceed/skip → ``"planned"``  (nothing touched)
+          * run    + proceed       → ``"applied"``  (mutation executed)
+          * run    + skip          → ``"skipped"``  (nothing touched)
+
+        ``rollback_eligible`` is set only for actions that
+        :meth:`AuditLog.build_rollback_plan` knows how to reverse
+        (``move`` / ``rename``) **and** that were actually applied.
+        Both flags are fixed at append time; the audit log is
+        append-only, so they cannot be corrected later.
+        """
+        if dry_run:
+            status = "planned"
+        elif decision.action == "proceed":
+            status = "applied"
+        else:  # decision.action == "skip"
+            status = "skipped"
+
+        rollback_eligible = (
+            decision.action == "proceed"
+            and self.action_type in _ROLLBACKABLE_ACTIONS
+        )
+
         return build_action_log(
             run_id=ctx.run_id,
             automation_id=ctx.automation_id,
@@ -196,6 +237,8 @@ class FsTemplateNode(FsNode):
             confidence=1.0,
             risk=risk_for_decision(decision),
             dry_run=dry_run,
+            status=status,
+            rollback_eligible=rollback_eligible,
         )
 
     # ── mutation hook ────────────────────────────────────────────

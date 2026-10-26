@@ -3,6 +3,7 @@
 The mandatory negative test asserts that no file is created *outside*
 target_dir — not merely that an exception was raised.
 """
+import os
 import zipfile
 from pathlib import Path
 
@@ -14,6 +15,18 @@ from lokdocsqr.nodes.fs_ops.archive import (
     _entry_is_safe,
     _resolve_entry_target,
 )
+
+
+# CWD guard — see note in tests/test_archive_7z.py.
+_ORIGINAL_CWD = os.getcwd()
+
+
+@pytest.fixture(autouse=True)
+def _restore_cwd():
+    try:
+        yield
+    finally:
+        os.chdir(_ORIGINAL_CWD)
 
 
 def _make_zip(path: Path, entries: dict[str, bytes]) -> Path:

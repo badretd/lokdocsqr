@@ -21,6 +21,7 @@ If the real package imports cleanly (5b fixed, or 5a-only project),
 this conftest is a no-op.
 """
 import sys
+import os
 import types
 from types import SimpleNamespace
 
@@ -98,10 +99,40 @@ class _ScopeStub:
 def ctx(tmp_path, monkeypatch):
     # render_template() rejects absolute target/target_dir; the node is
     # designed to run with a relative-path workflow base — that base is CWD.
+    original_cwd = os.getcwd()
     monkeypatch.chdir(tmp_path)
-    return SimpleNamespace(
-        run_id="test-run",
-        automation_id="test-auto",
-        audit=[],
-        scope=_ScopeStub([tmp_path]),
-    )
+    try:
+        yield SimpleNamespace(
+            run_id="test-run",
+            automation_id="test-auto",
+            audit=[],
+            scope=_ScopeStub([tmp_path]),
+        )
+    finally:
+        # Restore CWD *before* other fixtures (in particular the autouse
+        # leak-detector, which depends on tmp_path and therefore finalizes
+        # after ctx) tear down.  monkeypatch.chdir would also restore it,
+        # but too late — the detector would already have flagged tmp_path
+        # as a leak.
+        os.chdir(original_cwd)
+
+@pytest.fixture(autouse=True)
+def _fail_on_cwd_leak(request, tmp_path, monkeypatch):
+    """Fail any test that leaves new files in CWD.
+
+    Catches nodes that resolve relative paths against os.getcwd()
+    instead of ctx.workspace (the 'CWD alignment' class of bug).
+    """
+    if "no_cwd_guard" in request.keywords:
+        yield
+        return
+
+    before = {p.name for p in Path.cwd().iterdir()}
+    yield
+    after = {p.name for p in Path.cwd().iterdir()}
+    leaked = after - before - {"__pycache__", ".pytest_cache"}
+    if leaked:
+        raise AssertionError(
+            f"{request.node.name} leaked into CWD {Path.cwd()}: "
+            f"{sorted(leaked)} — use tmp_path/monkeypatch.chdir"
+        )

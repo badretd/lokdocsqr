@@ -31,7 +31,9 @@ def build_action_log(
     confidence: float,
     risk: Any,
     dry_run: bool,
+    status: str | None = None,
     details: dict[str, Any] | None = None,
+    extra: dict[str, Any] | None = None,
     rollback_eligible: bool = False,
     original_path: str | None = None,
     trash_path: str | None = None,
@@ -40,28 +42,39 @@ def build_action_log(
 ) -> ActionLog:
     """Construct an ``ActionLog`` for a proposed (or executed) action.
 
-    The model (``core.models.ActionLog``) is the source of truth for
-    which fields exist. Its accepted keyword set is:
+    ``status`` defaults to the phase implied by ``dry_run``:
 
-        run_id, automation_id, node_id, action_type,
-        source, target, reason, confidence, risk, timestamp
+      * ``dry_run=True``  → ``status="planned"``
+      * ``dry_run=False`` → ``status="applied"``
+
+    Nodes that want a different status (e.g. ``"skipped"`` when the
+    conflict policy is ``"skip"``) may pass ``status=`` explicitly.
 
     ``dry_run`` and ``details`` are accepted by this helper for
-    call-site stability across ``run()`` and ``dry_run()``, but are
-    **not** forwarded to the constructor:
-
-      * ``dry_run`` is a behavioural flag — dry-run logs are never
-        appended to ``ctx.audit`` (see each node's ``dry_run``).
-      * ``details`` has no corresponding field on ``ActionLog``. If a
-        later phase needs to persist per-action extras, extend the
-        model first; do not smuggle fields past it.
+    call-site stability across ``run()`` and ``dry_run()``:
+      * ``dry_run`` is forwarded to the model (informational) and is
+        also used to derive the default ``status``.
+      * ``details`` is a deprecated alias for ``extra``.
 
     Conflict resolution, policy verdicts and approval records are
     attached by later subphases (5b+); this helper only fills in what
     an fs_ops node can decide on its own.
     """
-    # `details` has no field on ActionLog; discarded.
-    del details
+    # `details` is a deprecated alias for `extra`; keep backward
+    # compatibility (existing 5a-5d call sites pass `details=`).
+    if extra is None:
+        extra = details  # backward compat
+    if extra is None:
+        extra = {}
+
+    # Derive `status` from the phase unless the caller overrides it.
+    # `run()` (dry_run=False) produces "applied"; `dry_run()` produces
+    # "planned". Without this, ActionLog's model default ("planned")
+    # would apply to every entry, and rollback planning (which filters
+    # on status == "applied") would silently produce an empty plan.
+    if status is None:
+        status = "planned" if dry_run else "applied"
+
     now = datetime.now(timezone.utc)
     return ActionLog(
         run_id=run_id,
@@ -70,6 +83,7 @@ def build_action_log(
         action_type=action_type,
         source=source,
         target=target,
+        status=status,
         reason=reason,
         confidence=confidence,
         risk=risk,
@@ -80,6 +94,7 @@ def build_action_log(
         trash_path=trash_path,
         sidecar_path=sidecar_path,
         hash_before=hash_before,
+        extra=extra,
     )
 
 

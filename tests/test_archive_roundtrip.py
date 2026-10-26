@@ -1,10 +1,23 @@
 """Roundtrip: zip create → extract preserves bytes; overwrite/refuse semantics."""
+import os
 import zipfile
 
 import pytest
 
 from lokdocsqr.core.errors import NodeExecutionError, SafeFsError
 from lokdocsqr.nodes.fs_ops.archive import ArchiveNode
+
+
+# CWD guard — see note in tests/test_archive_7z.py.
+_ORIGINAL_CWD = os.getcwd()
+
+
+@pytest.fixture(autouse=True)
+def _restore_cwd():
+    try:
+        yield
+    finally:
+        os.chdir(_ORIGINAL_CWD)
 
 
 def test_zip_create_extract_roundtrip(ctx, tmp_path):
