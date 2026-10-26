@@ -9,9 +9,13 @@ Runtime tests use MagicMock for ctx and monkeypatch for safe_fs spies. The
 FS-purity and ordering tests mock `build_action_log` because they don't test
 log construction (see test_build_action_log_constructs_action_log for that).
 
-Known code bug (out of scope for these tests, flagged by the smoke test):
-    _common.build_action_log passes `details=` to ActionLog, but
-    ActionLog.__init__ has no `details` parameter. Coder must reconcile.
+Post-refactor note (FsTemplateNode / _base.py):
+    `render_template` and `render_and_check` are now imported/used by
+    `lokdocsqr.nodes.fs_ops._base`, not by the concrete node modules.
+    Patch targets for path resolution must therefore point at `_base`,
+    not at `rename` / `copy` / `move`. `safe_fs.*` and `shutil.*` calls
+    still live in the concrete modules (inside `_execute` /
+    `_assert_free_space`), so their patch targets are unchanged.
 """
 from __future__ import annotations
 
@@ -26,6 +30,7 @@ try:
     from lokdocsqr.nodes.fs_ops import copy as copy_mod
     from lokdocsqr.nodes.fs_ops import move as move_mod
     from lokdocsqr.nodes.fs_ops import rename as rename_mod
+    from lokdocsqr.nodes.fs_ops import _base as base_mod
     from lokdocsqr.core.errors import SafeFsError, ScopeViolation
     from lokdocsqr.core.models import Risk
     from lokdocsqr.nodes.fs_ops._common import (
@@ -83,6 +88,7 @@ _NODES = [
 
 @pytest.fixture
 def render_template_identity(monkeypatch):
+    # `FsNode._resolve` → `_common.render_and_check` → `_common.render_template`.
     monkeypatch.setattr(
         "lokdocsqr.nodes.fs_ops._common.render_template",
         lambda template, variables: template,
@@ -161,6 +167,7 @@ def test_move_describe():
 
 # ══════════════════════════════════════════════════════════════════
 # Invariant 5 — run / dry_run declared per class
+# (see note at the bottom of this file for the FsTemplateNode case)
 # ══════════════════════════════════════════════════════════════════
 
 @pytest.mark.parametrize("node_cls", _NODES)
@@ -275,13 +282,18 @@ def test_dry_run_does_not_call_safe_fs(
 
 # ══════════════════════════════════════════════════════════════════
 # fs.rename: template edge cases
+#
+# `FsTemplateNode._render_target` (in _base.py) calls `render_template`,
+# so patch targets move from `rename_mod` to `base_mod`.
+# `rename_mod.safe_fs.safe_rename` / `.safe_move` still live in
+# `rename.py::_execute` — unchanged targets.
 # ══════════════════════════════════════════════════════════════════
 
 def test_rename_empty_render_raises(tmp_path):
     src = tmp_path / "foo.txt"
     src.write_text("x")
     node = rename_mod.RenameNode(template="X")
-    with patch.object(rename_mod, "render_template", return_value="   "):
+    with patch.object(base_mod, "render_template", return_value="   "):
         with pytest.raises(ValueError, match="rendered to empty"):
             node.dry_run(_ctx(), {"source": str(src)})
 
@@ -291,7 +303,7 @@ def test_rename_dotdot_in_render_raises(tmp_path):
     src.write_text("x")
     node = rename_mod.RenameNode(template="X")
     with patch.object(
-        rename_mod, "render_template", return_value="../evil.txt"
+        base_mod, "render_template", return_value="../evil.txt"
     ):
         with pytest.raises(ScopeViolation):
             node.dry_run(_ctx(), {"source": str(src)})
@@ -301,7 +313,7 @@ def test_rename_no_change_returns_skip(tmp_path):
     src = tmp_path / "foo.txt"
     src.write_text("x")
     node = rename_mod.RenameNode(template="{name}{ext}")
-    with patch.object(rename_mod, "render_template", return_value="foo.txt"):
+    with patch.object(base_mod, "render_template", return_value="foo.txt"):
         log = node.dry_run(_ctx(), {"source": str(src)})
     assert log.reason == "no_change"
     assert log.action_type == "rename"
@@ -314,7 +326,7 @@ def test_rename_appends_source_suffix_when_missing(tmp_path):
     node = rename_mod.RenameNode(template="X")
     with ExitStack() as st:
         st.enter_context(patch.object(
-            rename_mod, "render_template", return_value="bar"
+            base_mod, "render_template", return_value="bar"
         ))
         mock_ren = st.enter_context(patch.object(
             rename_mod.safe_fs, "safe_rename"
@@ -332,7 +344,7 @@ def test_rename_same_parent_uses_safe_rename(tmp_path):
     node = rename_mod.RenameNode(template="X")
     with ExitStack() as st:
         st.enter_context(patch.object(
-            rename_mod, "render_template", return_value="bar.txt"
+            base_mod, "render_template", return_value="bar.txt"
         ))
         mock_ren = st.enter_context(patch.object(
             rename_mod.safe_fs, "safe_rename"
@@ -352,7 +364,7 @@ def test_rename_different_parent_uses_safe_move(tmp_path):
     node = rename_mod.RenameNode(template="X")
     with ExitStack() as st:
         st.enter_context(patch.object(
-            rename_mod, "render_template", return_value=str(target)
+            base_mod, "render_template", return_value=str(target)
         ))
         mock_ren = st.enter_context(patch.object(
             rename_mod.safe_fs, "safe_rename"
@@ -371,7 +383,7 @@ def test_rename_dry_run_does_not_mutate(tmp_path):
     node = rename_mod.RenameNode(template="X")
     with ExitStack() as st:
         st.enter_context(patch.object(
-            rename_mod, "render_template", return_value="bar.txt"
+            base_mod, "render_template", return_value="bar.txt"
         ))
         mock_ren = st.enter_context(patch.object(
             rename_mod.safe_fs, "safe_rename"
@@ -387,6 +399,10 @@ def test_rename_dry_run_does_not_mutate(tmp_path):
 
 # ══════════════════════════════════════════════════════════════════
 # fs.copy: free-space precheck
+#
+# Path resolution goes through `_base.render_template`; the free-space
+# probe (`shutil.disk_usage`) and the mutation (`safe_fs.copy_file`)
+# stay in `copy.py`.
 # ══════════════════════════════════════════════════════════════════
 
 def test_copy_insufficient_space_raises_before_copy(tmp_path):
@@ -396,7 +412,7 @@ def test_copy_insufficient_space_raises_before_copy(tmp_path):
     node = copy_mod.CopyNode(template="X", check_free_space=True)
     with ExitStack() as st:
         st.enter_context(patch.object(
-            copy_mod, "render_and_check", return_value=target
+            base_mod, "render_template", return_value=str(target)
         ))
         mock_du = st.enter_context(patch.object(
             copy_mod.shutil, "disk_usage",
@@ -418,7 +434,7 @@ def test_copy_dry_run_still_probes_free_space(tmp_path):
     node = copy_mod.CopyNode(template="X", check_free_space=True)
     with ExitStack() as st:
         st.enter_context(patch.object(
-            copy_mod, "render_and_check", return_value=target
+            base_mod, "render_template", return_value=str(target)
         ))
         st.enter_context(patch.object(
             copy_mod.shutil, "disk_usage",
@@ -439,7 +455,7 @@ def test_copy_skips_free_space_when_disabled(tmp_path):
     node = copy_mod.CopyNode(template="X", check_free_space=False)
     with ExitStack() as st:
         st.enter_context(patch.object(
-            copy_mod, "render_and_check", return_value=target
+            base_mod, "render_template", return_value=str(target)
         ))
         mock_du = st.enter_context(patch.object(
             copy_mod.shutil, "disk_usage"
@@ -463,7 +479,7 @@ def test_move_uses_safe_move(tmp_path):
     node = move_mod.MoveNode(template="X")
     with ExitStack() as st:
         st.enter_context(patch.object(
-            move_mod, "render_and_check", return_value=target
+            base_mod, "render_template", return_value=str(target)
         ))
         mock_mov = st.enter_context(patch.object(
             move_mod.safe_fs, "safe_move"
@@ -479,7 +495,7 @@ def test_move_dry_run_does_not_mutate(tmp_path):
     node = move_mod.MoveNode(template="X")
     with ExitStack() as st:
         st.enter_context(patch.object(
-            move_mod, "render_and_check", return_value=target
+            base_mod, "render_template", return_value=str(target)
         ))
         mock_mov = st.enter_context(patch.object(
             move_mod.safe_fs, "safe_move"

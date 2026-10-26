@@ -8,30 +8,22 @@ Invariant 9: the only mutating call is ``safe_fs.safe_move``.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from lokdocsqr.core import safe_fs
-from lokdocsqr.core.node_api.base import Node
 from lokdocsqr.core.node_api.decorators import register_node
 
-from ._common import (
-    ConflictDecision,
-    build_action_log,
-    check_scope,
-    render_and_check,
-    resolve_conflict_policy,
-    risk_for_decision,
-)
+from ._base import FsTemplateNode
 
 
 @register_node
-class MoveNode(Node):
+class MoveNode(FsTemplateNode):
     """Move File(s) — template paths, conflict policy, cross-volume in safe_fs."""
 
     id = "fs.move"
     title = "Move File(s)"
+    action_type = "move"
     inputs = ("file",)
     outputs = ("file",)
 
@@ -48,10 +40,8 @@ class MoveNode(Node):
         # once safe_fs exposes per-call control (phase 5c+).
         self.cross_volume = cross_volume
 
-    def describe(self) -> dict[str, Any]:
+    def _describe_payload(self) -> dict[str, Any]:
         return {
-            "id": self.id,
-            "title": self.title,
             "params": {
                 "template": {
                     "type": "string",
@@ -77,83 +67,11 @@ class MoveNode(Node):
             },
         }
 
-    # ── internal ────────────────────────────────────────────────────
-    def _variables(self, src: Path, extra: dict[str, Any]) -> dict[str, Any]:
-        try:
-            mtime = src.stat().st_mtime
-            date = datetime.fromtimestamp(
-                mtime, tz=timezone.utc
-            ).strftime("%Y-%m-%d")
-        except OSError:
-            date = ""
-        variables: dict[str, Any] = dict(extra)
-        variables.setdefault("name", src.stem)
-        variables.setdefault("ext", src.suffix)
-        variables.setdefault("date", date)
-        variables.setdefault("author", "")
-        variables.setdefault("tags", "")
-        return variables
+    def _execute(self, src: Path, dst: Path) -> None:
+        safe_fs.safe_move(src, dst)
 
-    def _render_target(
-        self, ctx, src: Path, variables: dict[str, Any]
-    ) -> Path:
-        rendered = render_and_check(ctx, self.template, variables)
-        if not rendered.suffix and src.suffix:
-            rendered = rendered.with_suffix(src.suffix)
-        return rendered
-
-    def _plan(
-        self, ctx, payload: dict[str, Any]
-    ) -> tuple[Path, Path, ConflictDecision]:
-        src = Path(payload["source"])
-        check_scope(ctx, str(src))
-
-        variables = self._variables(src, payload.get("variables") or {})
-        dst = self._render_target(ctx, src, variables)
-        check_scope(ctx, str(dst))
-
-        decision = resolve_conflict_policy(self.conflict_policy, dst)
-        if decision.action == "proceed":
-            check_scope(ctx, str(decision.final_dst))
-        return src, decision.final_dst, decision
-
-    def _build_log(
-        self, ctx, src: Path, final_dst: Path,
-        decision: ConflictDecision, dry_run: bool,
-    ):
-        return build_action_log(
-            run_id=ctx.run_id,
-            automation_id=ctx.automation_id,
-            node_id=self.id,
-            action_type="move",
-            source=str(src),
-            target=str(final_dst),
-            reason=decision.reason or "no_conflict",
-            confidence=1.0,
-            risk=risk_for_decision(decision),
-            dry_run=dry_run,
-        )
-
-    # ── Node ABC ────────────────────────────────────────────────────
     def run(self, ctx, payload):
-        src, final_dst, decision = self._plan(ctx, payload)
-        if decision.action == "skip":
-            log = self._build_log(
-                ctx, src, final_dst, decision, dry_run=False
-            )
-            ctx.audit.append(log)
-            return log
-
-        safe_fs.safe_move(src, final_dst)
-
-        log = self._build_log(
-            ctx, src, final_dst, decision, dry_run=False
-        )
-        ctx.audit.append(log)
-        return log
+        return self._run_template(ctx, payload)
 
     def dry_run(self, ctx, payload):
-        src, final_dst, decision = self._plan(ctx, payload)
-        return self._build_log(
-            ctx, src, final_dst, decision, dry_run=True
-        )
+        return self._dry_run_template(ctx, payload)

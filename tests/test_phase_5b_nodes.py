@@ -1,4 +1,10 @@
-"""Subphase 5b: behavioural tests for fs.rename / fs.copy / fs.move."""
+"""Subphase 5b: behavioural tests for fs.rename / fs.copy / fs.move.
+
+Post-refactor: `render_template` / `render_and_check` now live in
+`lokdocsqr.nodes.fs_ops._base`; patch targets for path resolution
+point there. `safe_fs.*` / `shutil.*` still live in the concrete
+node modules.
+"""
 from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -9,6 +15,7 @@ try:
     from lokdocsqr.nodes.fs_ops import copy as copy_mod
     from lokdocsqr.nodes.fs_ops import move as move_mod
     from lokdocsqr.nodes.fs_ops import rename as rename_mod
+    from lokdocsqr.nodes.fs_ops import _base as base_mod
     from lokdocsqr.core.errors import SafeFsError, ScopeViolation
 except BaseException as exc:  # pragma: no cover
     pytest.skip(
@@ -51,7 +58,7 @@ def test_rename_empty_render_raises(tmp_path):
     src = tmp_path / "foo.txt"
     src.write_text("x")
     node = rename_mod.RenameNode(template="X")
-    with patch.object(rename_mod, "render_template", return_value="   "):
+    with patch.object(base_mod, "render_template", return_value="   "):
         with pytest.raises(ValueError, match="rendered to empty"):
             node.dry_run(_ctx(), {"source": str(src)})
 
@@ -61,7 +68,7 @@ def test_rename_dotdot_in_render_raises(tmp_path):
     src.write_text("x")
     node = rename_mod.RenameNode(template="X")
     with patch.object(
-        rename_mod, "render_template", return_value="../evil.txt"
+        base_mod, "render_template", return_value="../evil.txt"
     ):
         with pytest.raises(ScopeViolation):
             node.dry_run(_ctx(), {"source": str(src)})
@@ -71,7 +78,7 @@ def test_rename_no_change_returns_skip(tmp_path):
     src = tmp_path / "foo.txt"
     src.write_text("x")
     node = rename_mod.RenameNode(template="{name}{ext}")
-    with patch.object(rename_mod, "render_template", return_value="foo.txt"):
+    with patch.object(base_mod, "render_template", return_value="foo.txt"):
         log = node.dry_run(_ctx(), {"source": str(src)})
     assert log.reason == "no_change"
     assert log.action_type == "rename"
@@ -84,7 +91,7 @@ def test_rename_appends_source_suffix_when_missing(tmp_path):
     node = rename_mod.RenameNode(template="X")
     with ExitStack() as st:
         st.enter_context(patch.object(
-            rename_mod, "render_template", return_value="bar"
+            base_mod, "render_template", return_value="bar"
         ))
         mock_ren = st.enter_context(patch.object(
             rename_mod.safe_fs, "safe_rename"
@@ -101,7 +108,7 @@ def test_rename_same_parent_uses_safe_rename(tmp_path):
     node = rename_mod.RenameNode(template="X")
     with ExitStack() as st:
         st.enter_context(patch.object(
-            rename_mod, "render_template", return_value="bar.txt"
+            base_mod, "render_template", return_value="bar.txt"
         ))
         mock_ren = st.enter_context(patch.object(
             rename_mod.safe_fs, "safe_rename"
@@ -121,7 +128,7 @@ def test_rename_different_parent_uses_safe_move(tmp_path):
     node = rename_mod.RenameNode(template="X")
     with ExitStack() as st:
         st.enter_context(patch.object(
-            rename_mod, "render_template", return_value=str(target)
+            base_mod, "render_template", return_value=str(target)
         ))
         mock_ren = st.enter_context(patch.object(
             rename_mod.safe_fs, "safe_rename"
@@ -140,7 +147,7 @@ def test_rename_dry_run_does_not_mutate(tmp_path):
     node = rename_mod.RenameNode(template="X")
     with ExitStack() as st:
         st.enter_context(patch.object(
-            rename_mod, "render_template", return_value="bar.txt"
+            base_mod, "render_template", return_value="bar.txt"
         ))
         mock_ren = st.enter_context(patch.object(
             rename_mod.safe_fs, "safe_rename"
@@ -162,7 +169,7 @@ def test_copy_insufficient_space_raises_before_copy(tmp_path):
     node = copy_mod.CopyNode(template="X", check_free_space=True)
     with ExitStack() as st:
         st.enter_context(patch.object(
-            copy_mod, "render_and_check", return_value=target
+            base_mod, "render_template", return_value=str(target)
         ))
         st.enter_context(patch.object(
             copy_mod.shutil, "disk_usage",
@@ -183,7 +190,7 @@ def test_copy_dry_run_still_probes_free_space(tmp_path):
     node = copy_mod.CopyNode(template="X", check_free_space=True)
     with ExitStack() as st:
         st.enter_context(patch.object(
-            copy_mod, "render_and_check", return_value=target
+            base_mod, "render_template", return_value=str(target)
         ))
         st.enter_context(patch.object(
             copy_mod.shutil, "disk_usage",
@@ -204,7 +211,7 @@ def test_copy_skips_free_space_when_disabled(tmp_path):
     node = copy_mod.CopyNode(template="X", check_free_space=False)
     with ExitStack() as st:
         st.enter_context(patch.object(
-            copy_mod, "render_and_check", return_value=target
+            base_mod, "render_template", return_value=str(target)
         ))
         mock_du = st.enter_context(patch.object(
             copy_mod.shutil, "disk_usage"
@@ -225,7 +232,7 @@ def test_move_uses_safe_move(tmp_path):
     node = move_mod.MoveNode(template="X")
     with ExitStack() as st:
         st.enter_context(patch.object(
-            move_mod, "render_and_check", return_value=target
+            base_mod, "render_template", return_value=str(target)
         ))
         mock_mov = st.enter_context(patch.object(
             move_mod.safe_fs, "safe_move"
@@ -241,7 +248,7 @@ def test_move_dry_run_does_not_mutate(tmp_path):
     node = move_mod.MoveNode(template="X")
     with ExitStack() as st:
         st.enter_context(patch.object(
-            move_mod, "render_and_check", return_value=target
+            base_mod, "render_template", return_value=str(target)
         ))
         mock_mov = st.enter_context(patch.object(
             move_mod.safe_fs, "safe_move"

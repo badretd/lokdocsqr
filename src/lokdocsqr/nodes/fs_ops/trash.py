@@ -28,10 +28,10 @@ from typing import Any
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import ConfigError, ScopeViolation
 from lokdocsqr.core.models import ActionLog, Risk
-from lokdocsqr.core.node_api.base import Node
 from lokdocsqr.core.node_api.decorators import register_node
 
 from . import _common
+from ._base import FsNode
 
 
 _ONE_DAY_SECONDS = 24 * 3600
@@ -117,7 +117,7 @@ def _check_trash_dir_in_scope(ctx, trash_dir: Path) -> None:
 
 
 @register_node("fs.trash")
-class TrashNode(Node):
+class TrashNode(FsNode):
     """Move a single file into the trash directory. Never deletes.
 
     Parameters (from ``payload``):

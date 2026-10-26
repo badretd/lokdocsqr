@@ -3,7 +3,7 @@
 Architecture contract:
   * Invariant 5 — ``run`` and ``dry_run`` defined explicitly on this class.
   * Invariant 7 — ``scope.check`` runs before every ``safe_fs.*`` call
-    (initial path via ``render_and_check``; parent re-checked before
+    (initial path via :meth:`FsNode._resolve`; parent re-checked before
     ``safe_fs.make_dir`` when ``create_parents`` is true).
   * Invariant 9 — mutations go exclusively through
     ``safe_fs.atomic_write`` / ``safe_fs.atomic_append`` /
@@ -21,21 +21,22 @@ from typing import Any
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import NodeExecutionError
 from lokdocsqr.core.models import Risk
-from lokdocsqr.core.node_api.base import Node
 from lokdocsqr.core.node_api.decorators import register_node
 
-from ._common import build_action_log, check_scope, render_and_check
+from ._base import FsNode
+from ._common import build_action_log, check_scope
 
 
 _VALID_MODES = ("write", "append")
 
 
 @register_node
-class WriteFileNode(Node):
+class WriteFileNode(FsNode):
     """Write or append content to a templated path."""
 
     id = "fs.write_file"
     title = "Write / Append File"
+    description = "Write or append content to a templated path."
     inputs = {
         "path_template": {"type": "string", "required": True},
         "content": {"type": "string", "required": True},
@@ -53,15 +54,6 @@ class WriteFileNode(Node):
         "path": {"type": "string"},
         "bytes_written": {"type": "integer"},
     }
-
-    def describe(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "title": self.title,
-            "inputs": self.inputs,
-            "outputs": self.outputs,
-            "description": "Write or append content to a templated path.",
-        }
 
     # --- run ---------------------------------------------------------
 
@@ -133,12 +125,6 @@ class WriteFileNode(Node):
         }
 
     # --- helpers -----------------------------------------------------
-
-    @staticmethod
-    def _resolve(ctx, payload: dict[str, Any]):
-        template = payload["path_template"]
-        variables = payload.get("variables") or {}
-        return render_and_check(ctx, template, variables)
 
     @staticmethod
     def _coerce_content(content: Any) -> bytes:

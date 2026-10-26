@@ -33,7 +33,6 @@ from lokdocsqr.core.errors import (
     ScopeViolation,
 )
 from lokdocsqr.core.models import Risk
-from lokdocsqr.core.node_api.base import Node
 from lokdocsqr.core.node_api.decorators import register_node
 
 from ._common import (
@@ -43,6 +42,7 @@ from ._common import (
     resolve_conflict_policy,
     risk_for_decision,
 )
+from ._base import FsNode
 
 
 SUPPORTED_FORMATS = ("zip", "7z")
@@ -125,7 +125,7 @@ def _build_7z_bytes(sources: list[Path]) -> bytes:
 # ── node ────────────────────────────────────────────────────────────
 
 @register_node
-class ArchiveNode(Node):
+class ArchiveNode(FsNode):
     """Archive / Extract — zip / 7z with zip-slip protection."""
 
     id = "fs.archive"
@@ -153,10 +153,8 @@ class ArchiveNode(Node):
         self.overwrite = overwrite
         self.conflict_policy = conflict_policy
 
-    def describe(self) -> dict[str, Any]:
+    def _describe_payload(self) -> dict[str, Any]:
         return {
-            "id": self.id,
-            "title": self.title,
             "params": {
                 "operation": {
                     "type": "enum",
@@ -383,7 +381,6 @@ class ArchiveNode(Node):
         return logs
 
     # ── Node ABC ─────────────────────────────────────────────────
-
     def run(self, ctx, payload):
         op = str(payload.get("operation", self.operation))
         if op == "create":

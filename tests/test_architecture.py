@@ -275,11 +275,19 @@ def test_invariant_4_no_delete_api() -> None:
 
 def test_invariant_5_node_contract() -> None:
     """Concrete Node subclasses must implement run and dry_run."""
+    # Base classes that legitimately don't need to implement run/dry_run.
+    ignored: set[str] = {
+        "src/lokdocsqr/nodes/fs_ops/_base.py:FsNode",
+        "src/lokdocsqr/nodes/fs_ops/_base.py:FsTemplateNode",
+    }
     node_classes: list[tuple[Path, ast.ClassDef]] = []
     for path in _python_files(NODES):
+        relative = path.relative_to(ROOT)
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef):
+                continue
+            if f"{relative.as_posix()}:{node.name}" in ignored:
                 continue
             for base in node.bases:
                 name = _base_name(base)

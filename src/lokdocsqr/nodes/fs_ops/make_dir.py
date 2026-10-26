@@ -4,7 +4,7 @@ Architecture contract:
   * Invariant 5 — ``run`` and ``dry_run`` are defined explicitly on this
     class (do not rely on ``Node`` inheritance).
   * Invariant 7 — ``scope.check`` runs before any ``safe_fs.*`` call
-    (via ``_common.render_and_check``).
+    (via :meth:`FsNode._resolve`).
   * Invariant 9 — the only filesystem-mutating call is
     ``safe_fs.make_dir``.
 """
@@ -14,18 +14,19 @@ from typing import Any
 
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.models import Risk
-from lokdocsqr.core.node_api.base import Node
 from lokdocsqr.core.node_api.decorators import register_node
 
-from ._common import build_action_log, render_and_check
+from ._base import FsNode
+from ._common import build_action_log
 
 
 @register_node
-class MakeDirNode(Node):
+class MakeDirNode(FsNode):
     """Create a folder at a templated path (no-op if it already exists)."""
 
     id = "fs.make_dir"
     title = "Create Folder"
+    description = "Create a folder at a templated path (idempotent)."
     inputs = {
         "path_template": {"type": "string", "required": True},
         "variables": {"type": "object", "required": False},
@@ -34,15 +35,6 @@ class MakeDirNode(Node):
         "action_log": {"type": "ActionLog"},
         "path": {"type": "string"},
     }
-
-    def describe(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "title": self.title,
-            "inputs": self.inputs,
-            "outputs": self.outputs,
-            "description": "Create a folder at a templated path (idempotent).",
-        }
 
     # --- run ---------------------------------------------------------
 
@@ -87,11 +79,3 @@ class MakeDirNode(Node):
             details={"would_create": would_create},
         )
         return {"action_log": log, "path": str(path)}
-
-    # --- helpers -----------------------------------------------------
-
-    @staticmethod
-    def _resolve(ctx, payload: dict[str, Any]):
-        template = payload["path_template"]
-        variables = payload.get("variables") or {}
-        return render_and_check(ctx, template, variables)

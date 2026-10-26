@@ -25,7 +25,6 @@ from typing import Any, Callable
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import NodeExecutionError, SafeFsError
 from lokdocsqr.core.models import Risk
-from lokdocsqr.core.node_api.base import Node
 from lokdocsqr.core.node_api.decorators import register_node
 
 from ._common import (
@@ -33,6 +32,7 @@ from ._common import (
     check_scope,
     render_and_check,
 )
+from ._base import FsNode
 
 
 # ── converter implementations ───────────────────────────────────────
@@ -102,7 +102,7 @@ def _guess_mime(path: Path) -> str:
 # ── node ────────────────────────────────────────────────────────────
 
 @register_node
-class ConvertNode(Node):
+class ConvertNode(FsNode):
     """Convert File — registry of (from_mime, to_mime) -> bytes converters."""
 
     id = "fs.convert"
@@ -124,10 +124,8 @@ class ConvertNode(Node):
         self.to_mime = to_mime
         self.overwrite = overwrite
 
-    def describe(self) -> dict[str, Any]:
+    def _describe_payload(self) -> dict[str, Any]:
         return {
-            "id": self.id,
-            "title": self.title,
             "params": {
                 "source": {
                     "type": "string",
@@ -164,13 +162,12 @@ class ConvertNode(Node):
                 },
                 "supported": {
                     "type": "list[str]",
-                    "value": sorted(
-                        f"{a} -> {b}" for a, b in CONVERTERS
-                    ),
+                    "value": sorted(f"{a} -> {b}" for a, b in CONVERTERS),
                 },
             },
         }
 
+    # ── plan ────────────────────────────────────────────────────────
     def _plan(self, ctx, payload):
         source_raw = payload.get("source") or self.source
         target_raw = payload.get("target") or self.target
@@ -230,6 +227,7 @@ class ConvertNode(Node):
             dry_run=dry_run,
         )
 
+    # ── Node ABC ────────────────────────────────────────────────────
     def run(self, ctx, payload):
         source, target, from_mime, to_mime, converter = self._plan(
             ctx, payload
