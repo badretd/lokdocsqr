@@ -1,12 +1,21 @@
-# pip deps: stdlib only
 """Shared base for read-only access nodes.
 
 ``AccessBase`` is internal to ``nodes/access`` and is deliberately not
 registered. It centralises scope-first path resolution, bounded reads,
-binary sniffing and dry-run preview formatting.
+binary sniffing and dry-run preview formatting, and it provides the
+``_run_template`` / ``_dry_run_template`` pipeline that concrete nodes
+wrap with thin ``run`` / ``dry_run`` bodies.
 
 Scope-first rule: every input path and every discovered path is passed
 through ``ctx.scope.check(..., write=False)`` before ``stat``/``read``.
+
+Pipeline shape (mirrors ``fs_ops.FsTemplateNode``):
+
+    _run_template      → _execute
+    _dry_run_template  → _preview  (defaults to _execute)
+
+Because ``access.*`` nodes are read-only, no audit log is emitted and
+no rollback bookkeeping is required.
 """
 from __future__ import annotations
 
@@ -32,13 +41,44 @@ class AccessBase(Node):
     """Common scope-first helpers for ``access.*`` nodes.
 
     This class is intentionally not decorated with ``@register_node``.
-    Concrete subclasses must declare both ``run`` and ``dry_run`` in their
-    own class bodies.
+    Concrete subclasses must declare both ``run`` and ``dry_run`` in
+    their own class bodies; the recommended shape is a pair of thin
+    wrappers around :meth:`_run_template` / :meth:`_dry_run_template`,
+    with the actual read logic placed in :meth:`_execute` and (when it
+    differs) :meth:`_preview`.
     """
 
     BINARY_SNIFF_BYTES = 8 * 1024
     title = "Access"
 
+    # ── template pipeline ────────────────────────────────────────
+    def _run_template(self, ctx: Any, payload: Any) -> dict[str, Any]:
+        """Public ``run`` entry point; dispatches to :meth:`_execute`."""
+        return self._execute(ctx, payload or {})
+
+    def _dry_run_template(self, ctx: Any, payload: Any) -> dict[str, Any]:
+        """Public ``dry_run`` entry point; dispatches to :meth:`_preview`."""
+        return self._preview(ctx, payload or {})
+
+    def _execute(self, ctx: Any, payload: dict[str, Any]) -> dict[str, Any]:
+        """Read-only execution body. Must be implemented by subclasses."""
+        raise NotImplementedError(
+            f"{type(self).__name__} must implement _execute()"
+        )
+
+    def _preview(self, ctx: Any, payload: dict[str, Any]) -> dict[str, Any]:
+        """Dry-run body.
+
+        Defaults to :meth:`_execute` because every ``access.*`` node is
+        read-only and, for nodes that read nothing (``list_files``),
+        preview and execution are indistinguishable. Subclasses whose
+        dry-run must skip expensive work (e.g. hashing or content
+        reads) override this and delegate to a shared
+        ``_process(..., dry_run=True)`` helper.
+        """
+        return self._execute(ctx, payload)
+
+    # ── shared helpers ───────────────────────────────────────────
     def _resolve_input(self, ctx: Any, value: Any) -> list[Path]:
         """Normalise and scope-check one path or a list of paths."""
         raw_values = value if isinstance(value, (list, tuple)) else [value]

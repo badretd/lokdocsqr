@@ -1,4 +1,3 @@
-# pip deps: stdlib only
 """Read Metadata node.
 
 Node id: ``access.read_metadata``. Returns size/mtime/mode/is_dir/is_symlink
@@ -41,10 +40,16 @@ class ReadMetadataNode(AccessBase):
         self.max_bytes_for_hash = max_bytes_for_hash
 
     def run(self, ctx: Any, payload: Any) -> dict[str, Any]:
-        return self._process(ctx, payload or {}, dry_run=False)
+        return self._run_template(ctx, payload)
 
     def dry_run(self, ctx: Any, payload: Any) -> dict[str, Any]:
-        return self._process(ctx, payload or {}, dry_run=True)
+        return self._dry_run_template(ctx, payload)
+
+    def _execute(self, ctx: Any, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._process(ctx, payload, dry_run=False)
+
+    def _preview(self, ctx: Any, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._process(ctx, payload, dry_run=True)
 
     def _raw_paths(self, payload: dict[str, Any]) -> list[Any]:
         value = payload.get("paths", self.paths)

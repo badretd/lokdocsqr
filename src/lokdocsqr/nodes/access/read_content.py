@@ -1,4 +1,3 @@
-# pip deps: stdlib only
 """Read Content node.
 
 Node id: ``access.read_content``. Reads text/binary content up to
@@ -66,10 +65,16 @@ class ReadContentNode(AccessBase):
         self.binary_policy = binary_policy
 
     def run(self, ctx: Any, payload: Any) -> dict[str, Any]:
-        return self._process(ctx, payload or {}, dry_run=False)
+        return self._run_template(ctx, payload)
 
     def dry_run(self, ctx: Any, payload: Any) -> dict[str, Any]:
-        return self._process(ctx, payload or {}, dry_run=True)
+        return self._dry_run_template(ctx, payload)
+
+    def _execute(self, ctx: Any, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._process(ctx, payload, dry_run=False)
+
+    def _preview(self, ctx: Any, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._process(ctx, payload, dry_run=True)
 
     def _raw_paths(self, payload: dict[str, Any]) -> list[Any]:
         value = payload.get("paths", self.paths)

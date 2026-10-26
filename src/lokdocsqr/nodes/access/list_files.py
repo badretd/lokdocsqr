@@ -1,4 +1,3 @@
-# pip deps: stdlib only
 """List Files / Glob node.
 
 Node id: ``access.list_files``. Read-only: no content is read, including
@@ -54,10 +53,13 @@ class ListFilesNode(AccessBase):
         self.limit = limit
 
     def run(self, ctx: Any, payload: Any) -> dict[str, Any]:
-        return self._collect(ctx, payload or {})
+        return self._run_template(ctx, payload)
 
     def dry_run(self, ctx: Any, payload: Any) -> dict[str, Any]:
-        return self._collect(ctx, payload or {})
+        return self._dry_run_template(ctx, payload)
+
+    def _execute(self, ctx: Any, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._collect(ctx, payload)
 
     @staticmethod
     def _normalise_extensions(extensions: list[str] | None) -> set[str] | None:
