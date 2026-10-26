@@ -26,7 +26,7 @@ from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import LokError, NodeExecutionError
 from lokdocsqr.core.node_api.base import Node
 
-__all__ = ["AccessBase", "AccessLimitError", "AccessBinaryError"]
+__all__ = ["AccessBase", "AccessLimitError", "AccessBinaryError", "AccessFormatError"]
 
 
 class AccessLimitError(LokError):
@@ -35,6 +35,9 @@ class AccessLimitError(LokError):
 
 class AccessBinaryError(LokError):
     """Raised when binary content is encountered under ``binary_policy='error'``."""
+
+class AccessFormatError(LokError):
+    """Raised when a format, algorithm, or handler is unsupported."""
 
 
 class AccessBase(Node):

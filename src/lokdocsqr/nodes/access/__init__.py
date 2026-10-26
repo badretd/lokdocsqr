@@ -1,16 +1,16 @@
-# pip deps: stdlib only
-"""Access nodes package: list_files, read_metadata, read_content."""
+"""Access nodes package: ListFilesNode, ReadMetadataNode, ReadContentNode."""
 from __future__ import annotations
 
 from .list_files import ListFilesNode
 from .read_metadata import ReadMetadataNode
 from .read_content import ReadContentNode
-from ._base import AccessBase, AccessBinaryError, AccessLimitError
+from ._base import AccessBase, AccessBinaryError, AccessFormatError, AccessLimitError
 
 __all__ = [
     "AccessBase",
     "AccessBinaryError",
     "AccessLimitError",
+    "AccessFormatError",
     "ListFilesNode",
     "ReadMetadataNode",
     "ReadContentNode",
