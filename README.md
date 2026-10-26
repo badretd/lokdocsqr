@@ -19,6 +19,11 @@ Two binaries from one codebase:
 
 ---
 
+## Tests, tests, tests...
+In terms of tests, this is the worst I’ve ever seen. Right now, we have 500+ completely useless tests that verify themselves, trigger other tests, check documentation, and—God knows what else. I honestly tried to fix this using AI, but neither my sanity nor the AI’s could handle it.
+
+---
+
 ## Project Principles (Non-Negotiable)
 
 1. **One-way dependencies.** `nodes → core.node_api → core`.
