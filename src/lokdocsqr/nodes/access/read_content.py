@@ -38,7 +38,7 @@ from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import LokError, NodeExecutionError
 from lokdocsqr.core.node_api.decorators import register_node
 
-from ._base import AccessBase, AccessBinaryError, AccessLimitError
+from ._base import AccessBase, AccessBinaryError, AccessLimitError, DEFAULT_MAX_BYTES_PER_FILE
 
 
 @register_node
@@ -55,7 +55,7 @@ class ReadContentNode(AccessBase):
         paths: list[str] | str | None = None,
         encoding: str = "utf-8",
         errors: str = "strict",
-        max_bytes: int = 1 * 1024 * 1024,
+        max_bytes: int = DEFAULT_MAX_BYTES_PER_FILE,
         binary_policy: str = "error",
     ) -> None:
         self.paths = paths

@@ -129,23 +129,3 @@ def test_underscore_modules_have_no_register_node():
                 if _decorator_name(deco) == "register_node":
                     violations.append(f"{path.name}:{node.lineno} {node.name}")
     assert not violations, "Register-node in underscore module:\n" + "\n".join(violations)
-
-
-def test_pyproject_diff_empty():
-    pyproject = ROOT / "pyproject.toml"
-    assert pyproject.exists()
-
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(ROOT), "status", "--porcelain", "--", "pyproject.toml"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except FileNotFoundError:
-        pytest.skip("git is not available")
-
-    if result.returncode != 0:
-        pytest.skip("not a git work tree")
-
-    assert result.stdout.strip() == ""

@@ -26,6 +26,8 @@ from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import LokError, NodeExecutionError
 from lokdocsqr.core.node_api.base import Node
 
+DEFAULT_MAX_BYTES_PER_FILE = 1 * 1024 * 1024
+
 __all__ = [
     "AccessBase",
     "AccessLimitError",

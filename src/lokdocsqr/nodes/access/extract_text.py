@@ -39,7 +39,7 @@ from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import LokError, NodeExecutionError
 from lokdocsqr.core.node_api.decorators import register_node
 
-from ._base import AccessBase, AccessFormatError
+from ._base import AccessBase, AccessFormatError, DEFAULT_MAX_BYTES_PER_FILE
 
 Handler = Callable[[bytes, dict[str, Any]], dict[str, Any]]
 HANDLERS: dict[str, Handler] = {}
@@ -127,12 +127,13 @@ def _handle_csv(data: bytes, params: dict[str, Any]) -> dict[str, Any]:
 
 register_handler("txt", _handle_txt)
 register_handler("html", _handle_html)
+register_handler("htm", _handle_html)
 register_handler("csv", _handle_csv)
 
 
 @register_node
 class ExtractTextNode(AccessBase):
-    """Extract text/CSV from txt/html/csv; 6c/6d extend via register_handler()."""
+    """Extract text/CSV from txt/html/htm/csv; 6c/6d extend via register_handler()."""
 
     id = "access.extract_text"
     title = "Extract Text"
@@ -143,7 +144,7 @@ class ExtractTextNode(AccessBase):
         self,
         paths: list[str] | str | None = None,
         format: str = "auto",
-        max_bytes: int = 1 * 1024 * 1024,
+        max_bytes: int = DEFAULT_MAX_BYTES_PER_FILE,
         csv_delimiter: str | None = None,
         csv_encoding: str = "utf-8-sig",
         html_keep_whitespace: bool = False,
@@ -288,6 +289,8 @@ class ExtractTextNode(AccessBase):
         self, ctx: Any, payload: dict[str, Any], dry_run: bool
     ) -> dict[str, Any]:
         format_name = str(payload.get("format", self.format)).strip().lower()
+        if format_name == "htm":
+            format_name = "html"
         try:
             max_bytes = int(payload.get("max_bytes", self.max_bytes))
         except (TypeError, ValueError) as exc:
