@@ -26,7 +26,13 @@ from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import LokError, NodeExecutionError
 from lokdocsqr.core.node_api.base import Node
 
-__all__ = ["AccessBase", "AccessLimitError", "AccessBinaryError", "AccessFormatError"]
+__all__ = [
+    "AccessBase",
+    "AccessLimitError",
+    "AccessBinaryError",
+    "AccessFormatError",
+    "AccessOcrUnavailableError",
+]
 
 
 class AccessLimitError(LokError):
@@ -38,6 +44,10 @@ class AccessBinaryError(LokError):
 
 class AccessFormatError(LokError):
     """Raised when a format, algorithm, or handler is unsupported."""
+
+
+class AccessOcrUnavailableError(LokError):
+    """Raised when the optional OCR stack (pytesseract/Pillow) is missing."""
 
 
 class AccessBase(Node):

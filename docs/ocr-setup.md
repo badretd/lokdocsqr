@@ -44,17 +44,6 @@ Or download the official installer from the UB-Mannheim build page:
 
 https://github.com/UB-Mannheim/tesseract/wiki
 
-### Development Docker
-
-The repository ships `Dockerfile.dev`, which layers
-`tesseract-ocr tesseract-ocr-rus tesseract-ocr-eng` on top of
-`python:3.12-slim` and then runs `pip install -e ".[ocr,dev]"`:
-
-```bash
-docker build -f Dockerfile.dev -t lokdocsqr-dev .
-docker run --rm -it -v "$PWD:/app" lokdocsqr-dev
-```
-
 ## Required languages
 
 - `eng` — English

@@ -1,3 +1,3 @@
 # Phase State
-Done: 0, 1, 2, 3, 4, 5, 6a
-Current: 6b
+Done: 0-6b
+Current: 6с

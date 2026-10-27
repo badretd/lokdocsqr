@@ -186,6 +186,9 @@ class ExtractTextNode(AccessBase):
             return "html"
         if suffix in ("txt", "html", "csv"):
             return suffix
+        # 6c: fall back to registered handler formats (png/jpg/tiff/bmp/…)
+        if suffix in HANDLERS:
+            return suffix
         return None
 
     @staticmethod
@@ -276,6 +279,9 @@ class ExtractTextNode(AccessBase):
             item["text"] = extracted.get("text")
         if "csv" in extracted:
             item["csv"] = extracted.get("csv")
+        # 6c: propagate per-item error from handler output
+        if "error" in extracted:
+            item["error"] = extracted.get("error")
         return item
 
     def _process(
@@ -353,3 +359,68 @@ class ExtractTextNode(AccessBase):
 
 
 __all__ = ["ExtractTextNode", "HANDLERS", "register_handler"]
+
+
+# ── 6c: image format handlers (OCR) ────────────────────────────────
+# Registered under canonical extension names (matching "txt"/"html"/"csv").
+# The handler lazily imports pytesseract/PIL so importing extract_text
+# never requires the optional [ocr] extra (R7). On any failure it returns
+# {"text": None, "error": "..."} and the dispatch loop propagates that
+# error through _run_item's "error" propagation.
+
+def _ocr_handler(data: bytes, params: dict[str, Any]) -> dict[str, Any]:
+    """OCR handler for image formats. Lazy-imports pytesseract/PIL.
+
+    Never raises: returns ``{"text": str}`` on success or
+    ``{"text": None, "error": str}`` on any failure.
+    """
+    try:
+        import pytesseract
+    except ImportError:
+        return {
+            "text": None,
+            "error": (
+                "pytesseract/Pillow not installed — install lokdocsqr[ocr]"
+            ),
+        }
+
+    try:
+        from PIL import Image
+        import io as _io_module
+    except ImportError:
+        return {
+            "text": None,
+            "error": (
+                "pytesseract/Pillow not installed — install lokdocsqr[ocr]"
+            ),
+        }
+
+    lang = str(params.get("lang", "eng"))
+    psm = params.get("psm", 3)
+    oem = params.get("oem", 3)
+    config = f"--psm {psm} --oem {oem}"
+
+    try:
+        image_obj = Image.open(_io_module.BytesIO(data))
+        image_obj.load()
+        text = pytesseract.image_to_string(
+            image_obj, lang=lang, config=config
+        )
+    except Exception as exc:  # noqa: BLE001 — per-item error boundary
+        _tnf = getattr(pytesseract, "TesseractNotFoundError", None)
+        if (_tnf is not None and isinstance(exc, _tnf)) or (
+            type(exc).__name__ == "TesseractNotFoundError"
+        ):
+            return {
+                "text": None,
+                "error": (
+                    "tesseract binary not found — see docs/ocr-setup.md"
+                ),
+            }
+        return {"text": None, "error": str(exc)}
+
+    return {"text": text}
+
+
+for _ext in (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"):
+    register_handler(_ext.lstrip("."), _ocr_handler)
