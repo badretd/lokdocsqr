@@ -28,6 +28,11 @@ __all__ = [
     "NodeResult",
     "RollbackOp",
     "RunResult",
+    # --- Phase 7a policy models ---
+    "PolicyAction",
+    "VerifyAction",
+    "PolicyDecision",
+    "VerifyResult",
 ]
 
 
@@ -222,16 +227,44 @@ class FileRef:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass
+@dataclass(frozen=True)
 class ActionProposal:
-    """Proposed action produced by a node before execution/approval."""
+    """Proposed action produced by a node before execution/approval.
 
-    type: str
+    Phase 7a adds the policy-facing fields (node_id, operation, target_paths,
+    payload, summary). The earlier Phase 4 fields are retained as optional
+    legacy fields so existing callers that construct ActionProposal by keyword
+    keep working. New policy code should use the Phase 7a fields.
+    """
+
+    # Legacy Phase 4 fields (kept for compatibility).
+    type: str = ""
     source: Path | None = None
     target: Path | None = None
     reason: str = ""
     confidence: float = 0.0
     risk: Risk = Risk.LOW
+
+    # Phase 7a policy fields.
+    node_id: str = ""
+    operation: str = "unknown"
+    target_paths: tuple[str, ...] = ()
+    payload: dict[str, Any] = field(default_factory=dict)
+    summary: str = ""
+
+    def __post_init__(self) -> None:
+        target_paths = self.target_paths
+        object.__setattr__(
+            self,
+            "target_paths",
+            tuple(target_paths) if target_paths is not None else (),
+        )
+        payload = self.payload
+        object.__setattr__(
+            self,
+            "payload",
+            dict(payload) if payload is not None else {},
+        )
 
 
 @dataclass
@@ -403,3 +436,43 @@ class RunResult:
                 for op in self.rollback_plan
             ],
         }
+
+
+# ── 7a: policy models ──────────────────────────────────────────────
+# Decision-layer types. No filesystem, executor or GUI dependency.
+
+
+class PolicyAction(str, Enum):
+    """Action selected by the policy engine for a proposal."""
+
+    ALLOW = "allow"
+    BLOCK = "block"
+    REQUIRE_VERIFY = "require_verify"
+
+
+class VerifyAction(str, Enum):
+    """Human / callback verdict for a proposal that requires verification."""
+
+    APPROVE = "approve"
+    REJECT = "reject"
+    EDIT = "edit"
+    TIMEOUT = "timeout"
+
+
+@dataclass(frozen=True)
+class PolicyDecision:
+    """Decision returned by PolicyEngine.decide()."""
+
+    action: PolicyAction
+    reason: str
+    proposal: ActionProposal
+
+
+@dataclass(frozen=True)
+class VerifyResult:
+    """Result of a verify callback (wired in 7c, type prepared in 7a)."""
+
+    action: VerifyAction
+    new_payload: dict | None = None
+    reason: str = ""
+

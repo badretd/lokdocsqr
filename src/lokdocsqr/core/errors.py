@@ -10,7 +10,12 @@ __all__ = [
     "NodeExecutionError",
     "PolicyViolation",
     "SafeFsError",
-    "ScopeViolation",
+    "DryRunInterrupt",
+    "PolicyError",
+    "PolicyConfigError",
+    "PolicyBlockedError",
+    "PolicyTimeoutError",
+    "ProposalValidationError",
 ]
 
 
@@ -48,3 +53,28 @@ class SafeFsError(LokError):
 
 class DryRunInterrupt(LokError):
     """Raised when dry-run mode intentionally interrupts a real operation."""
+
+
+# ── 7a: policy errors ──────────────────────────────────────────────
+# All policy failures inherit PolicyError so 7c can catch them together.
+
+
+class PolicyError(LokError):
+    """Base exception for policy / decision-layer failures."""
+
+
+class PolicyConfigError(PolicyError):
+    """Raised for broken JSON or an invalid policy configuration schema."""
+
+
+class PolicyBlockedError(PolicyError):
+    """Raised when an operation is blocked by policy or verify=REJECT."""
+
+
+class PolicyTimeoutError(PolicyError):
+    """Raised when a verify callback times out."""
+
+
+class ProposalValidationError(PolicyError):
+    """Raised when an ActionProposal is structurally invalid."""
+

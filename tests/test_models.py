@@ -2,10 +2,16 @@
 # === Phase 3.5 applied: workflow v1.0 spec-compliant tests ===
 # === Phase 4 extensions: FileRef / ActionProposal / ActionLog / NodeResult /
 #     RollbackOp / RunResult are part of the public `__all__` surface. ===
+# === Phase 7a extensions: PolicyAction / VerifyAction / PolicyDecision /
+#     VerifyResult added to the public surface. ActionProposal is now a
+#     frozen dataclass with both Phase 4 legacy fields and Phase 7a policy
+#     fields. ===
 from __future__ import annotations
 
-from dataclasses import is_dataclass
+from dataclasses import FrozenInstanceError, is_dataclass
 from pathlib import Path
+
+import pytest
 
 from lokdocsqr.core import models
 from lokdocsqr.core.models import (
@@ -16,6 +22,8 @@ from lokdocsqr.core.models import (
     NodeResult,
     NodeSpec,
     NodeState,
+    PolicyAction,
+    PolicyDecision,
     PortSpec,
     ResolvedGraph,
     Risk,
@@ -23,6 +31,8 @@ from lokdocsqr.core.models import (
     RunResult,
     TriggerSpec,
     VariableSpec,
+    VerifyAction,
+    VerifyResult,
     WorkflowDocument,
     WorkflowErrorHandling,
     WorkflowMetadata,
@@ -53,6 +63,11 @@ EXPECTED_ALL = {
     "NodeResult",
     "RollbackOp",
     "RunResult",
+    # --- Phase 7a policy models ---
+    "PolicyAction",
+    "VerifyAction",
+    "PolicyDecision",
+    "VerifyResult",
 }
 
 ALL_DATACLASSES = (
@@ -75,6 +90,9 @@ ALL_DATACLASSES = (
     NodeResult,
     RollbackOp,
     RunResult,
+    # Phase 7a policy models (frozen dataclasses)
+    PolicyDecision,
+    VerifyResult,
 )
 
 
@@ -111,10 +129,28 @@ def test_risk_values() -> None:
     assert {r.value for r in Risk} == {"low", "medium", "high"}
 
 
+def test_policyaction_values() -> None:
+    """PolicyAction is a str-Enum with allow/block/require_verify."""
+    assert issubclass(PolicyAction, str)
+    assert {p.value for p in PolicyAction} == {
+        "allow", "block", "require_verify",
+    }
+
+
+def test_verifyaction_values() -> None:
+    """VerifyAction is a str-Enum with approve/reject/edit/timeout."""
+    assert issubclass(VerifyAction, str)
+    assert {v.value for v in VerifyAction} == {
+        "approve", "reject", "edit", "timeout",
+    }
+
+
 def test_enum_members_compare_equal_to_strings() -> None:
     """str-Enum members must equal their underlying string."""
     assert NodeState.ENABLED == "enabled"
     assert Risk.HIGH == "high"
+    assert PolicyAction.ALLOW == "allow"
+    assert VerifyAction.REJECT == "reject"
 
 
 # --- WorkflowMetadata -------------------------------------------------------
@@ -398,3 +434,120 @@ def test_fileref_and_runresult_defaults_isolated() -> None:
     ra.errors.append("boom")
     assert rb.node_results == {}
     assert rb.errors == []
+
+
+# --- Phase 7a policy models -------------------------------------------------
+
+def test_phase7a_dataclasses_in_public_all() -> None:
+    """Phase 7a policy models must be exposed via ``models.__all__``."""
+    for name in (
+        "PolicyAction",
+        "VerifyAction",
+        "PolicyDecision",
+        "VerifyResult",
+    ):
+        assert name in models.__all__, f"{name} missing from __all__"
+
+
+def test_actionproposal_phase7a_defaults() -> None:
+    """ActionProposal keeps Phase 4 defaults and gets Phase 7a defaults."""
+    proposal = ActionProposal(node_id="n")
+    # Phase 4 legacy defaults
+    assert proposal.type == ""
+    assert proposal.source is None
+    assert proposal.target is None
+    assert proposal.reason == ""
+    assert proposal.confidence == 0.0
+    assert proposal.risk is Risk.LOW
+    # Phase 7a policy defaults
+    assert proposal.operation == "unknown"
+    assert proposal.target_paths == ()
+    assert proposal.payload == {}
+    assert proposal.summary == ""
+
+
+def test_actionproposal_phase7a_fields() -> None:
+    """ActionProposal accepts and stores all Phase 7a fields."""
+    proposal = ActionProposal(
+        node_id="fs.move",
+        operation="write",
+        target_paths=("/a", "/b"),
+        payload={"k": "v"},
+        summary="move a to b",
+    )
+    assert proposal.node_id == "fs.move"
+    assert proposal.operation == "write"
+    assert proposal.target_paths == ("/a", "/b")
+    assert proposal.payload == {"k": "v"}
+    assert proposal.summary == "move a to b"
+
+
+def test_actionproposal_copies_payload() -> None:
+    """ActionProposal.payload must be a copy, not a reference to caller's dict."""
+    source = {"k": "v"}
+    proposal = ActionProposal(node_id="n", payload=source)
+    source["k"] = "changed"
+    assert proposal.payload == {"k": "v"}
+
+
+def test_actionproposal_payload_isolated_between_instances() -> None:
+    """Each ActionProposal must own its payload dict (default_factory)."""
+    a = ActionProposal(node_id="a")
+    b = ActionProposal(node_id="b")
+    a.payload["k"] = "v"
+    assert b.payload == {}
+
+
+def test_actionproposal_is_frozen() -> None:
+    """Phase 7a makes ActionProposal immutable."""
+    proposal = ActionProposal(node_id="n")
+    with pytest.raises(FrozenInstanceError):
+        proposal.node_id = "changed"  # type: ignore[misc]
+
+
+def test_policydecision_fields() -> None:
+    """PolicyDecision is a frozen record of (action, reason, proposal)."""
+    proposal = ActionProposal(node_id="n", operation="write")
+    decision = PolicyDecision(
+        action=PolicyAction.REQUIRE_VERIFY,
+        reason="high risk",
+        proposal=proposal,
+    )
+    assert decision.action is PolicyAction.REQUIRE_VERIFY
+    assert decision.reason == "high risk"
+    assert decision.proposal is proposal
+
+
+def test_policydecision_is_frozen() -> None:
+    proposal = ActionProposal(node_id="n")
+    decision = PolicyDecision(
+        action=PolicyAction.BLOCK, reason="r", proposal=proposal
+    )
+    with pytest.raises(FrozenInstanceError):
+        decision.reason = "changed"  # type: ignore[misc]
+
+
+def test_verifyresult_defaults() -> None:
+    """VerifyResult.new_payload defaults to None; reason defaults to ''."""
+    result = VerifyResult(action=VerifyAction.APPROVE)
+    assert result.action is VerifyAction.APPROVE
+    assert result.new_payload is None
+    assert result.reason == ""
+
+
+def test_verifyresult_edit_payload() -> None:
+    """VerifyResult carries an edited payload for EDIT outcomes."""
+    result = VerifyResult(
+        action=VerifyAction.EDIT,
+        new_payload={"k": "v"},
+        reason="changed path",
+    )
+    assert result.action is VerifyAction.EDIT
+    assert result.new_payload == {"k": "v"}
+    assert result.reason == "changed path"
+
+
+def test_verifyresult_is_frozen() -> None:
+    result = VerifyResult(action=VerifyAction.APPROVE)
+    with pytest.raises(FrozenInstanceError):
+        result.reason = "changed"  # type: ignore[misc]
