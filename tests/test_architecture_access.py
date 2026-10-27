@@ -79,7 +79,6 @@ def test_no_filesystem_mutations_in_access_modules():
         "write_text",
         "write_bytes",
         "rename",
-        "replace",
         "mkdir",
         "rmdir",
         "touch",

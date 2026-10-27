@@ -427,3 +427,123 @@ def _ocr_handler(data: bytes, params: dict[str, Any]) -> dict[str, Any]:
 
 for _ext in (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"):
     register_handler(_ext.lstrip("."), _ocr_handler)
+
+
+# ── 6d2: pdf/docx/eml handlers ──────────────────────────────────────
+# Registered under canonical extension names. Handlers lazily import
+# optional third-party libraries so importing extract_text never
+# requires [pdf]/[docx] extras (R20). Per-item errors are returned as
+# {"text": None, "error": "..."} and propagated by _run_item.
+
+def _pdf_handler(data: bytes, opts: dict[str, Any]) -> dict[str, Any]:
+    """PDF handler via pypdfium2 (lazy import). R21."""
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:
+        return {
+            "text": None,
+            "error": "pypdfium2 not installed — install lokdocsqr[pdf]",
+        }
+    pdf = None
+    try:
+        pdf = pdfium.PdfDocument(data)
+        parts = []
+        for i in range(len(pdf)):
+            page = pdf[i]
+            tp = page.get_textpage()
+            parts.append(tp.get_text_range())
+        return {"text": "\n".join(parts), "error": None}
+    except Exception as e:  # noqa: BLE001 - per-item error boundary
+        return {
+            "text": None,
+            "error": f"pdf parse error: {type(e).__name__}: {e}",
+        }
+    finally:
+        if pdf is not None:
+            try:
+                pdf.close()
+            except Exception:
+                pass
+
+
+def _docx_handler(data: bytes, opts: dict[str, Any]) -> dict[str, Any]:
+    """DOCX handler via python-docx (lazy import). R22.
+
+    Text order: all paragraphs first, then all table cells. This is a
+    known simplification (docx2txt-equivalent) and is documented here.
+    """
+    try:
+        from docx import Document
+    except ImportError:
+        return {
+            "text": None,
+            "error": "python-docx not installed — install lokdocsqr[docx]",
+        }
+    try:
+        from io import BytesIO
+        doc = Document(BytesIO(data))
+        paragraphs = [p.text for p in doc.paragraphs if p.text]
+        table_cells = []
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    if cell.text:
+                        table_cells.append(cell.text)
+        text = "\n".join(paragraphs + table_cells)
+        return {"text": text, "error": None}
+    except Exception as e:  # noqa: BLE001 - per-item error boundary
+        return {
+            "text": None,
+            "error": f"docx parse error: {type(e).__name__}: {e}",
+        }
+
+
+def _strip_html(html: str) -> str:
+    """Strip HTML tags using stdlib html.parser (no bs4/lxml). R23."""
+    from html.parser import HTMLParser
+
+    class _Stripper(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.parts: list[str] = []
+
+        def handle_data(self, data: str) -> None:
+            self.parts.append(data)
+
+    stripper = _Stripper()
+    stripper.feed(html)
+    stripper.close()
+    return "".join(stripper.parts)
+
+
+def _eml_handler(data: bytes, opts: dict[str, Any]) -> dict[str, Any]:
+    """EML handler via stdlib email. R23."""
+    from email import message_from_bytes
+    from email.errors import MessageParseError
+    try:
+        msg = message_from_bytes(data)
+        texts = []
+        for part in msg.walk():
+            ctype = part.get_content_type()
+            if ctype == "text/plain":
+                payload = part.get_payload(decode=True)
+                if payload:
+                    charset = part.get_content_charset() or "utf-8"
+                    texts.append(payload.decode(charset, errors="replace"))
+        if not texts:
+            for part in msg.walk():
+                if part.get_content_type() == "text/html":
+                    payload = part.get_payload(decode=True)
+                    if payload:
+                        charset = part.get_content_charset() or "utf-8"
+                        html = payload.decode(charset, errors="replace")
+                        texts.append(_strip_html(html))
+        return {"text": "\n".join(texts), "error": None}
+    except MessageParseError as e:
+        return {"text": None, "error": f"eml parse error: {e}"}
+
+
+register_handler("pdf", _pdf_handler)
+register_handler("docx", _docx_handler)
+register_handler("eml", _eml_handler)
+

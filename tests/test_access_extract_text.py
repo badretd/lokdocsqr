@@ -260,11 +260,11 @@ def test_pdf_auto_returns_per_item_error(tmp_path):
     assert "error" in result["items"][0]
 
 
-def test_pdf_explicit_format_no_handler(tmp_path):
+def test_unknown_explicit_format_no_handler(tmp_path):
     ctx = make_ctx(tmp_path)
-    (tmp_path / "doc.pdf").write_bytes(b"%PDF-1.4 fake")
+    (tmp_path / "doc.unk").write_bytes(b"fake")
     result = ExtractTextNode().run(
-        ctx, {"paths": str(tmp_path / "doc.pdf"), "format": "pdf"}
+        ctx, {"paths": str(tmp_path / "doc.unk"), "format": "unk"}
     )
     assert "error" in result["items"][0]
     assert "no handler" in result["items"][0]["error"]
