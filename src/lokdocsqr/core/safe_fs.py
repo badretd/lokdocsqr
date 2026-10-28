@@ -33,6 +33,8 @@ Known read-only callers (this list is enforced by
       avoid the cost of an exception-driven read.
     * ``core/graph/validator.py`` — inspects path-shaped node parameters as
       strings via ``render_template``; never opens the filesystem.
+    * ``core/preview.py`` — reads bytes via :func:`read_bytes` to
+      build before/after diffs for Phase 7b previews; never writes.
 
 Invariants (enforced by tests/test_architecture.py):
     * All mutations go through this module. No public deletion API is
