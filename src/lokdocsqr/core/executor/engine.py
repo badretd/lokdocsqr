@@ -5,7 +5,13 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from lokdocsqr.core.errors import GraphValidationError, NodeExecutionError
+from lokdocsqr.core.errors import (
+    GraphValidationError,
+    NodeExecutionError,
+    PolicyBlockedError,
+    PolicyError,
+    PolicyTimeoutError,
+)
 from lokdocsqr.core.events import (
     EVENT_AUDIT_LOGGED,
     EVENT_NODE_FINISHED,
@@ -15,12 +21,18 @@ from lokdocsqr.core.events import (
 )
 from lokdocsqr.core.models import (
     ActionLog,
+    ActionProposal,
     NodeResult,
     NodeState,
+    PolicyAction,
     ResolvedGraph,
     RunResult,
+    VerifyAction,
+    VerifyResult,
     WorkflowErrorHandling,
 )
+from lokdocsqr.core.planning.registry import classify_node, extract_paths
+from lokdocsqr.core.planning.validator import validate_proposal
 
 from .context import ExecutionContext
 
@@ -98,6 +110,100 @@ def _retry_delay(
     if backoff == "exponential":
         return base * (2 ** max(0, failed_attempt - 1))
     return base
+
+
+def _check_policy_and_verify(
+    node: Any,
+    ctx: "ExecutionContext",
+    payload: dict[str, Any],
+    *,
+    node_id: str | None = None,
+) -> dict[str, Any]:
+    """7c: enforce the policy + verify gate before ``node.run``.
+
+    Returns the payload to execute with — the original ``payload`` on
+    ALLOW / APPROVE / no-policy, or ``VerifyResult.new_payload`` after a
+    validated EDIT.
+
+    Raises a :class:`PolicyError` subclass on any non-ALLOW / non-APPROVE
+    outcome (fail-closed, R26):
+
+      * ``PolicyBlockedError`` — BLOCK, REQUIRE_VERIFY with no callback,
+        or REJECT.
+      * ``PolicyTimeoutError`` — verify TIMEOUT.
+      * ``PolicyError`` — EDIT without ``new_payload``, or unknown
+        ``VerifyAction``.
+
+    Design notes:
+      * R37: when ``ctx.policy is None``, returns ``payload`` unchanged
+        and the caller behaves exactly as it did before 7c.
+      * R38: called exactly once per node, *before* the retry loop, so
+        retries reuse the same verdict and the same payload.
+      * R39: only reads ``ctx`` — no mutations.
+      * R35: an EDIT verdict is re-validated via ``validate_proposal``
+        before returning the edited payload.
+    """
+    if ctx.policy is None:
+        return payload
+
+    if node_id is None:
+        raw_id = getattr(node, "id", None)
+        node_id = raw_id if isinstance(raw_id, str) else ""
+    if not node_id:
+        raise PolicyError(
+            f"policy gate: cannot resolve node_id from "
+            f"{type(node).__name__}"
+        )
+
+    operation = classify_node(node_id)
+    target_paths = extract_paths(payload, node_id)
+    proposal = ActionProposal(
+        node_id=node_id,
+        operation=operation,
+        target_paths=target_paths,
+        payload=dict(payload),
+        summary=f"{operation}: {node_id}",
+    )
+    # Defense in depth: validate the proposal before the engine sees it.
+    validate_proposal(proposal, ctx)
+
+    decision = ctx.policy.decide(proposal)
+    if decision.action == PolicyAction.ALLOW:
+        return payload
+    if decision.action == PolicyAction.BLOCK:
+        raise PolicyBlockedError(f"{node_id}: {decision.reason}")
+
+    # REQUIRE_VERIFY
+    if ctx.verify_callback is None:
+        raise PolicyBlockedError(
+            f"{node_id}: verify required but no callback"
+        )
+    verify_result = ctx.verify_callback(proposal)
+    if verify_result.action == VerifyAction.APPROVE:
+        return payload
+    if verify_result.action == VerifyAction.REJECT:
+        raise PolicyBlockedError(
+            f"{node_id}: rejected: {verify_result.reason}"
+        )
+    if verify_result.action == VerifyAction.TIMEOUT:
+        raise PolicyTimeoutError(f"{node_id}: verify timeout")
+    if verify_result.action == VerifyAction.EDIT:
+        if verify_result.new_payload is None:
+            raise PolicyError(f"{node_id}: EDIT without new_payload")
+        edited = ActionProposal(
+            node_id=node_id,
+            operation=classify_node(node_id),
+            target_paths=extract_paths(verify_result.new_payload, node_id),
+            payload=dict(verify_result.new_payload),
+            summary=f"{operation}: {node_id} (edited)",
+        )
+        # R35: do not trust the callback — re-validate the edit.
+        validate_proposal(edited, ctx)
+        return dict(verify_result.new_payload)
+
+    raise PolicyError(
+        f"{node_id}: unknown verify action {verify_result.action!r}"
+    )
 
 
 class Executor:
@@ -242,6 +348,15 @@ class Executor:
                 if strategy == "fail":
                     aborted = True
                 continue
+
+            # 7c: policy + verify gate. Dry-run is simulated and
+            # deliberately unguarded; the gate runs once per node,
+            # before the retry loop (R38). Payload may be replaced
+            # by an EDIT verdict.
+            if not self.ctx.dry_run:
+                payload = _check_policy_and_verify(
+                    node, self.ctx, payload, node_id=node_id
+                )
 
             attempts = 0
             result: NodeResult | None = None

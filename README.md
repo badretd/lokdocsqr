@@ -51,8 +51,8 @@ Following the plan in [`modules.md`](./docs/modules.md), section 8. The order is
       `core/logging.py`, `core/config.py`
 - [x] `core/graph/*` (parser → validator → resolver → builder)
 - [x] `core/executor/*`, `core/policy.py`, `core/audit.py`
-- [ ] `nodes/fs_ops/*`, `nodes/access/*`
-- [ ] `nodes/planning/*` (Build Action Plan → Policy Guard → Verify → Audit)
+- [x] `nodes/fs_ops/*`, `nodes/access/*`
+- [x] `nodes/planning/*` (Build Action Plan → Policy Guard → Verify → Audit)
 - [ ] `nodes/flow/*`, `nodes/utils/*`
 - [ ] `nodes/llm/local_llm.py`
 - [ ] `nodes/triggers/*` + `core/runtime.py`

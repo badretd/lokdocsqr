@@ -9,7 +9,13 @@ from typing import Any, Callable
 from lokdocsqr.core.audit import AuditLog
 from lokdocsqr.core.config import AppConfig
 from lokdocsqr.core.events import EventBus, bus
-from lokdocsqr.core.models import ActionLog, Risk
+from lokdocsqr.core.models import (
+    ActionLog,
+    ActionProposal,
+    Risk,
+    VerifyResult,
+)
+from lokdocsqr.core.policy import PolicyEngine
 from lokdocsqr.core.scope import ScopeManager
 
 __all__ = ["ExecutionContext"]
@@ -40,8 +46,8 @@ class ExecutionContext:
     events: EventBus = field(default_factory=lambda: bus)
     variables: dict[str, Any] = field(default_factory=dict)
     path_cache: dict[str, Path] = field(default_factory=dict)
-    policy: Any = None
-    verify_callback: Callable[..., Any] | None = None
+    policy: PolicyEngine | None = None
+    verify_callback: Callable[[ActionProposal], VerifyResult] | None = None
 
     def resolved_path(self, scope: ScopeManager, raw: str | Path) -> Path:
         """Resolve and scope-check ``raw``, caching the result per run."""
