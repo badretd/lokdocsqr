@@ -34,6 +34,19 @@ DEFAULT_OPERATION_MAP: dict[str, str] = {
     "fs.tag": "write",
     "fs.trash": "write",
     "fs.write_file": "write",
+    # 8-pre: §6 — 11 phase-8 nodes, containers classified read; inner
+    # nodes gated by their own 7c gate.
+    "flow.if_branch": "read",
+    "flow.filter": "read",
+    "flow.loop_batch": "read",
+    "flow.merge": "read",
+    "flow.wait": "read",
+    "flow.retry": "read",
+    "flow.subflow": "read",
+    "utils.set_variables": "read",
+    "utils.path_template": "read",
+    "utils.json_validate": "read",
+    "utils.notify": "read",
 }
 
 

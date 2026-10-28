@@ -7,7 +7,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 from lokdocsqr.core.audit import AuditLog
+from lokdocsqr.core.catalog import AutomationCatalog
+from lokdocsqr.core.clock import Clock, SystemClock
 from lokdocsqr.core.config import AppConfig
+from lokdocsqr.core.errors import NodeExecutionError
 from lokdocsqr.core.events import EventBus, bus
 from lokdocsqr.core.models import (
     ActionLog,
@@ -19,6 +22,12 @@ from lokdocsqr.core.policy import PolicyEngine
 from lokdocsqr.core.scope import ScopeManager
 
 __all__ = ["ExecutionContext"]
+
+RESERVED_VARIABLES = frozenset({
+    "run_id", "automation_id", "flow_depth", "automations",
+    "scope", "config", "audit", "logger", "events",
+    "policy", "verify_callback", "clock",
+})
 
 
 @dataclass
@@ -48,6 +57,9 @@ class ExecutionContext:
     path_cache: dict[str, Path] = field(default_factory=dict)
     policy: PolicyEngine | None = None
     verify_callback: Callable[[ActionProposal], VerifyResult] | None = None
+    clock: Clock = field(default_factory=SystemClock)
+    flow_depth: int = 0
+    automations: AutomationCatalog | None = None
 
     def resolved_path(self, scope: ScopeManager, raw: str | Path) -> Path:
         """Resolve and scope-check ``raw``, caching the result per run."""
@@ -63,6 +75,14 @@ class ExecutionContext:
         resolved = scope.check(candidate, write=False)
         self.path_cache[key] = resolved
         return resolved
+
+    def set_variable(self, name: str, value: Any) -> None:
+        """Set a run variable unless ``name`` is reserved (Phase 8, SPEC §1)."""
+        if name in RESERVED_VARIABLES:
+            raise NodeExecutionError(
+                f"cannot set reserved variable {name!r}"
+            )
+        self.variables[name] = value
 
     def emit(self, event_type: str, payload: dict[str, Any]) -> None:
         """Emit an event through the configured event bus."""

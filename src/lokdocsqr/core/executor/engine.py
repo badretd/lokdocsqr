@@ -206,6 +206,65 @@ def _check_policy_and_verify(
     )
 
 
+def _read_node_retry_policy(
+    node_spec: Any, node_id: str
+) -> dict[str, Any] | None:
+    """Read and validate per-node ``retry_policy`` from ``spec.params``.
+
+    Returns ``None`` when the node has no retry policy. A malformed policy
+    raises ``NodeExecutionError``; the executor turns that into a node
+    failure rather than an executor crash.
+    """
+    params = getattr(node_spec, "params", None)
+    if params is None:
+        return None
+    if not isinstance(params, dict):
+        raise NodeExecutionError(
+            f"node {node_id!r} params must be a mapping for retry_policy"
+        )
+    policy = params.get("retry_policy")
+    if policy is None:
+        return None
+    if not isinstance(policy, dict):
+        raise NodeExecutionError(
+            f"node {node_id!r} retry_policy must be a mapping"
+        )
+    try:
+        attempts = int(policy.get("attempts", 1))
+        backoff = float(policy.get("backoff", 0.0))
+    except (TypeError, ValueError) as exc:
+        raise NodeExecutionError(
+            f"node {node_id!r} invalid retry_policy numeric field: {exc}"
+        ) from exc
+    if attempts < 1:
+        raise NodeExecutionError(
+            f"node {node_id!r} retry_policy attempts must be >= 1"
+        )
+    if backoff < 0:
+        raise NodeExecutionError(
+            f"node {node_id!r} retry_policy backoff must be >= 0"
+        )
+    raw_retry_on = policy.get("retry_on", ())
+    if isinstance(raw_retry_on, str):
+        retry_on = (raw_retry_on,)
+    elif isinstance(raw_retry_on, (list, tuple)):
+        retry_on = tuple(raw_retry_on)
+        if any(not isinstance(name, str) for name in retry_on):
+            raise NodeExecutionError(
+                f"node {node_id!r} retry_policy retry_on must contain "
+                f"exception class names"
+            )
+    else:
+        raise NodeExecutionError(
+            f"node {node_id!r} retry_policy retry_on must be a sequence"
+        )
+    return {
+        "attempts": attempts,
+        "backoff": backoff,
+        "retry_on": retry_on,
+    }
+
+
 class Executor:
     """Executes a ResolvedGraph in topological order."""
 
@@ -358,6 +417,24 @@ class Executor:
                     node, self.ctx, payload, node_id=node_id
                 )
 
+            retry_policy: dict[str, Any] | None = None
+            retry_policy_error: NodeExecutionError | None = None
+            if not self.ctx.dry_run:
+                try:
+                    retry_policy = _read_node_retry_policy(
+                        node_spec, node_id
+                    )
+                except NodeExecutionError as exc:
+                    retry_policy_error = exc
+                else:
+                    if retry_policy is not None and not getattr(
+                        node, "retry_safe", False
+                    ):
+                        retry_policy_error = NodeExecutionError(
+                            f"retry_policy on non-retry-safe node "
+                            f"{node_id!r} (retry_safe=False)"
+                        )
+
             attempts = 0
             result: NodeResult | None = None
 
@@ -374,6 +451,8 @@ class Executor:
 
                 attempt_started = self._clock()
                 try:
+                    if retry_policy_error is not None:
+                        raise retry_policy_error
                     if self.ctx.dry_run:
                         raw = node.dry_run(self.ctx, payload)
                     else:
@@ -391,13 +470,38 @@ class Executor:
                             f"{type(exc).__name__}: {exc}"
                         )
 
-                    if strategy == "retry" and attempts <= max(
-                        0, int(handling.max_retries)
-                    ):
-                        delay = _retry_delay(handling, attempts)
-                        if delay > 0:
-                            self._sleep(delay)
-                        continue
+                    if retry_policy_error is not None:
+                        result = NodeResult(
+                            node_id=node_id,
+                            state=NodeState.FAILED,
+                            outputs={},
+                            action_logs=[],
+                            error=str(exc),
+                            attempts=attempts,
+                            duration_seconds=duration,
+                        )
+                        break
+
+                    if not self.ctx.dry_run:
+                        if retry_policy is not None:
+                            if (
+                                type(exc).__name__
+                                in retry_policy["retry_on"]
+                                and attempts < retry_policy["attempts"]
+                            ):
+                                delay = retry_policy["backoff"] * (
+                                    2 ** (attempts - 1)
+                                )
+                                if delay > 0:
+                                    self.ctx.clock.sleep(delay)
+                                continue
+                        elif strategy == "retry" and attempts <= max(
+                            0, int(handling.max_retries)
+                        ):
+                            delay = _retry_delay(handling, attempts)
+                            if delay > 0:
+                                self._sleep(delay)
+                            continue
 
                     result = NodeResult(
                         node_id=node_id,

@@ -136,3 +136,65 @@ def _fail_on_cwd_leak(request, tmp_path, monkeypatch):
             f"{request.node.name} leaked into CWD {Path.cwd()}: "
             f"{sorted(leaked)} — use tmp_path/monkeypatch.chdir"
         )
+
+
+# --- phase 8: isolated event bus (auto-added) ---
+@pytest.fixture(autouse=True)
+def _isolated_event_bus(monkeypatch):
+    """Give each test its own EventBus.
+
+    ExecutionContext defaults ``events`` to the module-level ``bus`` in
+    ``core.events``.  That singleton leaks subscribers between tests and
+    causes order-dependent failures once nodes start emitting events in
+    phase 8.  The fixture swaps both the canonical name and the one
+    imported into ``core.executor.context`` (the default_factory lambda
+    resolves the *local* name at call time).
+    """
+    from lokdocsqr.core import events as _events_mod
+    from lokdocsqr.core.executor import context as _ctx_mod
+    fresh = _events_mod.EventBus()
+    monkeypatch.setattr(_events_mod, "bus", fresh)
+    monkeypatch.setattr(_ctx_mod, "bus", fresh)
+    yield fresh
+# --- end phase 8 event bus ---
+
+
+# ==== PHASE_8PRE_FIXTURES (auto-generated) ====
+import pytest as _p8p_pytest
+
+
+@_p8p_pytest.fixture
+def exec_ctx(tmp_path):
+    """Real ExecutionContext for phase 8-pre tests.
+
+    Phase 5b's ``ctx`` fixture uses ``_ScopeStub`` (bool ``check()``), which
+    is incompatible with ``ExecutionContext.resolved_path`` (expects Path).
+    This fixture builds a genuine ScopeManager/AuditLog/EventBus/FakeClock.
+    """
+    from types import SimpleNamespace
+    from lokdocsqr.core.executor.context import ExecutionContext
+    from lokdocsqr.core.scope import ScopeManager
+    from lokdocsqr.core.audit import AuditLog
+    from lokdocsqr.core.events import EventBus
+    from lokdocsqr.core.clock import FakeClock
+
+    scope = ScopeManager(
+        SimpleNamespace(roots=[tmp_path], writable=[tmp_path], allow_symlinks=False)
+    )
+    config = SimpleNamespace(base_dir=tmp_path, trash_dir=tmp_path / "trash")
+    audit = AuditLog(tmp_path / "audit.jsonl")
+    events = EventBus()
+    clock = FakeClock()
+
+    return ExecutionContext(
+        scope=scope,
+        config=config,
+        audit=audit,
+        run_id="test-run",
+        automation_id="test-auto",
+        clock=clock,
+        events=events,
+        policy=None,
+        verify_callback=None,
+        dry_run=False,
+    )

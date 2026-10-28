@@ -30,6 +30,10 @@ class Node(ABC):
     #: Unique, stable identifier of the node type (set by subclasses).
     id: ClassVar[str]
 
+    #: True only for nodes safe to re-run after an error. Mutating fs_ops
+    #: must leave this False. Default False; opt-in (Phase 8, SPEC §5).
+    retry_safe: ClassVar[bool] = False
+
     @property
     @abstractmethod
     def title(self) -> str:
