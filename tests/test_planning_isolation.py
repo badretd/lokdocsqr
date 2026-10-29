@@ -71,6 +71,38 @@ print(json.dumps(bad))
     assert _run_python(code) == []
 
 
-def test_safe_fs_docstring_lists_preview_read_only_caller():
+def test_safe_fs_docstring_matches_readonly_caller_list():
+    """L4 (phase 8d-a): the ``safe_fs`` module docstring must document
+    exactly the 7 known read-only callers from
+    ``tests/test_architecture.py`` — ``READONLY_FS_ALLOWED`` plus the
+    single ``MUTATION_FS_ALLOWED`` exemption — and must **not** list
+    ``core/preview.py``.
+
+    ``core/preview.py`` uses the public ``safe_fs.read_bytes`` API and
+    therefore is not a read-only-caller exemption under invariant 9. This
+    test pins the docstring against silent drift from the two lists in
+    ``test_architecture.py`` (which are the source of truth).
+    """
     text = (SRC / "lokdocsqr" / "core" / "safe_fs.py").read_text(encoding="utf-8")
-    assert "preview" in text
+
+    for module in (
+        "core/config.py",
+        "core/logging.py",
+        "core/paths.py",
+        "core/scope.py",
+        "core/audit.py",
+        "core/graph/validator.py",
+        "core/executor/context.py",
+    ):
+        assert module in text, (
+            f"{module} missing from safe_fs docstring — the docstring must "
+            "match READONLY_FS_ALLOWED ∪ MUTATION_FS_ALLOWED in "
+            "tests/test_architecture.py"
+        )
+
+    assert "core/preview.py" not in text, (
+        "core/preview.py must not be listed as a read-only caller in the "
+        "safe_fs docstring (L4): preview uses the public "
+        "safe_fs.read_bytes API, not an invariant-9 exemption. Update the "
+        "docstring or add preview to READONLY_FS_ALLOWED, not both."
+    )

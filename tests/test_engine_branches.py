@@ -12,7 +12,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from tests.helpers import edge, make_ctx, make_doc, node_spec, port, resolved  # noqa: E402
 
 from lokdocsqr.core.executor.engine import execute  # noqa: E402
-from lokdocsqr.core.models import ActionLog, NodeResult, NodeState  # noqa: E402
+from lokdocsqr.core.models import (  # noqa: E402
+    ActionLog,
+    NodeResult,
+    NodeState,
+    ResolvedGraph,
+)
 
 
 class _InstanceNode:
@@ -81,6 +86,33 @@ class _AlwaysFail:
         raise RuntimeError("boom")
 
 
+def _resolved_unchecked(
+    doc,
+    ordered_node_ids: list[str],
+    handlers: dict,
+    *,
+    states: dict | None = None,
+) -> ResolvedGraph:
+    """Build a :class:`ResolvedGraph` bypassing M5 ``__post_init__``.
+
+    Phase 8d-a contract (M5): ``ResolvedGraph.ordered_node_ids`` must be a
+    subset of ``{spec.id for spec in document.nodes}``; ghost ids raise
+    ``ValueError`` in ``__post_init__``.
+
+    This helper is used **only** by tests that deliberately construct an
+    inconsistent graph to exercise the executor's defensive "missing node
+    spec" branch — i.e. the code path that in the real pipeline would have
+    been rejected upstream by the parser/validator before a
+    :class:`ResolvedGraph` is ever built.
+    """
+    graph = object.__new__(ResolvedGraph)
+    object.__setattr__(graph, "document", doc)
+    object.__setattr__(graph, "ordered_node_ids", list(ordered_node_ids))
+    object.__setattr__(graph, "handlers", dict(handlers))
+    object.__setattr__(graph, "states", dict(states or {}))
+    return graph
+
+
 # ---------------------------------------------------------------------------
 # _node_instance: class handler support
 # ---------------------------------------------------------------------------
@@ -101,7 +133,13 @@ def test_handler_passed_as_class_is_instantiated(tmp_path: Path) -> None:
 def test_missing_node_spec_marks_failed(tmp_path: Path) -> None:
     doc = make_doc([], [])
     handler = _InstanceNode()
-    graph = resolved(
+    # M5 (phase 8d-a): the public ``ResolvedGraph`` constructor now rejects
+    # ghost ids in ``ordered_node_ids`` with ``ValueError``. We build the
+    # graph through the unvalidated helper on purpose so this test still
+    # exercises the executor's defensive "missing node spec" branch
+    # unchanged — that branch runs *before* the invariant would have been
+    # checked by the parser/validator in the real pipeline.
+    graph = _resolved_unchecked(
         doc,
         ["ghost"],
         {"ghost": handler},

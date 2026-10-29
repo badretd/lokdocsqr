@@ -8,8 +8,16 @@ Importing this package triggers ``@register_node`` on each module below
 and therefore populates the ``NodeRegistry`` with:
   * ``fs.make_dir``
   * ``fs.write_file``
+  * ``fs.copy``
+  * ``fs.move``
+  * ``fs.rename``
+  * ``fs.tag``
+  * ``fs.trash``
+  * ``fs.archive``
+  * ``fs.convert``
 """
 from . import make_dir, write_file  # noqa: F401  (registers nodes)
+from . import tag, trash, archive, convert  # noqa: F401  (registers nodes)
 from .make_dir import MakeDirNode
 from .write_file import WriteFileNode
 from .copy import CopyNode

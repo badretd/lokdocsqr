@@ -133,6 +133,10 @@ def _check_policy_and_verify(
       * ``PolicyTimeoutError`` — verify TIMEOUT.
       * ``PolicyError`` — EDIT without ``new_payload``, or unknown
         ``VerifyAction``.
+      * 7d-a-fix: ``node_id`` is the instance id from
+        ``ordered_node_ids`` (for ``ActionProposal.node_id`` and
+        ``node_overrides``); ``node_type`` is the ``NodeSpec.type`` id
+        (for registry lookups). The two MUST NOT be conflated.
 
     Design notes:
       * R37: when ``ctx.policy is None``, returns ``payload`` unchanged
@@ -154,9 +158,18 @@ def _check_policy_and_verify(
             f"policy gate: cannot resolve node_id from "
             f"{type(node).__name__}"
         )
+    # 7d-a-fix: registry lookups (classify_node / extract_paths /
+    # PAYLOAD_PATH_KEYS) are keyed by the registered node type id
+    # (NodeSpec.type / @register_node id), NOT by the instance id
+    # from ordered_node_ids. The handler exposes the registered
+    # type id as ``node.id``; fall back to node_id only for
+    # duck-typed handlers that do not set it.
+    registry_id = getattr(node, "id", None)
+    if not isinstance(registry_id, str) or not registry_id:
+        registry_id = node_id
 
-    operation = classify_node(node_id)
-    target_paths = extract_paths(payload, node_id)
+    operation = classify_node(registry_id)
+    target_paths = extract_paths(payload, registry_id)
     proposal = ActionProposal(
         node_id=node_id,
         operation=operation,
@@ -192,8 +205,8 @@ def _check_policy_and_verify(
             raise PolicyError(f"{node_id}: EDIT without new_payload")
         edited = ActionProposal(
             node_id=node_id,
-            operation=classify_node(node_id),
-            target_paths=extract_paths(verify_result.new_payload, node_id),
+            operation=classify_node(registry_id),
+            target_paths=extract_paths(verify_result.new_payload, registry_id),
             payload=dict(verify_result.new_payload),
             summary=f"{operation}: {node_id} (edited)",
         )
@@ -412,9 +425,9 @@ class Executor:
             # deliberately unguarded; the gate runs once per node,
             # before the retry loop (R38). Payload may be replaced
             # by an EDIT verdict.
-            if not self.ctx.dry_run:
+            if not self.ctx.dry_run:         
                 payload = _check_policy_and_verify(
-                    node, self.ctx, payload, node_id=node_id
+                    node, self.ctx, payload, node_id=node_id,
                 )
 
             retry_policy: dict[str, Any] | None = None

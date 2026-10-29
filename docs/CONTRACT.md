@@ -13,6 +13,7 @@ Enforced by `tests/test_architecture.py` at every phase gate.
 | 7 | **Scope-first.** `fs_ops` nodes must call `scope.check()` before any `safe_fs.*` call. | `tests/test_scope_first.py::check_invariant_7` (called from `test_invariant_7_scope_first`). |
 | 8 | **Executor isolation.** No module under `src/lokdocsqr/core/executor/` may import `lokdocsqr.nodes.*` (concrete nodes). | `test_invariant_8_executor_isolation` — AST import scan. |
 | 9 | **Mutation ban.** Outside `src/lokdocsqr/core/safe_fs.py` and the single documented exemption `src/lokdocsqr/core/logging.py`, no module under `src/lokdocsqr/` may call a filesystem-mutating API — see the enumerated list in the "Filesystem access policy" section below. Read-only access is not restricted. | `test_invariant_9_mutation_ban` — AST call scan against `READONLY_FS_ALLOWED` / `MUTATION_FS_ALLOWED`. |
+| 10 | **Payload-resolution parity.** `core.planning.builder._node_payload` и `core.executor.engine.Executor._build_payload` резолвят графовые рёбра в значения портов с идентичной семантикой: входящие рёбра читаются по `(edge.source, edge.source_port)`, результат присваивается `edge.target_port`; несколько входящих в один `target_port` → список. Строкового синтаксиса `$node.port` в сыром графе нет. | `tests/test_api_contracts_edge_parity.py::test_builder_executor_edge_parity` |
 
 ## Filesystem access policy
 

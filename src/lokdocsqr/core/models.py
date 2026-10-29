@@ -178,6 +178,19 @@ class ResolvedGraph:
     handlers: dict[str, Any] = field(default_factory=dict)
     states: dict[str, NodeState] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        doc_ids = {
+            spec.id
+            for spec in (getattr(self.document, "nodes", None) or [])
+            if isinstance(getattr(spec, "id", None), str) and spec.id
+        }
+        unknown = set(self.ordered_node_ids) - doc_ids
+        if unknown:
+            raise ValueError(
+                "ResolvedGraph.ordered_node_ids references nodes "
+                f"not present in document: {sorted(unknown)}"
+            )
+
 
 # Compatibility model retained for core.scope; not part of the v1.0 workflow
 # public model surface.
