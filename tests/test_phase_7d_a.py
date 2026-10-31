@@ -190,6 +190,40 @@ def _three_node_graph(
         handlers,
     )
 
+def _proposal_node_id(p) -> str:
+    for attr in ("node_id", "spec_id", "node"):
+        v = getattr(p, attr, None)
+        if v is not None:
+            return str(v)
+    raise AssertionError(
+        f"cannot find node_id on proposal; fields={sorted(vars(p))}"
+    )
+
+def _proposal_targets(p) -> list[str]:
+    for attr in ("target_paths", "targets", "paths"):
+        v = getattr(p, attr, None)
+        if v:
+            return [str(x) for x in v]
+    v = getattr(p, "target", None)
+    if v:
+        return [str(v)]
+    raise AssertionError(
+        f"cannot find target field on proposal; fields={sorted(vars(p))}"
+    )
+
+def _target_paths(plan, node_id: str) -> set[str]:
+    if not plan.proposals:
+        raise AssertionError(
+            "build_action_plan produced zero proposals"
+        )
+    props = [p for p in plan.proposals if _proposal_node_id(p) == node_id]
+    if not props:
+        raise AssertionError(
+            f"no proposal for {node_id}; node_ids present: "
+            f"{sorted({_proposal_node_id(p) for p in plan.proposals})}"
+        )
+    return {t for p in props for t in _proposal_targets(p)}
+
 
 # ---------------------------------------------------------------------------
 # A. P1 functional
@@ -318,8 +352,7 @@ def test_b1_static_no_edge() -> None:
 
     assert not plan.blocked, plan.errors
 
-
-def test_b2_edge_wins() -> None:
+def test_b2_edge_wins_over_static() -> None:
     ctx = FakeDataclassCtx()
     n1 = _node(
         "n1", "utils.path_template",
@@ -337,7 +370,14 @@ def test_b2_edge_wins() -> None:
 
     plan = build_action_plan(graph, ctx, AllowPolicy())
 
-    assert not plan.blocked, plan.errors
+    assert not plan.blocked, f"blocked unexpectedly: {plan.errors}"
+    targets = _target_paths(plan, "n2")           # <- падает с диагностикой
+    assert "x.txt" in targets, (
+        f"edge did NOT win; expected 'x.txt', got {sorted(targets)}"
+    )
+    assert "static/ignored.txt" not in targets, (
+        f"static path_template leaked: {sorted(targets)}"
+    )
 
 
 def test_b3_missing_path_template() -> None:

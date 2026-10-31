@@ -133,81 +133,84 @@ class HashDedupeNode(AccessBase):
         hashed: dict[tuple[str, int], list[str]] = {}
         scanned = 0
 
-        def handle_file(path: Path, st: Any) -> None:
+        # ``path``  — реальный путь для I/O (может быть резолвнут scope-гейтом).
+        # ``display`` — что показываем пользователю: исходное имя (entry/raw),
+        #               чтобы в отчёте был ``broken.txt``, а не ``nonexistent.txt``.
+        def handle_file(path: Path, display: Path, st: Any) -> None:
             nonlocal scanned
             scanned += 1
             size = st.st_size
             if size > max_bytes_for_hash:
-                too_large.append({"path": str(path), "size": size})
+                too_large.append({"path": str(display), "size": size})
                 return
             if dry_run:
                 return
             try:
                 digest = safe_fs.hash_file(path, algo)
             except LokError as exc:
-                skipped.append({"path": str(path), "reason": str(exc)})
+                skipped.append({"path": str(display), "reason": str(exc)})
                 return
-            hashed.setdefault((digest, size), []).append(str(path))
+            hashed.setdefault((digest, size), []).append(str(display))
 
-        def scan_dir(directory: Path, recurse: bool) -> None:
+        def scan_dir(
+            directory: Path, display_dir: Path, recurse: bool
+        ) -> None:
             try:
                 checked_dir = ctx.scope.check(directory, write=False)
             except ScopeViolation as exc:
-                skipped.append(
-                    {"path": str(directory), "reason": str(exc)}
-                )
+                skipped.append({"path": str(display_dir), "reason": str(exc)})
                 return
             try:
                 entries = safe_fs.list_dir(checked_dir)
             except LokError as exc:
-                skipped.append(
-                    {"path": str(checked_dir), "reason": str(exc)}
-                )
+                skipped.append({"path": str(display_dir), "reason": str(exc)})
                 return
             for entry in entries:
+                # ``entry`` — то, что вернул list_dir: iterdir не резолвит
+                # симлинки, поэтому имя ``broken.txt`` сохраняется.
+                try:
+                    is_symlink = entry.is_symlink()
+                except OSError:
+                    is_symlink = False
+                if is_symlink and skip_symlinks:
+                    skipped.append({"path": str(entry), "reason": "symlink"})
+                    continue
                 try:
                     checked = ctx.scope.check(entry, write=False)
                 except ScopeViolation as exc:
                     skipped.append({"path": str(entry), "reason": str(exc)})
                     continue
                 try:
-                    is_symlink = entry.is_symlink()
-                except OSError:
-                    is_symlink = False
-                if is_symlink and skip_symlinks:
-                    skipped.append(
-                        {"path": str(checked), "reason": "symlink"}
-                    )
-                    continue
-                try:
                     st = safe_fs.stat(checked)
                 except LokError as exc:
-                    skipped.append(
-                        {"path": str(checked), "reason": str(exc)}
-                    )
+                    # Битая ссылка / нет прав: в отчёт идёт entry, не checked.
+                    skipped.append({"path": str(entry), "reason": str(exc)})
                     continue
                 if stat_module.S_ISDIR(st.st_mode):
                     if recurse:
-                        scan_dir(checked, True)
+                        scan_dir(checked, entry, True)
                     continue
-                handle_file(checked, st)
+                handle_file(checked, entry, st)
 
         for raw in raw_paths:
+            display_raw = raw if isinstance(raw, Path) else Path(raw)
             try:
                 roots = self._resolve_input(ctx, raw)
             except LokError as exc:
-                skipped.append({"path": str(raw), "reason": str(exc)})
+                skipped.append({"path": str(display_raw), "reason": str(exc)})
                 continue
             for root in roots:
                 try:
                     st = safe_fs.stat(root)
                 except LokError as exc:
-                    skipped.append({"path": str(root), "reason": str(exc)})
+                    skipped.append(
+                        {"path": str(display_raw), "reason": str(exc)}
+                    )
                     continue
                 if stat_module.S_ISDIR(st.st_mode):
-                    scan_dir(root, recursive)
+                    scan_dir(root, display_raw, recursive)
                 else:
-                    handle_file(root, st)
+                    handle_file(root, display_raw, st)
 
         groups: list[dict[str, Any]] = []
         unique_count: int | None

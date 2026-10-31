@@ -1,3 +1,3 @@
 # Phase State
-Done: 0-8d
-Current: 8d-a
+Done: 0-8d-a
+Current: 8d
