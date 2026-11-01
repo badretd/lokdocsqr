@@ -11,21 +11,20 @@ built and does not re-run parser/validator/resolver/builder.  An inline
 ``graph`` is a raw Workflow v1.0 dict and is built through
 ``parse_graph -> validate_graph -> resolve_states -> build_graph``.
 
-Validation order in ``_execute``:
+Shared guards (exactly-one, ``max_depth``, FS-path guard, depth guard,
+cycle guard, catalog lookup) live in
+:func:`lokdocsqr.nodes.flow._common._resolve_child_graph` (Phase 8f,
+D8f.1).  The inline build itself is a *callback*: this module supplies
+its own module-level ``_build_inline`` (plus the four graph-building
+imports) so the 8e regression can patch them via ``monkeypatch.setattr``
+on this module.  Do **not** move these names to ``_common`` — the 8e
+tests depend on them living here.
 
-  1. exactly-one-of graph_id/graph;
-  2. resolve max_depth (payload value when present, else
-     ``ctx.config.flow.max_subflow_depth``, else 4);
-  3. validate max_depth as a positive int (booleans rejected); fail closed;
-  4. depth guard against ``ctx.flow_depth``;
-  5. graph_id: filesystem-path rejection, catalog presence, catalog lookup,
-     cycle guard against ``ctx.subflow_stack``;
-  6. child context via ``dataclasses.replace``;
-  7. child executor ``Executor(child_ctx).execute(built)``.
+``_execute`` returns a ``dict`` — **not** ``RunResult`` — so downstream
+nodes and the 8e regression see the same envelope:
 
-Inline ``graph`` does not participate in the cycle stack — only the depth
-guard applies.  Parser/validator/resolver/builder errors and child executor
-exceptions propagate as-is; subflow is transparent to child failure.
+    {"result": RunResult, "graph_id": str|None, "depth": int,
+     "errors": [], "error_count": 0}
 
 ``_preview`` is overridden: nested graph execution is not supported by the
 action plan builder and must fail closed.
@@ -46,47 +45,19 @@ from lokdocsqr.core.node_api.decorators import register_node
 from lokdocsqr.core.node_api.registry import registry
 
 from ._base import _FlowBase
+from ._common import _resolve_child_graph
 
-__all__ = ["SubflowNode"]
-
-_DEFAULT_MAX_DEPTH = 4
-
-
-def _current_depth(ctx: Any) -> int:
-    value = getattr(ctx, "flow_depth", 0)
-    if isinstance(value, int) and not isinstance(value, bool):
-        return value
-    return 0
+__all__ = ["SubflowNode", "_build_inline"]
 
 
-def _subflow_stack(ctx: Any) -> tuple[str, ...]:
-    value = getattr(ctx, "subflow_stack", ())
-    if isinstance(value, tuple):
-        return value
-    try:
-        return tuple(value)
-    except TypeError:
-        return ()
+def _build_inline(graph: dict) -> ResolvedGraph:
+    """Build an inline raw graph.
 
-
-def _resolve_max_depth(ctx: Any, payload: dict[str, Any]) -> Any:
-    if "max_depth" in payload:
-        return payload.get("max_depth")
-
-    config = getattr(ctx, "config", None)
-    flow = getattr(config, "flow", None)
-    return getattr(flow, "max_subflow_depth", _DEFAULT_MAX_DEPTH)
-
-
-def _reject_fs_path(graph_id: str) -> None:
-    if "/" in graph_id or "\\" in graph_id or graph_id.endswith(".json"):
-        raise NodeExecutionError(
-            "subflow: filesystem paths are not supported; "
-            "use AutomationCatalog graph_id"
-        )
-
-
-def _build_inline(graph: dict[str, Any]) -> ResolvedGraph:
+    Kept at module level so the 8e regression can patch
+    ``subflow._build_inline`` / ``subflow.parse_graph`` / ... and observe
+    calls.  ``_resolve_child_graph`` is passed this callable as
+    ``build_inline=`` from ``_execute``.
+    """
     document = parse_graph(graph)
     errors = validate_graph(document)
     if errors:
@@ -107,9 +78,7 @@ class SubflowNode(_FlowBase):
         ``max_depth=10`` allows ``flow_depth`` up to 9 (child depth up to
         10) and rejects the 11th level.  Non-int or non-positive
         ``max_depth`` values are rejected with ``NodeExecutionError``
-        (R26, fail-closed).  The value resolves from
-        ``payload["max_depth"]`` when it is a positive ``int``, otherwise
-        from ``AppConfig.flow.max_subflow_depth`` (fallback 4).
+        (R26, fail-closed).
     """
 
     id = "flow.subflow"
@@ -146,72 +115,23 @@ class SubflowNode(_FlowBase):
 
     def _execute(self, ctx: Any, payload: Any) -> Any:
         payload = payload if isinstance(payload, dict) else {}
-
-        graph_id = (
-            payload.get("graph_id")
-            if isinstance(payload.get("graph_id"), str)
-            and payload.get("graph_id")
-            else None
+        # Pass our own ``_build_inline`` so 8e monkeypatching of this
+        # module's parse/validate/resolve/build names is honoured.
+        graph_id, child_graph = _resolve_child_graph(
+            ctx, payload, build_inline=_build_inline
         )
-        graph = (
-            payload.get("graph")
-            if isinstance(payload.get("graph"), dict) and payload.get("graph")
-            else None
-        )
-
-        if (graph_id is None) == (graph is None):
-            raise NodeExecutionError(
-                "subflow: exactly one of 'graph_id' or 'graph' is required"
-            )
-
-        max_depth = _resolve_max_depth(ctx, payload)
-        if (
-            not isinstance(max_depth, int)
-            or isinstance(max_depth, bool)
-            or max_depth <= 0
-        ):
-            raise NodeExecutionError(
-                f"subflow: max_depth must be a positive integer, got {max_depth!r}"
-            )
-
-        current_depth = _current_depth(ctx)
-        if current_depth >= max_depth:
-            raise NodeExecutionError(
-                f"subflow: max depth exceeded: current={current_depth}, "
-                f"limit={max_depth}"
-            )
-
-        if graph_id is not None:
-            _reject_fs_path(graph_id)
-            catalog = getattr(ctx, "automations", None)
-            if catalog is None:
-                raise NodeExecutionError(
-                    "subflow: AutomationCatalog not configured in ctx.automations"
-                )
-            built = catalog.get(graph_id)
-            if built is None:
-                raise NodeExecutionError(
-                    f"subflow: graph_id not found in catalog: {graph_id}"
-                )
-            if graph_id in _subflow_stack(ctx):
-                raise NodeExecutionError(
-                    f"subflow: cycle detected: {graph_id}"
-                )
-        else:
-            built = _build_inline(graph)
-
         child_ctx = replace(
             ctx,
-            flow_depth=current_depth + 1,
-            subflow_stack=_subflow_stack(ctx)
-            + ((graph_id,) if graph_id is not None else ()),
+            flow_depth=ctx.flow_depth + 1,
+            subflow_stack=ctx.subflow_stack + (
+                (graph_id,) if graph_id is not None else ()
+            ),
         )
-        result = Executor(child_ctx).execute(built)
-
+        result = Executor(child_ctx).execute(child_graph)
         return {
             "result": result,
             "graph_id": graph_id,
-            "depth": current_depth + 1,
+            "depth": ctx.flow_depth + 1,
             "errors": [],
             "error_count": 0,
         }
