@@ -16,6 +16,13 @@ from lokdocsqr.core.safe_fs import atomic_write
 
 
 @dataclass
+class FlowConfig:
+    """Flow-level configuration (Phase 8d, SPEC §3)."""
+
+    max_subflow_depth: int = 4
+
+
+@dataclass
 class AppConfig:
     """Top-level application configuration.
 
@@ -31,6 +38,8 @@ class AppConfig:
     logs_dir: Path | None = None
     scope_roots: list[Path] = field(default_factory=list)
     default_dry_run: bool = True
+
+    flow: FlowConfig = field(default_factory=FlowConfig)
 
     def __post_init__(self) -> None:
         self.base_dir = Path(self.base_dir)
