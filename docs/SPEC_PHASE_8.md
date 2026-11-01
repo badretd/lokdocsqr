@@ -17,10 +17,18 @@
 **Consequences.** `context.py` gets a field; `wait` does not import `time` directly; policy/planning do not change; FS is not affected.
 
 ## 3. `subflow` — subgraph source and `max_depth`
+`max_depth` is a positive `int`; non-int or `<= 0` values fail closed with
+`NodeExecutionError` (R26). Resolution: when `payload["max_depth"]` is
+present it is used directly and validated; otherwise
+`AppConfig.flow.max_subflow_depth` (fallback 4) is used and validated.
+Guard: `ctx.flow_depth >= max_depth` -> `NodeExecutionError`. There is no
+silent fallback for an invalid `max_depth`.
+
+
 
 **Recommendation.** The source is `graph_id` from a read-only `AutomationCatalog` maintained by `core.runtime` (not `NodeRegistry`). The catalog is injected into `ctx.automations`; `subflow` does not read FS itself. Inline payload is acceptable for tests/built-in graphs; an FS path is rejected in phase 8.  
 **R28.** Reading a graph from the catalog is not an FS mutation; `safe_fs` is not needed. An FS path would be read-only, but it pulls in scope/IO and blurs responsibility.  
-**`max_depth`.** A node parameter; default from `AppConfig.flow.max_subflow_depth = 8`; effective depth — `ctx.flow_depth: int = 0`; the child executor receives `+1`.  
+**`max_depth`.** A node parameter; default from `AppConfig.flow.max_subflow_depth = 4`; effective depth — `ctx.flow_depth: int = 0`; the child executor receives `+1`.  
 **Exceeded.** `NodeExecutionError` on the `subflow` node, then the executor’s normal error policy; not a `raise` of the whole run and not per-item, unless subflow is inside a loop.  
 **Alternative.** Only a global `ctx.max_depth` — worse for local exceptions.  
 **Consequences.** New `AutomationCatalog` and `ctx.flow_depth`; policy engine 7a does not change; nested nodes are gated by their own 7c gate.
@@ -46,7 +54,7 @@
 **Recommendation.** Additive extension of `DEFAULT_OPERATION_MAP` in `planning/registry.py`, without changing `PolicyEngine`. Classify all 11 nodes as `read` at the policy-gate level, because the containers themselves do not mutate FS, while inner nodes pass through their own 7c gate:  
 `flow.if_branch`, `flow.filter`, `flow.loop_batch`, `flow.merge`, `flow.wait`, `flow.retry`, `flow.subflow`, `utils.set_variables`, `utils.path_template`, `utils.json_validate`, `utils.notify` → `read`.  
 **Why not `write`.** `write` for a container with empty `target_paths` risks `ProposalValidationError` and over-blocking; `notify` is an external side effect, not FS policy.  
-**Alternatives.** (b) read-only nodes do not pass through the gate — changes the engine; (c) category `"flow"` — changes the engine. Both rejected: policy engine 7a is frozen.  
+**Alternatives.** (b) read-only nodes do not pass throug gate — changes the engine; (c) category `"flow"` — changes the engine. Both rejected: policy engine 7a is frozen.  
 **Consequences.** `registry.py` — additive exception to 7b; `builder.py` does not change; policy engine 7a is not reworked without a new phase.
 
 ## 7. `extract_paths` / `build_action_plan` for nested graphs

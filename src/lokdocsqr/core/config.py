@@ -48,6 +48,17 @@ class AppConfig:
         self.scope_roots = [Path(p) for p in self.scope_roots]
 
 
+
+def _flow_config_from_data(data: dict) -> FlowConfig:
+    """Return FlowConfig from a decoded config dict (Phase 8e)."""
+    raw = data.get("flow")
+    if isinstance(raw, dict):
+        depth = raw.get("max_subflow_depth", 4)
+        if isinstance(depth, int) and not isinstance(depth, bool):
+            return FlowConfig(max_subflow_depth=depth)
+    return FlowConfig()
+
+
 def load_config(path: Path) -> AppConfig:
     """Load configuration from a JSON file.
 
@@ -79,6 +90,7 @@ def load_config(path: Path) -> AppConfig:
             logs_dir=Path(data["logs_dir"]) if data.get("logs_dir") else None,
             scope_roots=[Path(p) for p in data.get("scope_roots", [])],
             default_dry_run=bool(data.get("default_dry_run", True)),
+            flow=_flow_config_from_data(data),
         )
     except (TypeError, ValueError) as exc:
         raise ConfigError(f"Invalid config structure in {path}: {exc}") from exc
@@ -93,6 +105,11 @@ def save_config(config: AppConfig, path: Path) -> None:
         "logs_dir": str(config.logs_dir),
         "scope_roots": [str(p) for p in config.scope_roots],
         "default_dry_run": bool(config.default_dry_run),
+        "flow": {
+            "max_subflow_depth": int(
+                getattr(getattr(config, "flow", None), "max_subflow_depth", 4)
+            )
+        },
     }
     text = json.dumps(data, indent=2, sort_keys=True) + "\n"
     atomic_write(path, text)

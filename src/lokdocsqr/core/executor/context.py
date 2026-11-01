@@ -61,6 +61,8 @@ class ExecutionContext:
     flow_depth: int = 0
     automations: AutomationCatalog | None = None
 
+    subflow_stack: tuple[str, ...] = field(default_factory=tuple)
+
     def resolved_path(self, scope: ScopeManager, raw: str | Path) -> Path:
         """Resolve and scope-check ``raw``, caching the result per run."""
         key = f"{id(scope)}:{raw!s}"
