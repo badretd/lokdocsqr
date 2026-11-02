@@ -1,9 +1,9 @@
 """Verify the Workflow v1.0 domain dataclasses and enums."""
 # === Phase 3.5 applied: workflow v1.0 spec-compliant tests ===
-# === Phase 4 extensions: FileRef / ActionProposal / ActionLog / NodeResult /
+# === Phase 4 extensions: FileRef / ActionSummary / ActionLog / NodeResult /
 #     RollbackOp / RunResult are part of the public `__all__` surface. ===
 # === Phase 7a extensions: PolicyAction / VerifyAction / PolicyDecision /
-#     VerifyResult added to the public surface. ActionProposal is now a
+#     VerifyResult added to the public surface. ActionSummary is now a
 #     frozen dataclass with both Phase 4 legacy fields and Phase 7a policy
 #     fields. ===
 from __future__ import annotations
@@ -16,7 +16,7 @@ import pytest
 from lokdocsqr.core import models
 from lokdocsqr.core.models import (
     ActionLog,
-    ActionProposal,
+    ActionSummary,
     EdgeSpec,
     FileRef,
     NodeResult,
@@ -58,7 +58,7 @@ EXPECTED_ALL = {
     "Risk",
     # --- Phase 4 runtime extensions ---
     "FileRef",
-    "ActionProposal",
+    "ActionSummary",
     "ActionLog",
     "NodeResult",
     "RollbackOp",
@@ -85,7 +85,7 @@ ALL_DATACLASSES = (
     ResolvedGraph,
     # Phase 4 extensions
     FileRef,
-    ActionProposal,
+    ActionSummary,
     ActionLog,
     NodeResult,
     RollbackOp,
@@ -373,7 +373,7 @@ def test_phas4_dataclasses_in_public_all() -> None:
     """Phase 4 models must be explicitly exposed via ``models.__all__``."""
     for name in (
         "FileRef",
-        "ActionProposal",
+        "ActionSummary",
         "ActionLog",
         "NodeResult",
         "RollbackOp",
@@ -449,26 +449,21 @@ def test_phase7a_dataclasses_in_public_all() -> None:
         assert name in models.__all__, f"{name} missing from __all__"
 
 
-def test_actionproposal_phase7a_defaults() -> None:
-    """ActionProposal keeps Phase 4 defaults and gets Phase 7a defaults."""
-    proposal = ActionProposal(node_id="n")
-    # Phase 4 legacy defaults
-    assert proposal.type == ""
-    assert proposal.source is None
-    assert proposal.target is None
-    assert proposal.reason == ""
-    assert proposal.confidence == 0.0
-    assert proposal.risk is Risk.LOW
-    # Phase 7a policy defaults
-    assert proposal.operation == "unknown"
-    assert proposal.target_paths == ()
-    assert proposal.payload == {}
-    assert proposal.summary == ""
+def test_ActionSummary_phase7a_defaults() -> None:
+    """ActionSummary exposes only the Phase 7a policy-facing fields."""
+    summary = ActionSummary(node_id="n")
+    assert summary.node_id == "n"
+    assert summary.operation == "unknown"
+    assert summary.target_paths == ()
+    assert summary.payload == {}
+    assert summary.summary == ""
+    for legacy in ("type", "source", "target", "reason", "confidence", "risk"):
+        assert not hasattr(summary, legacy)
 
 
-def test_actionproposal_phase7a_fields() -> None:
-    """ActionProposal accepts and stores all Phase 7a fields."""
-    proposal = ActionProposal(
+def test_ActionSummary_phase7a_fields() -> None:
+    """ActionSummary accepts and stores all Phase 7a fields."""
+    proposal = ActionSummary(
         node_id="fs.move",
         operation="write",
         target_paths=("/a", "/b"),
@@ -482,46 +477,46 @@ def test_actionproposal_phase7a_fields() -> None:
     assert proposal.summary == "move a to b"
 
 
-def test_actionproposal_copies_payload() -> None:
-    """ActionProposal.payload must be a copy, not a reference to caller's dict."""
+def test_ActionSummary_copies_payload() -> None:
+    """ActionSummary.payload must be a copy, not a reference to caller's dict."""
     source = {"k": "v"}
-    proposal = ActionProposal(node_id="n", payload=source)
+    proposal = ActionSummary(node_id="n", payload=source)
     source["k"] = "changed"
     assert proposal.payload == {"k": "v"}
 
 
-def test_actionproposal_payload_isolated_between_instances() -> None:
-    """Each ActionProposal must own its payload dict (default_factory)."""
-    a = ActionProposal(node_id="a")
-    b = ActionProposal(node_id="b")
+def test_ActionSummary_payload_isolated_between_instances() -> None:
+    """Each ActionSummary must own its payload dict (default_factory)."""
+    a = ActionSummary(node_id="a")
+    b = ActionSummary(node_id="b")
     a.payload["k"] = "v"
     assert b.payload == {}
 
 
-def test_actionproposal_is_frozen() -> None:
-    """Phase 7a makes ActionProposal immutable."""
-    proposal = ActionProposal(node_id="n")
+def test_ActionSummary_is_frozen() -> None:
+    """Phase 7a makes ActionSummary immutable."""
+    proposal = ActionSummary(node_id="n")
     with pytest.raises(FrozenInstanceError):
         proposal.node_id = "changed"  # type: ignore[misc]
 
 
 def test_policydecision_fields() -> None:
-    """PolicyDecision is a frozen record of (action, reason, proposal)."""
-    proposal = ActionProposal(node_id="n", operation="write")
+    """PolicyDecision is a frozen record of (action, reason, summary)."""
+    summary = ActionSummary(node_id="n", operation="write")
     decision = PolicyDecision(
         action=PolicyAction.REQUIRE_VERIFY,
         reason="high risk",
-        proposal=proposal,
+        summary=summary,
     )
     assert decision.action is PolicyAction.REQUIRE_VERIFY
     assert decision.reason == "high risk"
-    assert decision.proposal is proposal
+    assert decision.summary is summary
 
 
 def test_policydecision_is_frozen() -> None:
-    proposal = ActionProposal(node_id="n")
+    summary = ActionSummary(node_id="n")
     decision = PolicyDecision(
-        action=PolicyAction.BLOCK, reason="r", proposal=proposal
+        action=PolicyAction.BLOCK, reason="r", summary=summary
     )
     with pytest.raises(FrozenInstanceError):
         decision.reason = "changed"  # type: ignore[misc]

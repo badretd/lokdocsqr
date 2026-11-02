@@ -5,7 +5,7 @@ import dataclasses
 
 import pytest
 
-from lokdocsqr.core.models import ActionProposal
+from lokdocsqr.core.models import ActionSummary
 from lokdocsqr.core.preview import (
     ChangePreview,
     ChangeType,
@@ -94,29 +94,29 @@ def test_node_change_kind_values():
 )
 def test_node_change_kind_contract(node_id, expected):
     assert NODE_CHANGE_KIND[node_id] is expected
-    proposal = ActionProposal(node_id=node_id, operation="write")
+    proposal = ActionSummary(node_id=node_id, operation="write")
     assert _resolve_change_type(proposal, False) is expected
 
 
 @pytest.mark.parametrize("node_id", ["fs.write_file", "fs.convert", "fs.archive"])
 def test_resolve_create_upgrades_to_modify_when_target_exists(node_id):
-    proposal = ActionProposal(node_id=node_id, operation="write")
+    proposal = ActionSummary(node_id=node_id, operation="write")
     assert _resolve_change_type(proposal, True) is ChangeType.MODIFY
 
 
 @pytest.mark.parametrize("node_id", ["fs.write_file", "fs.convert", "fs.archive"])
 def test_resolve_create_stays_create_when_target_missing(node_id):
-    proposal = ActionProposal(node_id=node_id, operation="write")
+    proposal = ActionSummary(node_id=node_id, operation="write")
     assert _resolve_change_type(proposal, False) is ChangeType.CREATE
 
 
 def test_resolve_fallback_access_read_is_noop():
-    proposal = ActionProposal(node_id="access.list_files", operation="read")
+    proposal = ActionSummary(node_id="access.list_files", operation="read")
     assert _resolve_change_type(proposal, False) is ChangeType.NOOP
 
 
 def test_resolve_fallback_unknown_is_noop():
-    proposal = ActionProposal(node_id="custom.node", operation="unknown")
+    proposal = ActionSummary(node_id="custom.node", operation="unknown")
     assert _resolve_change_type(proposal, False) is ChangeType.NOOP
 
 
@@ -125,5 +125,5 @@ def test_resolve_fallback_unknown_is_noop():
     [(False, ChangeType.CREATE), (True, ChangeType.MODIFY)],
 )
 def test_resolve_fallback_write_without_map(target_exists, expected):
-    proposal = ActionProposal(node_id="custom.node", operation="write")
+    proposal = ActionSummary(node_id="custom.node", operation="write")
     assert _resolve_change_type(proposal, target_exists) is expected

@@ -23,7 +23,7 @@ __all__ = [
     "Risk",
     # --- Phase 4 runtime extensions ---
     "FileRef",
-    "ActionProposal",
+    "ActionSummary",
     "ActionLog",
     "NodeResult",
     "RollbackOp",
@@ -241,31 +241,14 @@ class FileRef:
 
 
 @dataclass(frozen=True)
-class ActionProposal:
-    """Proposed action produced by a node before execution/approval.
+class ActionSummary:
+    """Summary of a proposed action produced by a node before execution/approval.
 
-    Phase 7a adds the policy-facing fields (node_id, operation, target_paths,
-    payload, summary). The earlier Phase 4 fields are retained as optional
-    legacy fields so existing callers that construct ActionProposal by keyword
-    keep working. New policy code should use the Phase 7a fields.
-
-    **Deprecated in 8z.** Removal milestone: 7d-b.
-    Bridge: :meth:`from_node_result` / :meth:`to_action_log` — для
-    будущих миграций. Do not add new fields; prefer the Phase 7a
-    fields over the legacy Phase 4 fields.
+    Phase 8.5: replaces the former ActionSummary. Only the Phase 7a
+    policy-facing fields are retained; legacy Phase 4 fields and the
+    deprecated bridge methods were removed.
     """
 
-    __deprecated__: ClassVar[bool] = True
-
-    # Legacy Phase 4 fields (kept for compatibility).
-    type: str = ""
-    source: Path | None = None
-    target: Path | None = None
-    reason: str = ""
-    confidence: float = 0.0
-    risk: Risk = Risk.LOW
-
-    # Phase 7a policy fields.
     node_id: str = ""
     operation: str = "unknown"
     target_paths: tuple[str, ...] = ()
@@ -285,68 +268,6 @@ class ActionProposal:
             "payload",
             dict(payload) if payload is not None else {},
         )
-
-    # ── 8z deprecated bridge ─────────────────────────────────────
-
-    @classmethod
-    def from_node_result(cls, node_result: Any) -> "ActionProposal":
-        """Bridge: build an ActionProposal from a NodeResult.
-
-        Deprecated in 8z; removal milestone: 7d-b.
-        Best-effort mapping: node_id from the result, payload from
-        the Phase 5c ``payload`` field (falling back to ``outputs``);
-        operation / target_paths / summary are left at defaults
-        because NodeResult carries no policy metadata.
-        """
-        raw_payload = getattr(node_result, "payload", None)
-        if isinstance(raw_payload, dict):
-            payload = dict(raw_payload)
-        elif raw_payload:
-            try:
-                payload = dict(raw_payload)
-            except (TypeError, ValueError):
-                payload = {}
-        else:
-            outputs = getattr(node_result, "outputs", None)
-            payload = dict(outputs) if isinstance(outputs, dict) else {}
-        state = getattr(node_result, "state", "unknown")
-        return cls(
-            node_id=getattr(node_result, "node_id", "") or "",
-            operation="unknown",
-            target_paths=(),
-            payload=payload,
-            summary=f"node_result: {state}",
-        )
-
-    def to_action_log(self, **overrides: Any) -> ActionLog:
-        """Bridge: build an ActionLog from this proposal.
-
-        Deprecated in 8z; removal milestone: 7d-b.
-        Accepts the same keyword arguments as
-        :func:`nodes.fs_ops._common.build_action_log` (minus
-        ``details``); proposal metadata is embedded under
-        ``extra["proposal"]``.
-        """
-        proposal_meta = {
-            "node_id": self.node_id,
-            "operation": self.operation,
-            "target_paths": list(self.target_paths),
-            "summary": self.summary,
-        }
-        extra = dict(overrides.pop("extra", {}) or {})
-        extra.setdefault("proposal", proposal_meta)
-
-        overrides.setdefault("action_type", self.operation)
-        overrides.setdefault("node_id", self.node_id)
-        overrides.setdefault("reason", self.summary)
-        overrides.setdefault("confidence", self.confidence)
-        overrides.setdefault("risk", self.risk)
-        if "target" not in overrides and self.target_paths:
-            overrides["target"] = self.target_paths[0]
-        if "source" not in overrides and self.source is not None:
-            overrides["source"] = str(self.source)
-
-        return ActionLog(extra=extra, **overrides)
 
 
 @dataclass
@@ -547,7 +468,7 @@ class PolicyDecision:
 
     action: PolicyAction
     reason: str
-    proposal: ActionProposal
+    summary: ActionSummary
 
 
 @dataclass(frozen=True)

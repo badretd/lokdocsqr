@@ -221,12 +221,12 @@ def _allow_scope():
 
 def test_validate_proposal_does_not_read_ctx_variables():
     from types import SimpleNamespace
-    from lokdocsqr.core.models import ActionProposal
+    from lokdocsqr.core.models import ActionSummary
     from lokdocsqr.core.planning.validator import validate_proposal
 
     spy = _spy_dict()
     ctx = SimpleNamespace(scope=_allow_scope(), variables=spy)
-    proposal = ActionProposal(
+    proposal = ActionSummary(
         node_id="n1",
         operation="read",
         target_paths=(),
@@ -239,12 +239,12 @@ def test_validate_proposal_does_not_read_ctx_variables():
 
 def test_preview_diff_does_not_read_ctx_variables():
     from types import SimpleNamespace
-    from lokdocsqr.core.models import ActionProposal
+    from lokdocsqr.core.models import ActionSummary
     from lokdocsqr.core.preview import preview_diff
 
     spy = _spy_dict()
     ctx = SimpleNamespace(scope=_allow_scope(), variables=spy, dry_run=True)
-    proposal = ActionProposal(
+    proposal = ActionSummary(
         node_id="n1",
         operation="read",
         target_paths=(),

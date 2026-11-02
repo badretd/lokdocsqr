@@ -85,7 +85,7 @@ lokdocsqr/
 ### 3.1 `core/models.py`
 Domain dataclasses shared across the whole system.
 - `FileRef` — `id, path, hash, mime, size, timestamps, metadata`.
-- `ActionProposal` — `type (move|rename|copy|trash|tag|…), source, target, reason, confidence, risk`.
+- `ActionSummary` — `type (move|rename|copy|trash|tag|…), source, target, reason, confidence, risk`.
 - `ActionLog` — what actually happened, confirmed by whom/what, rollback eligibility.
 - `NodeSpec`, `Edge`, `Automation`, `RawGraph`, `ResolvedGraph`.
 - `NodeResult`, `NodeState {ENABLED, DISABLED, SKIPPED, FAILED}`.
@@ -245,7 +245,7 @@ All `fs_ops` nodes implement `dry_run()` and always emit `ActionLog` entries.
 ### 4.4 `nodes/planning/`
 | File | Node |
 |---|---|
-| `build_action_plan.py` | **Build Action Plan** — LLM/rules output → validated `ActionProposal[]` (schema, scope, conflicts, forbidden ops). |
+| `build_action_plan.py` | **Build Action Plan** — LLM/rules output → validated `ActionSummary[]` (schema, scope, conflicts, forbidden ops). |
 | `policy_guard.py` | **Policy Guard** — consults `core.policy`; auto-approves low risk, blocks high risk, routes the rest to Verify. |
 | `verify.py` | **Verify / Human-in-the-Loop** — diff preview (before/after), approve / reject / edit, batch approve, timeout. |
 | `preview_changes.py` | **Preview Changes** — “before/after” tree and path diff (also embedded in Verify). |

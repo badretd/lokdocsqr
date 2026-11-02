@@ -110,6 +110,40 @@ class SubflowNode(_FlowBase):
         return self._dry_run_template(ctx, payload)
 
     def _preview(self, ctx: Any, payload: Any) -> Any:
+        if isinstance(payload, dict) and payload.get("recursive_preview") is True:
+            callback = getattr(ctx, "planning_callback", None)
+            if callback is None:
+                raise NodeExecutionError(
+                    "subflow: recursive_preview requires ctx.planning_callback"
+                )
+            payload = payload if isinstance(payload, dict) else {}
+            graph_id, child_graph = _resolve_child_graph(
+                ctx, payload, build_inline=_build_inline
+            )
+            flow_vars = {
+                "flow.run_id": ctx.run_id,
+                "flow.automation_id": graph_id,
+                "flow.depth": ctx.flow_depth + 1,
+                "flow.parent_run_id": ctx.run_id,
+            }
+            child_ctx = replace(
+                ctx,
+                variables={**ctx.variables, **flow_vars},
+                flow_depth=ctx.flow_depth + 1,
+                subflow_stack=ctx.subflow_stack
+                + ((graph_id,) if graph_id is not None else ()),
+            )
+            child_plan = callback(child_ctx, child_graph, graph_id)
+            child_errors = tuple(getattr(child_plan, "errors", ()) or ())
+            return {
+                "result": child_plan,
+                "graph_id": graph_id,
+                "depth": ctx.flow_depth + 1,
+                "errors": [
+                    getattr(err, "error", str(err)) for err in child_errors
+                ],
+                "error_count": len(child_errors),
+            }
         raise NodeExecutionError(
             "subflow: nested graph is not supported by the action plan builder"
         )

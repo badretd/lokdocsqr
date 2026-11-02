@@ -85,6 +85,74 @@ class LoopBatchNode(_FlowBase):
         return self._dry_run_template(ctx, payload)
 
     def _preview(self, ctx: Any, payload: Any) -> Any:
+        if isinstance(payload, dict) and payload.get("recursive_preview") is True:
+            callback = getattr(ctx, "planning_callback", None)
+            if callback is None:
+                raise NodeExecutionError(
+                    "loop_batch: recursive_preview requires "
+                    "ctx.planning_callback"
+                )
+            payload = payload if isinstance(payload, dict) else {}
+
+            mode = payload.get("mode", "loop")
+            if mode not in ("loop", "batch"):
+                raise NodeExecutionError(
+                    f"loop_batch: invalid mode {mode!r}, "
+                    f"expected 'loop' or 'batch'"
+                )
+            if mode == "batch":
+                batch_size = payload.get("batch_size", 1)
+                if (
+                    isinstance(batch_size, bool)
+                    or not isinstance(batch_size, int)
+                    or batch_size <= 0
+                ):
+                    raise NodeExecutionError(
+                        f"loop_batch: batch_size must be a positive int, "
+                        f"got {batch_size!r}"
+                    )
+            else:
+                batch_size = 1
+
+            items_raw = payload.get("items")
+            if items_raw is None:
+                total = 0
+            elif isinstance(items_raw, (list, tuple)):
+                total = len(items_raw)
+            else:
+                raise NodeExecutionError(
+                    f"loop_batch: items must be a list or tuple, "
+                    f"got {type(items_raw).__name__}"
+                )
+
+            graph_id, child_graph = _resolve_child_graph(ctx, payload)
+            flow_vars = {
+                "flow.run_id": ctx.run_id,
+                "flow.automation_id": graph_id,
+                "flow.depth": ctx.flow_depth + 1,
+                "flow.parent_run_id": ctx.run_id,
+            }
+            child_ctx = replace(
+                ctx,
+                variables={**ctx.variables, **flow_vars},
+                flow_depth=ctx.flow_depth + 1,
+                subflow_stack=ctx.subflow_stack
+                + ((graph_id,) if graph_id is not None else ()),
+            )
+            child_plan = callback(child_ctx, child_graph, graph_id)
+            child_errors = tuple(getattr(child_plan, "errors", ()) or ())
+            return {
+                "results": [child_plan],
+                "errors": [
+                    getattr(err, "error", str(err)) for err in child_errors
+                ],
+                "error_count": len(child_errors),
+                "total": total,
+                "mode": mode,
+                "batch_size": batch_size,
+                "graph_id": graph_id,
+                "depth": ctx.flow_depth + 1,
+            }
         raise NodeExecutionError(
             "loop_batch: nested graph is not supported by the action plan builder"
         )

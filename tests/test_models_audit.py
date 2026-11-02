@@ -16,7 +16,7 @@ from lokdocsqr.core.audit import AuditLog  # noqa: E402
 from lokdocsqr.core.errors import SafeFsError, ScopeViolation  # noqa: E402
 from lokdocsqr.core.models import (  # noqa: E402
     ActionLog,
-    ActionProposal,
+    ActionSummary,
     FileRef,
     NodeResult,
     NodeState,
@@ -94,13 +94,13 @@ def test_fileref_defaults() -> None:
     assert ref.metadata == {}
 
 
-def test_actionproposal_defaults() -> None:
-    proposal = ActionProposal(type="move")
-    assert proposal.source is None
-    assert proposal.target is None
-    assert proposal.reason == ""
-    assert proposal.confidence == 0.0
-    assert proposal.risk is Risk.LOW
+def test_ActionSummary_defaults() -> None:
+    summary = ActionSummary()
+    assert summary.node_id == ""
+    assert summary.operation == "unknown"
+    assert summary.target_paths == ()
+    assert summary.payload == {}
+    assert summary.summary == ""
 
 
 def test_noderesult_defaults() -> None:

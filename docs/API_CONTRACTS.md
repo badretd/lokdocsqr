@@ -1,5 +1,5 @@
 # LokDocSQR API contracts (behavioral, test-time)
-Version: v1.2 (phase 8z, cleanup + enforcement)
+Version: v1.3 (phase 8.5, nested planning + ActionSummary)
 Правило появления: только через new test + запись здесь.
 
 API contracts отличаются от CONTRACT.md: CONTRACT.md — invariants, enforced AST-scan'ом на каждом гейте; здесь — behavioral contracts, пинованные обычными тестами. При добавлении новой behavioral-гарантии — сначала тест, потом строка здесь.
@@ -89,3 +89,20 @@ to be silently skipped by the builder (pinned by
 `test_missing_source_port_fails_closed_in_builder`), and continues to
 resolve to `None` on the executor side; the resulting empty
 `target_paths` still fails closed via `validate_proposal` (R27).
+
+## v1.3 (phase 8.5)
+
+### Q2 — policy vs retry_policy
+`ctx.policy` / `PolicyEngine` remain the filesystem-policy decision layer:
+they classify operations, produce `PolicyDecision`, and drive the verify
+gate. They do not read `retry_policy`.
+
+`retry_policy` remains an executor concern:
+`Executor._read_node_retry_policy` reads it from `NodeSpec.params`, validates
+it, and applies it before the retry loop. The policy engine and
+`_check_policy_and_verify` are not changed for retry policy; only the
+executor consumes it.
+
+This split is intentional: policy answers "may this action happen?", retry
+answers "how many times may a failed attempt be repeated?". Neither layer
+overrides the other.

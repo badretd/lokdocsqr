@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from lokdocsqr.core.models import ActionProposal
+from lokdocsqr.core.models import ActionSummary
 from lokdocsqr.core.preview import ChangeType, preview_diff
 
 
@@ -45,7 +45,7 @@ def _snapshot(root):
 
 
 def _proposal(node_id, operation, target, payload=None):
-    return ActionProposal(
+    return ActionSummary(
         node_id=node_id,
         operation=operation,
         target_paths=(str(target),),

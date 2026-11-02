@@ -43,7 +43,7 @@ from typing import TYPE_CHECKING, Any
 from .safe_fs import read_bytes as _safe_read_bytes
 
 if TYPE_CHECKING:
-    from .models import ActionProposal
+    from .models import ActionSummary
 
 __all__ = [
     "ChangeType",
@@ -270,7 +270,7 @@ def _change_type_from_operation(
 
 
 def _resolve_change_type(
-    proposal: "ActionProposal", target_exists: bool
+    proposal: "ActionSummary", target_exists: bool
 ) -> ChangeType:
     """Return the :class:`ChangeType` for ``proposal``.
 
@@ -303,7 +303,7 @@ def _build_noop(path: str, before: str, after: str) -> ChangePreview:
 # Public API
 # ---------------------------------------------------------------------------
 
-def preview_diff(proposal: "ActionProposal", ctx: Any) -> ChangePreview:
+def preview_diff(proposal: "ActionSummary", ctx: Any) -> ChangePreview:
     """Build a ChangePreview for ``proposal`` without touching the filesystem.
 
     ``ctx`` is accepted for API symmetry with ``build_action_plan`` and is

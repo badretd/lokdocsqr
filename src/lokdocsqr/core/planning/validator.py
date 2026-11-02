@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..errors import ProposalValidationError
-from ..models import ActionProposal
+from ..models import ActionSummary
 
 if TYPE_CHECKING:
     from .plan import ActionPlan
@@ -38,7 +38,7 @@ MUTATING_OPERATIONS: frozenset[str] = frozenset(
 )
 
 
-def validate_proposal(proposal: ActionProposal, ctx: Any) -> None:
+def validate_proposal(proposal: ActionSummary, ctx: Any) -> None:
     """Validate schema and (for mutating ops) scope of ``proposal``.
 
     Raises:
@@ -94,5 +94,5 @@ def validate_proposal(proposal: ActionProposal, ctx: Any) -> None:
 
 def validate_plan(plan: "ActionPlan", ctx: Any) -> None:
     """Validate every proposal in ``plan``. Informational; ``blocked`` is not raised."""
-    for proposal in plan.proposals:
+    for proposal in plan.summaries:
         validate_proposal(proposal, ctx)

@@ -661,11 +661,12 @@ def test_subflow_does_not_mutate_parent_ctx(
     variables_before = dict(ctx.variables)
     stack_before = ctx.subflow_stack
     depth_before = ctx.flow_depth
+    flow_var_depth_before = ctx.variables.get("flow.depth")
     SubflowNode()._execute(ctx, {"graph_id": "A"})
     assert ctx.variables == variables_before
-    assert "flow.run_id" not in ctx.variables
-    assert ctx.subflow_stack == stack_before
     assert ctx.flow_depth == depth_before
+    assert ctx.variables.get("flow.depth") == flow_var_depth_before
+    assert ctx.subflow_stack == stack_before
 
 
 def test_subflow_returns_envelope(
@@ -796,11 +797,10 @@ def test_loop_batch_does_not_mutate_parent_ctx(
     )
     variables_before = dict(ctx.variables)
     stack_before = ctx.subflow_stack
-    LoopBatchNode()._execute(
-        ctx, {"items": [1, 2], "graph_id": "g"}
-    )
+    flow_var_depth_before = ctx.variables.get("flow.depth")
+    LoopBatchNode()._execute(ctx, {"items": [1, 2], "graph_id": "g"})
     assert ctx.variables == variables_before
-    assert "flow.run_id" not in ctx.variables
+    assert ctx.variables.get("flow.depth") == flow_var_depth_before
     assert ctx.subflow_stack == stack_before
 
 

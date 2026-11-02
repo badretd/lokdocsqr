@@ -35,7 +35,7 @@ from __future__ import annotations
 import dataclasses
 from typing import Any
 
-from ..models import ActionProposal, PolicyAction, PolicyDecision
+from ..models import ActionSummary, PolicyAction, PolicyDecision
 from ..policy.engine import PolicyEngine
 from ..preview import ChangePreview, preview_diff
 from .plan import ActionPlan, PlanError
@@ -186,20 +186,18 @@ def _merge_planning_vars(
             planning_vars[key] = value
 
 
-def build_action_plan(
+@dataclasses.dataclass
+class _PlanningState:
+    visited_graph_ids: set[str] = dataclasses.field(default_factory=set)
+
+
+def _build_action_plan(
     graph: Any,
     ctx: Any,
     policy: PolicyEngine,
+    state: _PlanningState,
 ) -> ActionPlan:
-    """Build an :class:`ActionPlan` for ``graph`` without running any node.
-
-    Phase 7d-a keeps a local ``planning_vars`` mapping. For real dataclass
-    contexts every ``node.dry_run`` receives a shallow copy created via
-    ``dataclasses.replace(ctx, variables=dict(planning_vars))``; mocked or
-    duck-typed contexts are passed through unchanged (7b compat). After the
-    call, a dict result containing ``"variables"`` updates ``planning_vars``.
-    ``ctx.variables`` is never mutated.
-    """
+    """Internal recursive plan builder (Phase 8.5)."""
     doc = getattr(graph, "document", None)
     specs: dict[str, Any] = {}
     if doc is not None:
@@ -219,10 +217,30 @@ def build_action_plan(
     planning_vars: dict[str, Any] = {}
     outputs_by_node: dict[str, dict[str, Any]] = {}
 
-    proposals: list[ActionProposal] = []
+    summaries: list[ActionSummary] = []
     decisions: list[PolicyDecision] = []
     previews: list[ChangePreview] = []
     errors: list[PlanError] = []
+
+    def _recurse(
+        child_ctx: Any, child_graph: Any, graph_id: str | None
+    ) -> ActionPlan:
+        if graph_id is not None:
+            if graph_id in state.visited_graph_ids:
+                raise ValueError("cycle in nested graphs")
+            state.visited_graph_ids.add(graph_id)
+        try:
+            child_plan = _build_action_plan(
+                child_graph, child_ctx, policy, state
+            )
+        finally:
+            if graph_id is not None:
+                state.visited_graph_ids.discard(graph_id)
+        summaries.extend(child_plan.summaries)
+        decisions.extend(child_plan.decisions)
+        previews.extend(child_plan.previews)
+        errors.extend(child_plan.errors)
+        return child_plan
 
     for node_id in ordered_ids:
         node = handlers.get(node_id)
@@ -236,7 +254,6 @@ def build_action_plan(
             )
             continue
 
-        # Defensive: some registries hand out classes, not instances.
         if isinstance(node, type):
             try:
                 node = node()
@@ -261,9 +278,6 @@ def build_action_plan(
             )
             continue
 
-        # Build the payload first; if the graph asks for a required input
-        # port with neither edge nor default, this raises here and is
-        # reported as a per-node PlanError, same as the executor does.
         try:
             payload = _node_payload(
                 specs.get(node_id),
@@ -281,10 +295,20 @@ def build_action_plan(
             )
             continue
 
-        # Isolation is best-effort and MUST NOT be reported as a node
-        # failure. If the context is not a real dataclass we fall back to
-        # the original object (7b behaviour).
         node_ctx = _isolated_ctx(ctx, planning_vars)
+        if dataclasses.is_dataclass(node_ctx) and not isinstance(node_ctx, type):
+            if hasattr(node_ctx, "planning_callback"):
+                try:
+                    node_ctx = dataclasses.replace(
+                        node_ctx, planning_callback=_recurse
+                    )
+                except (TypeError, ValueError):
+                    pass
+        else:
+            try:
+                setattr(node_ctx, "planning_callback", _recurse)
+            except Exception:  # noqa: BLE001
+                pass
 
         try:
             dry_run_result = dry_run(node_ctx, payload)
@@ -302,19 +326,17 @@ def build_action_plan(
         outputs_by_node[node_id] = _dry_run_outputs(dry_run_result)
 
         try:
-            # 7d-a-fix: registry lookups are keyed by NodeSpec.type,
-            # not instance id. Keep proposal.node_id = instance id.
             node_spec = specs.get(node_id)
             node_type = getattr(node_spec, "type", None) or node_id
             target_paths = extract_paths(payload, node_type)
             operation = classify_node(node_type)
-            summary = f"{operation}: {', '.join(target_paths) or 'n/a'}"
-            proposal = ActionProposal(
+            summary_text = f"{operation}: {', '.join(target_paths) or 'n/a'}"
+            proposal = ActionSummary(
                 node_id=node_id,
                 operation=operation,
                 target_paths=target_paths,
                 payload=dict(payload),
-                summary=summary,
+                summary=summary_text,
             )
             validate_proposal(proposal, ctx)
         except ProposalValidationError as exc:
@@ -339,7 +361,7 @@ def build_action_plan(
         decision = policy.decide(proposal)
         preview = preview_diff(proposal, ctx)
 
-        proposals.append(proposal)
+        summaries.append(proposal)
         decisions.append(decision)
         previews.append(preview)
 
@@ -348,9 +370,18 @@ def build_action_plan(
     )
 
     return ActionPlan(
-        proposals=tuple(proposals),
+        summaries=tuple(summaries),
         decisions=tuple(decisions),
         previews=tuple(previews),
         errors=tuple(errors),
         blocked=blocked,
     )
+
+
+def build_action_plan(
+    graph: Any,
+    ctx: Any,
+    policy: PolicyEngine,
+) -> ActionPlan:
+    """Build an :class:`ActionPlan` for ``graph`` without running any node."""
+    return _build_action_plan(graph, ctx, policy, _PlanningState())

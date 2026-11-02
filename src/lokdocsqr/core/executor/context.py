@@ -14,7 +14,7 @@ from lokdocsqr.core.errors import NodeExecutionError
 from lokdocsqr.core.events import EventBus, bus
 from lokdocsqr.core.models import (
     ActionLog,
-    ActionProposal,
+    ActionSummary,
     Risk,
     VerifyResult,
 )
@@ -27,6 +27,8 @@ RESERVED_VARIABLES = frozenset({
     "run_id", "automation_id", "flow_depth", "automations",
     "scope", "config", "audit", "logger", "events",
     "policy", "verify_callback", "clock",
+    "flow.run_id", "flow.automation_id", "flow.depth",
+    "flow.parent_run_id",
 })
 
 
@@ -56,12 +58,25 @@ class ExecutionContext:
     variables: dict[str, Any] = field(default_factory=dict)
     path_cache: dict[str, Path] = field(default_factory=dict)
     policy: PolicyEngine | None = None
-    verify_callback: Callable[[ActionProposal], VerifyResult] | None = None
+    verify_callback: Callable[[ActionSummary], VerifyResult] | None = None
     clock: Clock = field(default_factory=SystemClock)
     flow_depth: int = 0
     automations: AutomationCatalog | None = None
 
     subflow_stack: tuple[str, ...] = field(default_factory=tuple)
+    planning_callback: Callable[[Any, Any, str | None], Any] | None = None
+
+    def __post_init__(self) -> None:
+        flow_defaults = {
+            "flow.run_id": self.run_id,
+            "flow.automation_id": self.automation_id,
+            "flow.depth": self.flow_depth,
+            "flow.parent_run_id": (
+                self.run_id if self.flow_depth > 0 else None
+            ),
+        }
+        for key, value in flow_defaults.items():
+            self.variables.setdefault(key, value)
 
     def resolved_path(self, scope: ScopeManager, raw: str | Path) -> Path:
         """Resolve and scope-check ``raw``, caching the result per run."""

@@ -76,5 +76,5 @@ class PolicyTimeoutError(PolicyError):
 
 
 class ProposalValidationError(PolicyError):
-    """Raised when an ActionProposal is structurally invalid."""
+    """Raised when an ActionSummary is structurally invalid."""
 

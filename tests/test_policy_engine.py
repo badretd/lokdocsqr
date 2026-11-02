@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import pytest
 
-from lokdocsqr.core.models import ActionProposal, PolicyAction, PolicyDecision
+from lokdocsqr.core.models import ActionSummary, PolicyAction, PolicyDecision
 from lokdocsqr.core.policy import PolicyConfig, PolicyEngine
 
 
 def _proposal(node_id="x", operation="read"):
-    return ActionProposal(node_id=node_id, operation=operation)
+    return ActionSummary(node_id=node_id, operation=operation)
 
 
 def test_default_read_allow():
@@ -124,14 +124,14 @@ def test_determinism_same_proposal():
 
 def test_determinism_two_equivalent_proposals():
     engine = PolicyEngine.default()
-    first_proposal = ActionProposal(
+    first_proposal = ActionSummary(
         node_id="n1",
         operation="write",
         target_paths=("a",),
         payload={"k": "v"},
         summary="s",
     )
-    second_proposal = ActionProposal(
+    second_proposal = ActionSummary(
         node_id="n1",
         operation="write",
         target_paths=("a",),

@@ -14,7 +14,7 @@ from lokdocsqr.core.errors import (
     ProposalValidationError,
 )
 from lokdocsqr.core.models import (
-    ActionProposal,
+    ActionSummary,
     PolicyAction,
     PolicyDecision,
     VerifyAction,
@@ -23,13 +23,13 @@ from lokdocsqr.core.models import (
 
 
 def test_action_proposal_frozen():
-    proposal = ActionProposal(node_id="n1", operation="read")
+    proposal = ActionSummary(node_id="n1", operation="read")
     with pytest.raises(dataclasses.FrozenInstanceError):
         proposal.node_id = "n2"
 
 
 def test_policy_decision_frozen():
-    proposal = ActionProposal(node_id="n1", operation="read")
+    proposal = ActionSummary(node_id="n1", operation="read")
     decision = PolicyDecision(PolicyAction.ALLOW, "ok", proposal)
     with pytest.raises(dataclasses.FrozenInstanceError):
         decision.action = PolicyAction.BLOCK
@@ -62,7 +62,7 @@ def test_verify_action_values():
 
 
 def test_action_proposal_constructor_with_7a_fields():
-    proposal = ActionProposal(
+    proposal = ActionSummary(
         node_id="n1",
         operation="write",
         target_paths=("a.txt",),
@@ -78,7 +78,7 @@ def test_action_proposal_constructor_with_7a_fields():
 
 def test_action_proposal_payload_is_copied():
     original = {"k": "v"}
-    proposal = ActionProposal(payload=original)
+    proposal = ActionSummary(payload=original)
     original["k"] = "changed"
     assert proposal.payload == {"k": "v"}
 

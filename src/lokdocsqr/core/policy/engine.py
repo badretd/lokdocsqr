@@ -11,7 +11,7 @@ from types import MappingProxyType
 from typing import Any
 
 from ..errors import PolicyConfigError
-from ..models import ActionProposal, PolicyAction, PolicyDecision
+from ..models import ActionSummary, PolicyAction, PolicyDecision
 from .decision import PolicyConfig
 
 __all__ = ["PolicyEngine"]
@@ -38,7 +38,7 @@ def _as_str_set(value: Any, field_name: str) -> frozenset[str]:
 
 
 class PolicyEngine:
-    """Evaluate ActionProposal objects against a PolicyConfig."""
+    """Evaluate ActionSummary objects against a PolicyConfig."""
 
     def __init__(self, config: PolicyConfig) -> None:
         self.config = config
@@ -132,7 +132,7 @@ class PolicyEngine:
         engine._allow_read = True
         return engine
 
-    def decide(self, proposal: ActionProposal) -> PolicyDecision:
+    def decide(self, proposal: ActionSummary) -> PolicyDecision:
         """Return a deterministic PolicyDecision for the proposal.
 
         Strict order (fail-closed):

@@ -436,11 +436,7 @@ def test_loop_results_are_run_result(
 def test_loop_does_not_mutate_parent_context(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """R39: dataclasses.replace means the parent ctx is never mutated.
-
-    Even though D8g.5 adds new keys to child_ctx.variables, the parent
-    must not see them (they live only in the child copy).
-    """
+    """R39: dataclasses.replace means the parent ctx is never mutated."""
     _install_fake_executor(monkeypatch, loop_batch_mod)
     ctx = _make_ctx(
         tmp_path,
@@ -449,12 +445,11 @@ def test_loop_does_not_mutate_parent_context(
         subflow_stack=("root",),
     )
     variables_before = dict(ctx.variables)
+    flow_depth_before = ctx.variables.get("flow.depth")
     stack_before = ctx.subflow_stack
-    LoopBatchNode()._execute(
-        ctx, {"items": [1, 2], "graph_id": "g"}
-    )
+    LoopBatchNode()._execute(ctx, {"items": [1, 2], "graph_id": "g"})
     assert ctx.variables == variables_before
-    assert "flow.run_id" not in ctx.variables
+    assert ctx.variables.get("flow.depth") == flow_depth_before
     assert ctx.subflow_stack == stack_before
 
 
@@ -779,12 +774,7 @@ def test_subflow_inline_graph_flow_automation_id_is_none(
 def test_subflow_does_not_mutate_parent_ctx(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """R39: subflow never mutates the parent ctx.
-
-    Even with D8g.5 variables merging, ``variables`` / ``subflow_stack`` /
-    ``flow_depth`` on the parent context must be byte-for-byte unchanged
-    after ``_execute``.
-    """
+    """R39: subflow never mutates the parent ctx."""
     _install_fake_executor(monkeypatch, subflow_mod)
     ctx = _make_ctx(
         tmp_path,
@@ -794,15 +784,16 @@ def test_subflow_does_not_mutate_parent_ctx(
         flow_depth=1,
     )
     variables_before = dict(ctx.variables)
+    flow_depth_before = ctx.flow_depth
+    flow_var_depth_before = ctx.variables.get("flow.depth")
     stack_before = ctx.subflow_stack
-    depth_before = ctx.flow_depth
 
     SubflowNode()._execute(ctx, {"graph_id": "A"})
 
     assert ctx.variables == variables_before
-    assert "flow.run_id" not in ctx.variables
+    assert ctx.flow_depth == flow_depth_before
+    assert ctx.variables.get("flow.depth") == flow_var_depth_before
     assert ctx.subflow_stack == stack_before
-    assert ctx.flow_depth == depth_before
 
 
 def test_subflow_propagates_child_lokerror(

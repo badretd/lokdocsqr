@@ -43,8 +43,8 @@ declared type — boolean. H6 checks keys, not types.
 edited after EDIT). Not a bug; unify at 7d-b.
 **Priority:** low (cleanup)
 
-## TICKET-8z-ActionProposal-post_init: cleanup
-**File:** core/models.py::ActionProposal.__post_init__
+## TICKET-8z-ActionSummary-post_init: cleanup
+**File:** core/models.py::ActionSummary.__post_init__
 **Symptom:** recreates target_paths/payload even when they are valid;
 will go away with the class when it is removed in 7d-b.
 **Priority:** low (will disappear when the class is removed)

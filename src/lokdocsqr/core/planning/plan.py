@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..models import ActionProposal, PolicyDecision
+from ..models import ActionSummary, PolicyDecision
 from ..preview import ChangePreview
 
 __all__ = ["PlanError", "ActionPlan"]
@@ -26,15 +26,19 @@ class PlanError:
 class ActionPlan:
     """Result of building a dry-run action plan.
 
-    ``proposals``, ``decisions`` and ``previews`` are parallel by index:
-    ``proposals[i]`` corresponds to ``decisions[i]`` and ``previews[i]``.
+    ``summaries``, ``decisions`` and ``previews`` are parallel by index:
+    ``summaries[i]`` corresponds to ``decisions[i]`` and ``previews[i]``.
     Nodes that failed appear only in ``errors``.
 
     ``blocked`` is True if any decision is BLOCK or if any errors occurred.
     """
 
-    proposals: tuple[ActionProposal, ...]
+    summaries: tuple[ActionSummary, ...]
     decisions: tuple[PolicyDecision, ...]
     previews: tuple[ChangePreview, ...]
     errors: tuple[PlanError, ...]
     blocked: bool
+
+    @property
+    def proposals(self):
+        return self.summaries

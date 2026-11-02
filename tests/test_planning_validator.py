@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from lokdocsqr.core.errors import PolicyError, ProposalValidationError
-from lokdocsqr.core.models import ActionProposal
+from lokdocsqr.core.models import ActionSummary
 from lokdocsqr.core.planning import ActionPlan, validate_plan, validate_proposal
 
 
@@ -36,7 +36,7 @@ def _proposal(**overrides):
         "summary": "s",
     }
     values.update(overrides)
-    return ActionProposal(**values)
+    return ActionSummary(**values)
 
 
 def test_valid_proposal_does_not_raise():
@@ -111,7 +111,7 @@ def test_proposal_validation_error_location():
 
 def test_validate_plan_informational_does_not_raise():
     plan = ActionPlan(
-        proposals=(),
+        summaries=(),
         decisions=(),
         previews=(),
         errors=(),

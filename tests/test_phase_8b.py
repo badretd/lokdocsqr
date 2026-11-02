@@ -38,6 +38,10 @@ EXPECTED_RESERVED = frozenset(
         "policy",
         "verify_callback",
         "clock",
+        "flow.run_id",
+        "flow.automation_id",
+        "flow.depth",
+        "flow.parent_run_id",
     }
 )
 

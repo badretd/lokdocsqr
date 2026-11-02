@@ -1,3 +1,3 @@
 # Phase State
-Done: 0-8g
-Current: 8z
+Done: 0-8
+Current: 8.5

@@ -21,7 +21,7 @@ from lokdocsqr.core.events import (
 )
 from lokdocsqr.core.models import (
     ActionLog,
-    ActionProposal,
+    ActionSummary,
     NodeResult,
     NodeState,
     PolicyAction,
@@ -134,7 +134,7 @@ def _check_policy_and_verify(
       * ``PolicyError`` — EDIT without ``new_payload``, or unknown
         ``VerifyAction``.
       * 7d-a-fix: ``node_id`` is the instance id from
-        ``ordered_node_ids`` (for ``ActionProposal.node_id`` and
+        ``ordered_node_ids`` (for ``ActionSummary.node_id`` and
         ``node_overrides``); ``node_type`` is the ``NodeSpec.type`` id
         (for registry lookups). The two MUST NOT be conflated.
 
@@ -170,7 +170,7 @@ def _check_policy_and_verify(
 
     operation = classify_node(registry_id)
     target_paths = extract_paths(payload, registry_id)
-    proposal = ActionProposal(
+    proposal = ActionSummary(
         node_id=node_id,
         operation=operation,
         target_paths=target_paths,
@@ -203,7 +203,7 @@ def _check_policy_and_verify(
     if verify_result.action == VerifyAction.EDIT:
         if verify_result.new_payload is None:
             raise PolicyError(f"{node_id}: EDIT without new_payload")
-        edited = ActionProposal(
+        edited = ActionSummary(
             node_id=node_id,
             operation=classify_node(registry_id),
             target_paths=extract_paths(verify_result.new_payload, registry_id),
