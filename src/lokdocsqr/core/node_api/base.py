@@ -34,6 +34,12 @@ class Node(ABC):
     #: must leave this False. Default False; opt-in (Phase 8, SPEC §5).
     retry_safe: ClassVar[bool] = False
 
+    #: 8z H6 opt-out flag: when True, ``dry_run`` MUST raise
+    #: NodeExecutionError rather than returning simulated outputs.
+    #: Only nested-graph nodes (flow.subflow, flow.loop_batch) set
+    #: this; all other nodes must return every declared output port.
+    _preview_fail_closed: ClassVar[bool] = False
+
     @property
     @abstractmethod
     def title(self) -> str:

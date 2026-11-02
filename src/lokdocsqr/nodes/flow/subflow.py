@@ -83,6 +83,7 @@ class SubflowNode(_FlowBase):
 
     id = "flow.subflow"
     retry_safe = False
+    _preview_fail_closed = True
 
     @property
     def title(self) -> str:

@@ -46,7 +46,7 @@ class WriteFileNode(FsNode):
             "default": "write",
             "enum": list(_VALID_MODES),
         },
-        "create_parents": {"type": "boolean", "required": False, "default": True},
+        "create_parents": {"type": "bool", "required": False, "default": True},
         "variables": {"type": "object", "required": False},
     }
     outputs = {

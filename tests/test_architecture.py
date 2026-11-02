@@ -515,3 +515,16 @@ def test_invariant_9_mutation_ban() -> None:
         for lineno, reason in _ast_mutation_hits(path):
             violations.append(f"{rel}:{lineno} {reason}")
     assert not violations, "Mutation-ban violations:\n" + "\n".join(violations)
+
+# === 8z invariant 10 wrapper ===
+def test_invariant_10_edge_payload_parity(tmp_path, monkeypatch, exec_ctx) -> None:
+    checker = _load_checker(
+        "test_api_contracts_edge_parity",
+        "test_builder_executor_edge_parity",
+    )
+    original_cwd = os.getcwd()
+    try:
+        for case in ("single_edge", "two_incoming"):
+            checker(case, exec_ctx, tmp_path, monkeypatch)
+    finally:
+        os.chdir(original_cwd)

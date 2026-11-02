@@ -23,6 +23,7 @@ EXPECTED_ALL = {
     "PolicyViolation",
     "ProposalValidationError",
     "SafeFsError",
+    "ScopeViolation",
 }
 
 # Every non-root error. `PolicyError` itself lives here too — it must still

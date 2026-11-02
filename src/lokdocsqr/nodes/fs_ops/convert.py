@@ -198,10 +198,11 @@ class ConvertNode(FsNode):
         )
 
         converter = CONVERTERS.get((from_mime, to_mime))
+        supported = ", ".join(f"{a} -> {b}" for a, b in sorted(CONVERTERS))
         if converter is None:
             raise NodeExecutionError(
-                f"converter_not_available: {from_mime} -> {to_mime}, "
-                f"hint: pip install lokdocsqr[convert]"
+                f"converter_not_available: {from_mime} -> {to_mime}; "
+                f"supported pairs: {supported}"
             )
 
         overwrite = bool(payload.get("overwrite", self.overwrite))

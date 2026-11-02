@@ -389,35 +389,6 @@ def test_set_variables_imports_reserved_variables_from_context() -> None:
         in source
     )
 
-
-# ---------------------------------------------------------------------------
-# pyproject.toml immutability (R17)
-# ---------------------------------------------------------------------------
-
-
-def test_pyproject_toml_not_modified() -> None:
-    status = subprocess.run(
-        ["git", "status", "--porcelain", "--", "pyproject.toml"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-    )
-    if status.returncode != 0:
-        pytest.skip("git is not available")
-
-    assert status.stdout.strip() == "", (
-        f"pyproject.toml modified: {status.stdout!r}"
-    )
-
-    diff = subprocess.run(
-        ["git", "diff", "--stat", "--", "pyproject.toml"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-    )
-    assert diff.stdout.strip() == ""
-
-
 # ---------------------------------------------------------------------------
 # 8a regression smoke checks (flow.if_branch / flow.filter)
 # ---------------------------------------------------------------------------

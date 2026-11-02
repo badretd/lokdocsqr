@@ -1,5 +1,5 @@
 # LokDocSQR API contracts (behavioral, test-time)
-Version: v1.1 (phase 8d-a, test fix iter_1)
+Version: v1.2 (phase 8z, cleanup + enforcement)
 Правило появления: только через new test + запись здесь.
 
 API contracts отличаются от CONTRACT.md: CONTRACT.md — invariants, enforced AST-scan'ом на каждом гейте; здесь — behavioral contracts, пинованные обычными тестами. При добавлении новой behavioral-гарантии — сначала тест, потом строка здесь.
@@ -11,15 +11,16 @@ API contracts отличаются от CONTRACT.md: CONTRACT.md — invariants,
 | H3 | utils.path_template output port name == "path_template" == PAYLOAD_PATH_KEYS["fs.write_file"][0] | test_api_contracts_ports.py::test_path_template_port_contract | 8d-a |
 | H4 | utils.set_variables.dry_run возвращает dict с ключом "variables" (dict); единственный продюсер planning variables. | _variables.py::test_set_variables_emits_variables_dict | 8d-a |
 | H5 | access.list_files output port ∈ {items, files, file_refs, input, data} | _ports.py::test_list_files_output_port_in_extract_items_set | 8d-a |
-| H6 | Observational: все registered nodes возвращают все declared output ports из dry_run. Пока наблюдательный, enforcement в 8z. | _ports.py::test_all_registered_nodes_return_declared_ports_in_dry_run | 8d-a (obs) / 8z (enforce) |
+| H6 | ENFORCED: все registered nodes возвращают все declared output ports из dry_run, КРОМЕ нод с `Node._preview_fail_closed = True` (тогда dry_run обязан поднять NodeExecutionError). В текущем дереве fail-closed — только flow.subflow и flow.loop_batch. | _ports.py::test_all_registered_nodes_return_declared_ports_in_dry_run (+ verifier 8z: _preview_fail_closed check) | 8d-a (obs) → 8z (enforced) |
 | H7 | classify_node(id) != "unknown" ⇒ id ∈ discover_plugins() ∪ KNOWN_FUTURE_NODES. | _design.py::test_no_premature_classification | 8d-a |
 | M2 | Reserved keys (RESERVED_VARIABLES из core.executor.context) отфильтрованы из planning_vars в _merge_planning_vars. | _variables.py::test_reserved_keys_filtered_in_planning | 8d-a |
 | M3 | Множество fs.* в DEFAULT_OPERATION_MAP ⊆ ключи NODE_CHANGE_KIND. | _design.py::test_node_change_kind_covers_all_fs_ops | 8d-a |
 | M5 | ResolvedGraph.ordered_node_ids ⊆ {n.id for n in document.nodes}, иначе ValueError. | _design.py::test_resolved_graph_rejects_ghost_ids | 8d-a |
-| M6 | validate_proposal и preview_diff НЕ читают ctx.variables. | (deferred to 8z) | doc-only |
-| M7 | parser ставит source_port="out", target_port="in" по умолчанию. | (deferred to 8z) | doc-only |
-| M8 | validate_graph — структурная валидность; required-input-defaults — ответственность _build_payload. | (deferred to 8z) | doc-only |
-| M9 | Multi-port return: нода с 2+ output-портами обязана вернуть dict/NodeResult; _normalize_result иначе NodeExecutionError. | (deferred to 8z) | doc-only |
+| M6 | ENFORCED: validate_proposal и preview_diff НЕ читают ctx.variables. | verifier 8z (test_api_contracts_variables.py) | 8z |
+| M7 | ENFORCED: parser ставит source_port="out", target_port="in" по умолчанию. | verifier 8z (test_api_contracts_parser_defaults.py) | 8z |
+| M8 | KNOWN LIMITATION: _node_payload валидирует required inputs условно (только при resolve_edges=True); authoritative — Executor._build_payload. Alignment — 7d-b. | (deferred 7d-b) | 8z-doc |
+| M9 | ENFORCED: Multi-port return — нода с 2+ output-портами обязана вернуть dict/NodeResult; _normalize_result иначе NodeExecutionError. | engine._normalize_result (implementation) + verifier 8z | 8z |
+| H2-ext | CLOSED: source_port=None или target_port=None → ValueError с одинаковым текстом в builder._node_payload и Executor._build_payload. | test_api_contracts_edge_parity.py::test_missing_source_port_fails_closed_in_builder | 8z |
 
 
 ## v1.1 (phase 8d-a, test fix iter_1)
@@ -43,3 +44,48 @@ The two payload resolvers diverge on source_port=None:
 Both end up fail-closed, but via different code paths. Aligning the
 two resolvers (either both skip, or both resolve to None, plus an
 early ValueError on source_port=None) is deferred to 8z.
+
+
+## v1.2 (phase 8z)
+
+### H6 → enforced (opt-out via Node._preview_fail_closed)
+`Node._preview_fail_closed: ClassVar[bool] = False` added in 8z.
+A node with `_preview_fail_closed = True` MUST raise
+NodeExecutionError from `dry_run`; the plan builder deliberately does
+not support nested-graph execution and fails closed. Only
+`flow.subflow` and `flow.loop_batch` set the flag in the current tree;
+`flow.filter` / `flow.merge` / `flow.wait` / `flow.retry` /
+`flow.if_branch` keep the default `False` and MUST return every
+declared output port from `dry_run`.
+
+### M6 → enforced
+`validate_proposal` and `preview_diff` remain pure w.r.t.
+`ctx.variables`. Behavioral test pending verifier 8z.
+
+### M7 → enforced
+The parser default-port contract (`source_port="out"`,
+`target_port="in"` when omitted) is now pinned. Behavioral test
+pending verifier 8z.
+
+### M8 → known limitation (deferred to 7d-b)
+`core.planning.builder._node_payload` validates required input ports
+only when `resolve_edges=True` (i.e. when the graph contains
+`utils.path_template` or `utils.set_variables`). The authoritative
+required-input validation is `Executor._build_payload`. This
+asymmetry is accepted for 8z and will be aligned in 7d-b.
+
+### M9 → enforced
+`_normalize_result` already raises NodeExecutionError for
+multi-port returns that are not dict / NodeResult; the contract is
+now marked enforced.
+
+### H2-extended (asymmetry closed in 8z)
+`source_port=None` or `target_port=None` now raises `ValueError`
+with identical text in both `builder._node_payload` and
+`Executor._build_payload`:
+  `f"edge with source_port=None or target_port=None: source={source!r}"`
+A string-typed-but-unknown port (e.g. `"not_a_real_port"`) continues
+to be silently skipped by the builder (pinned by
+`test_missing_source_port_fails_closed_in_builder`), and continues to
+resolve to `None` on the executor side; the resulting empty
+`target_paths` still fails closed via `validate_proposal` (R27).

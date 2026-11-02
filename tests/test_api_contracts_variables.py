@@ -196,3 +196,73 @@ def test_reserved_keys_filtered_in_planning(exec_ctx) -> None:
     assert "run_id" not in spy_vars, (
         f"reserved key 'run_id' leaked into planning_vars: {spy_vars!r}"
     )
+
+# === 8z M6 verifier tests ===
+def _spy_dict():
+    class SpyDict(dict):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.hit = False
+
+        def __getitem__(self, key):
+            self.hit = True
+            return super().__getitem__(key)
+
+    return SpyDict()
+
+
+def _allow_scope():
+    class Scope:
+        def check(self, *args, **kwargs):
+            return None
+
+    return Scope()
+
+
+def test_validate_proposal_does_not_read_ctx_variables():
+    from types import SimpleNamespace
+    from lokdocsqr.core.models import ActionProposal
+    from lokdocsqr.core.planning.validator import validate_proposal
+
+    spy = _spy_dict()
+    ctx = SimpleNamespace(scope=_allow_scope(), variables=spy)
+    proposal = ActionProposal(
+        node_id="n1",
+        operation="read",
+        target_paths=(),
+        payload={},
+        summary="read",
+    )
+    validate_proposal(proposal, ctx)
+    assert spy.hit is False
+
+
+def test_preview_diff_does_not_read_ctx_variables():
+    from types import SimpleNamespace
+    from lokdocsqr.core.models import ActionProposal
+    from lokdocsqr.core.preview import preview_diff
+
+    spy = _spy_dict()
+    ctx = SimpleNamespace(scope=_allow_scope(), variables=spy, dry_run=True)
+    proposal = ActionProposal(
+        node_id="n1",
+        operation="read",
+        target_paths=(),
+        payload={},
+        summary="read",
+    )
+    preview_diff(proposal, ctx)
+    assert spy.hit is False
+
+
+def test_classify_node_does_not_read_ctx_variables():
+    import inspect
+    import pytest
+    from lokdocsqr.core.planning.registry import classify_node
+
+    if "ctx" not in inspect.signature(classify_node).parameters:
+        pytest.skip("classify_node has no ctx parameter")
+
+    spy = _spy_dict()
+    classify_node("fs.write_file", spy)  # type: ignore[call-arg]
+    assert spy.hit is False

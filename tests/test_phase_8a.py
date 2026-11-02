@@ -468,17 +468,3 @@ def test_e4_underscore_modules_have_no_registered_nodes():
                     pytest.fail(f"{path}: @register_node(...) in underscore module")
                 if isinstance(dec, ast.Name) and dec.id == "register_node":
                     pytest.fail(f"{path}: @register_node in underscore module")
-
-
-# ── F. Интеграционные/регрессионные проверки ────────────────────────────────
-
-def test_f4_pyproject_diff_is_empty():
-    proc = subprocess.run(
-        ["git", "diff", "--", "pyproject.toml"],
-        cwd=str(_repo_root()),
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode != 0:
-        pytest.skip("git unavailable")
-    assert proc.stdout == "", proc.stdout

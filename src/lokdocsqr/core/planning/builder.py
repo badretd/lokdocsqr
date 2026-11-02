@@ -114,6 +114,11 @@ def _node_payload(
         source = getattr(edge, "source", None)
         source_port = getattr(edge, "source_port", None)
         target_port = getattr(edge, "target_port", None)
+        if source_port is None or target_port is None:
+            raise ValueError(
+                f"edge with source_port=None or target_port=None: "
+                f"source={source!r}"
+            )
         if not (
             isinstance(source, str)
             and isinstance(source_port, str)

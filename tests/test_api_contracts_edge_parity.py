@@ -212,3 +212,67 @@ def test_missing_source_port_fails_closed_in_builder(exec_ctx) -> None:
         "expected ProposalValidationError with 'empty target_paths', "
         f"got: {[(e.exc_type, e.error) for e in plan.errors]!r}"
     )
+
+# === 8z H2-extended aligned ===
+def test_missing_source_port_none_raises_in_builder() -> None:
+    from lokdocsqr.core.models import EdgeSpec, NodeSpec
+    from lokdocsqr.core.planning.builder import _node_payload
+
+    edge = EdgeSpec(
+        id="e1",
+        source="n1",
+        target="n2",
+        source_port=None,
+        target_port="path_template",
+    )
+    spec = NodeSpec(id="n2", type="fs.write_file")
+    with pytest.raises(ValueError, match="source_port=None"):
+        _node_payload(
+            spec,
+            inbound_edges=[edge],
+            outputs_by_node={"n1": {"path_template": "x.txt"}},
+            resolve_edges=True,
+        )
+
+
+def test_missing_source_port_none_raises_in_executor(exec_ctx) -> None:
+    from lokdocsqr.core.executor.engine import Executor
+    from lokdocsqr.core.models import (
+        EdgeSpec,
+        NodeSpec,
+        NodeState,
+        PortSpec,
+        ResolvedGraph,
+        WorkflowDocument,
+        WorkflowMetadata,
+    )
+    from lokdocsqr.nodes.utils.path_template import PathTemplateNode
+
+    n1 = NodeSpec(
+        id="n1",
+        type="utils.path_template",
+        inputs=[PortSpec(name="template", default="x.txt")],
+    )
+    n2 = NodeSpec(id="n2", type="fs.write_file")
+    edge = EdgeSpec(
+        id="e1",
+        source="n1",
+        target="n2",
+        source_port=None,
+        target_port="path_template",
+    )
+    doc = WorkflowDocument(
+        spec_version="1.0",
+        metadata=WorkflowMetadata(id="test"),
+        nodes=[n1, n2],
+        edges=[edge],
+    )
+    graph = ResolvedGraph(
+        document=doc,
+        ordered_node_ids=["n1", "n2"],
+        handlers={"n1": PathTemplateNode(), "n2": _SpyWriteFile()},
+        states={"n1": NodeState.ENABLED, "n2": NodeState.ENABLED},
+    )
+    exec_ctx.dry_run = True
+    with pytest.raises(ValueError, match="source='n1'"):
+        Executor(exec_ctx).execute(graph)

@@ -10,7 +10,7 @@ __all__ = [
     "NodeExecutionError",
     "PolicyViolation",
     "SafeFsError",
-    "DryRunInterrupt",
+    "ScopeViolation",
     "PolicyError",
     "PolicyConfigError",
     "PolicyBlockedError",

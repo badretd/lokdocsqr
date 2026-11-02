@@ -639,6 +639,11 @@ class Executor:
         """
         port_values: dict[str, list[Any]] = {}
         for edge in edges:
+            if edge.source_port is None or edge.target_port is None:
+                raise ValueError(
+                    f"edge with source_port=None or target_port=None: "
+                    f"source={edge.source!r}"
+                )
             source_result = node_results.get(edge.source)
             if source_result is None or source_result.state != NodeState.ENABLED:
                 continue
