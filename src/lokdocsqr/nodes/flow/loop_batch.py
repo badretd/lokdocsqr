@@ -156,6 +156,12 @@ class LoopBatchNode(_FlowBase):
 
         results: list[Any] = []
         errors: list[dict[str, Any]] = []
+        flow_vars = {
+            "flow.run_id": ctx.run_id,
+            "flow.automation_id": graph_id,
+            "flow.depth": ctx.flow_depth + 1,
+            "flow.parent_run_id": ctx.run_id,
+        }
         child_stack_extra: tuple[str, ...] = (
             (graph_id,) if graph_id is not None else ()
         )
@@ -176,6 +182,7 @@ class LoopBatchNode(_FlowBase):
                     "item": item_var,
                     "index": index,
                     "batch": batch_var,
+                    **flow_vars,
                 },
                 flow_depth=ctx.flow_depth + 1,
                 subflow_stack=ctx.subflow_stack + child_stack_extra,

@@ -120,8 +120,15 @@ class SubflowNode(_FlowBase):
         graph_id, child_graph = _resolve_child_graph(
             ctx, payload, build_inline=_build_inline
         )
+        flow_vars = {
+            "flow.run_id": ctx.run_id,
+            "flow.automation_id": graph_id,
+            "flow.depth": ctx.flow_depth + 1,
+            "flow.parent_run_id": ctx.run_id,
+        }
         child_ctx = replace(
             ctx,
+            variables={**ctx.variables, **flow_vars},
             flow_depth=ctx.flow_depth + 1,
             subflow_stack=ctx.subflow_stack + (
                 (graph_id,) if graph_id is not None else ()

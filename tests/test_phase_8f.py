@@ -1,13 +1,25 @@
-# PHASE_8F_TESTS_V1
-"""Verification tests for LokDocSQR Phase 8f (gate 8f).
+"""Verification tests for LokDocSQR Phase 8f (gate 8f, adjusted for 8g).
 
 Covers groups 1-12 from the 8f verification brief:
   structure, items validation, mode/batch_size validation, empty items,
   loop mode, batch mode, per-item fail-soft, depth/cycle guards,
   _resolve_child_graph misc, _preview, subflow regression, port contract.
 
+Phase 8g adjustments (D8g.5):
+  * ``flow.subflow`` and ``flow.loop_batch`` now merge ``ctx.variables``
+    into ``child_ctx.variables`` **and** inject four ``flow.*`` keys
+    (``flow.run_id``, ``flow.automation_id``, ``flow.depth``,
+    ``flow.parent_run_id``).
+  * ``test_loop_child_variables`` was rewritten from exact-dict equality
+    to subset checks (8f keys) + explicit ``flow.*`` assertions
+    (8g keys) + exhaustiveness.
+  * ``test_subflow_does_not_merge_variables`` was superseded by
+    ``test_subflow_merges_parent_and_flow_vars`` (the prior contract
+    "subflow does not merge variables" is deliberately reversed by
+    D8g.5). Two supporting tests were added: the inline-graph
+    ``flow.automation_id is None`` case and the R39 non-mutation case.
+
 No production-code scanning, no git calls, no test-from-test calls.
-Expected red: batch chunk ordinal index bug in loop_batch.py:152.
 """
 from __future__ import annotations
 
@@ -31,6 +43,18 @@ from lokdocsqr.nodes.flow.subflow import SubflowNode
 # ---------------------------------------------------------------------------
 # Helpers / doubles
 # ---------------------------------------------------------------------------
+
+# Hardcoded in _make_ctx; the D8g.5 flow.run_id / flow.parent_run_id
+# assertions below rely on these exact values.
+_RUN_ID = "run-8f"
+
+_FLOW_KEYS = frozenset({
+    "flow.run_id",
+    "flow.automation_id",
+    "flow.depth",
+    "flow.parent_run_id",
+})
+
 
 class FakeCatalog:
     """Minimal AutomationCatalog double recording lookups."""
@@ -66,7 +90,7 @@ def _make_ctx(
             flow=SimpleNamespace(max_subflow_depth=max_subflow_depth),
         ),
         audit=object(),
-        run_id="run-8f",
+        run_id=_RUN_ID,
         automation_id="auto-8f",
         dry_run=False,
         policy=None,
@@ -111,6 +135,19 @@ def _install_fake_executor(
 
     monkeypatch.setattr(module, "Executor", _FakeExecutor)
     return SimpleNamespace(ctxs=ctxs, graphs=graphs)
+
+
+def _assert_flow_vars(
+    child_vars: dict[str, Any],
+    *,
+    expected_automation_id: Any,
+    expected_depth: int,
+) -> None:
+    """Assert the four D8g.5 flow.* keys with exact values."""
+    assert child_vars["flow.run_id"] == _RUN_ID
+    assert child_vars["flow.automation_id"] == expected_automation_id
+    assert child_vars["flow.depth"] == expected_depth
+    assert child_vars["flow.parent_run_id"] == _RUN_ID
 
 
 def _items_generator():
@@ -332,6 +369,13 @@ def test_loop_n_calls(
 def test_loop_child_variables(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """D8g.5: child vars = 8f keys (parent/item/index/batch) + flow.* (4).
+
+    The prior test asserted exact dict equality (8f contract: no flow.*
+    injection). D8g.5 deliberately extends that contract, so we now check
+    the 8f subset first, then the four flow.* keys with exact values, and
+    finally exhaustiveness (no unexpected keys leaked).
+    """
     fake = _install_fake_executor(monkeypatch, loop_batch_mod)
     ctx = _make_ctx(
         tmp_path,
@@ -341,18 +385,41 @@ def test_loop_child_variables(
     LoopBatchNode()._execute(
         ctx, {"items": ["x", "y"], "graph_id": "g"}
     )
-    assert fake.ctxs[0].variables == {
-        "parent": 1,
-        "item": "x",
-        "index": 0,
-        "batch": ["x"],
-    }
-    assert fake.ctxs[1].variables == {
-        "parent": 1,
-        "item": "y",
-        "index": 1,
-        "batch": ["y"],
-    }
+
+    # 8f subset (D8f.3) — parent/item/index/batch still visible verbatim.
+    expected_8f_0 = {"parent": 1, "item": "x", "index": 0, "batch": ["x"]}
+    expected_8f_1 = {"parent": 1, "item": "y", "index": 1, "batch": ["y"]}
+    assert expected_8f_0.items() <= fake.ctxs[0].variables.items()
+    assert expected_8f_1.items() <= fake.ctxs[1].variables.items()
+
+    # 8g (D8g.5) — flow.* injected alongside 8f keys.
+    for child_ctx in fake.ctxs:
+        _assert_flow_vars(
+            child_ctx.variables,
+            expected_automation_id="g",
+            expected_depth=1,  # ctx.flow_depth(0) + 1
+        )
+
+    # Exhaustiveness: no unexpected keys leaked into child variables.
+    expected_extra = set(_FLOW_KEYS)
+    assert set(fake.ctxs[0].variables) == set(expected_8f_0) | expected_extra
+    assert set(fake.ctxs[1].variables) == set(expected_8f_1) | expected_extra
+
+
+def test_loop_flow_depth_not_incremented_per_item(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D8g.5: flow.depth is ctx.flow_depth + 1 for every iteration."""
+    fake = _install_fake_executor(monkeypatch, loop_batch_mod)
+    ctx = _make_ctx(
+        tmp_path,
+        automations=FakeCatalog({"g": object()}),
+        flow_depth=2,
+    )
+    LoopBatchNode()._execute(
+        ctx, {"items": ["a", "b", "c"], "graph_id": "g"}
+    )
+    assert [c.variables["flow.depth"] for c in fake.ctxs] == [3, 3, 3]
 
 
 def test_loop_results_are_run_result(
@@ -369,6 +436,11 @@ def test_loop_results_are_run_result(
 def test_loop_does_not_mutate_parent_context(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """R39: dataclasses.replace means the parent ctx is never mutated.
+
+    Even though D8g.5 adds new keys to child_ctx.variables, the parent
+    must not see them (they live only in the child copy).
+    """
     _install_fake_executor(monkeypatch, loop_batch_mod)
     ctx = _make_ctx(
         tmp_path,
@@ -382,6 +454,7 @@ def test_loop_does_not_mutate_parent_context(
         ctx, {"items": [1, 2], "graph_id": "g"}
     )
     assert ctx.variables == variables_before
+    assert "flow.run_id" not in ctx.variables
     assert ctx.subflow_stack == stack_before
 
 
@@ -426,6 +499,30 @@ def test_batch_item_none_and_batch_chunk(
     assert fake.ctxs[1].variables["item"] is None
     assert fake.ctxs[1].variables["batch"] == [3, 4]
     assert fake.ctxs[2].variables["batch"] == [5]
+
+
+def test_batch_flow_vars_injected(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D8g.5: flow.* is injected in batch mode too (item=None preserved)."""
+    fake = _install_fake_executor(monkeypatch, loop_batch_mod)
+    ctx = _make_ctx(tmp_path, automations=FakeCatalog({"g": object()}))
+    LoopBatchNode()._execute(
+        ctx,
+        {
+            "items": [1, 2, 3],
+            "mode": "batch",
+            "batch_size": 2,
+            "graph_id": "g",
+        },
+    )
+    for child_ctx in fake.ctxs:
+        assert child_ctx.variables["item"] is None  # D8f.4
+        _assert_flow_vars(
+            child_ctx.variables,
+            expected_automation_id="g",
+            expected_depth=1,
+        )
 
 
 def test_batch_size_larger_than_items(
@@ -594,7 +691,7 @@ def test_subflow_preview_exact(tmp_path: Any) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Group 11 — subflow regression
+# Group 11 — subflow regression (adjusted for D8g.5)
 # ---------------------------------------------------------------------------
 
 def test_subflow_execute_returns_dict_envelope(
@@ -620,9 +717,16 @@ def test_subflow_execute_returns_dict_envelope(
     assert out["error_count"] == 0
 
 
-def test_subflow_does_not_merge_variables(
+def test_subflow_merges_parent_and_flow_vars(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """D8g.5: subflow merges parent vars and injects four flow.* keys.
+
+    This replaces ``test_subflow_does_not_merge_variables``: the 8e/8f
+    contract ("subflow does not merge variables") is deliberately
+    reversed by D8g.5. The 8f/R39 guarantees that *did* hold — parent
+    ctx untouched, dataclasses.replace copy — are re-asserted below.
+    """
     fake = _install_fake_executor(monkeypatch, subflow_mod)
     ctx = _make_ctx(
         tmp_path,
@@ -630,9 +734,75 @@ def test_subflow_does_not_merge_variables(
         variables={"parent": 1},
     )
     SubflowNode()._execute(ctx, {"graph_id": "A"})
+
     child = fake.ctxs[-1]
+    # R39: replace() returns a distinct object; parent is not mutated.
     assert child is not ctx
-    assert child.variables == {"parent": 1}
+
+    # 8f behavior retained: parent vars visible verbatim in child.
+    assert child.variables["parent"] == 1
+
+    # 8g (D8g.5) — graph_id branch: flow.automation_id == graph_id.
+    _assert_flow_vars(
+        child.variables,
+        expected_automation_id="A",
+        expected_depth=1,  # ctx.flow_depth(0) + 1
+    )
+
+    # Exhaustiveness: no unexpected keys.
+    assert set(child.variables) == {"parent", *_FLOW_KEYS}
+
+
+def test_subflow_inline_graph_flow_automation_id_is_none(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D8g.5: flow.automation_id is None for inline graphs."""
+    fake = _install_fake_executor(monkeypatch, subflow_mod)
+    # Short-circuit the inline builder — the fake executor records the
+    # child ctx but never executes the graph, so a dummy is sufficient.
+    monkeypatch.setattr(
+        subflow_mod, "_build_inline", lambda g: SimpleNamespace()
+    )
+    ctx = _make_ctx(tmp_path, variables={"parent": 1})
+
+    SubflowNode()._execute(ctx, {"graph": {"nodes": []}})
+
+    child = fake.ctxs[-1]
+    assert child.variables["parent"] == 1
+    _assert_flow_vars(
+        child.variables,
+        expected_automation_id=None,  # inline → None, not graph_id
+        expected_depth=1,
+    )
+
+
+def test_subflow_does_not_mutate_parent_ctx(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R39: subflow never mutates the parent ctx.
+
+    Even with D8g.5 variables merging, ``variables`` / ``subflow_stack`` /
+    ``flow_depth`` on the parent context must be byte-for-byte unchanged
+    after ``_execute``.
+    """
+    _install_fake_executor(monkeypatch, subflow_mod)
+    ctx = _make_ctx(
+        tmp_path,
+        automations=FakeCatalog({"A": object()}),
+        variables={"parent": 1},
+        subflow_stack=("root",),
+        flow_depth=1,
+    )
+    variables_before = dict(ctx.variables)
+    stack_before = ctx.subflow_stack
+    depth_before = ctx.flow_depth
+
+    SubflowNode()._execute(ctx, {"graph_id": "A"})
+
+    assert ctx.variables == variables_before
+    assert "flow.run_id" not in ctx.variables
+    assert ctx.subflow_stack == stack_before
+    assert ctx.flow_depth == depth_before
 
 
 def test_subflow_propagates_child_lokerror(
@@ -689,12 +859,11 @@ def test_port_contract_empty_items(
 
 
 # ---------------------------------------------------------------------------
-# Expected red — kept last so --maxfail=1 still exercises groups 1-12 above.
+# Batch chunk ordinal index — regression guard.
 #
-# BUG: src/lokdocsqr/nodes/flow/loop_batch.py:152 — B2 (batch index)
-# — ожидалось index = порядковый номер чанка (0..total-1),
-#   получено index = смещение среза (0, batch_size, 2*batch_size, ...),
-#   что нарушает index ∈ [0, total).
+# Previously tracked as a bug: for batch mode ``index`` must be the chunk
+# ordinal (0..total-1), not the slice offset (0, batch_size, 2*batch_size…).
+# Currently green; kept here as a regression test.
 # ---------------------------------------------------------------------------
 
 def test_batch_index_is_chunk_ordinal(

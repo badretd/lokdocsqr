@@ -291,6 +291,7 @@ class Executor:
         self.ctx = ctx
         self._sleep = sleep
         self._clock = clock
+        self._node_results: dict[str, NodeResult] = {}
 
     def execute(self, resolved_graph: ResolvedGraph) -> RunResult:
         """Execute ``resolved_graph`` and return a RunResult."""
@@ -303,6 +304,7 @@ class Executor:
         started_at = _utc_now()
         run_logs: list[ActionLog] = []
         node_results: dict[str, NodeResult] = {}
+        self._node_results = node_results
         errors: list[str] = []
         success = True
         aborted = False
@@ -350,20 +352,32 @@ class Executor:
                     aborted = True
                 continue
 
+            # 8g-iter-1 D8g.6: split skip-set by _inject_on_error.
+            # Error-handlers (e.g. flow.retry) must run on FAILED
+            # upstream; ordinary nodes keep the old skip-set.
+            _handler_for_skip = resolved_graph.handlers.get(node_id)
+            _inject_on_error = getattr(
+                _handler_for_skip, "_inject_on_error", False
+            )
+            if _inject_on_error:
+                skip_states = (NodeState.SKIPPED, NodeState.DISABLED)
+            else:
+                skip_states = (
+                    NodeState.SKIPPED,
+                    NodeState.DISABLED,
+                    NodeState.FAILED,
+                )
+
             skip = False
             for parent in inbound_parents.get(node_id, []):
                 parent_result = node_results.get(parent)
                 if parent_result is not None:
-                    if parent_result.state != NodeState.ENABLED:
+                    if parent_result.state in skip_states:
                         skip = True
                         break
                 else:
                     parent_state = resolved_graph.states.get(parent)
-                    if parent_state in (
-                        NodeState.DISABLED,
-                        NodeState.SKIPPED,
-                        NodeState.FAILED,
-                    ):
+                    if parent_state in skip_states:
                         skip = True
                         break
 
@@ -428,6 +442,18 @@ class Executor:
             if not self.ctx.dry_run:         
                 payload = _check_policy_and_verify(
                     node, self.ctx, payload, node_id=node_id,
+                )
+
+            if getattr(node, "_inject_on_error", False):
+                upstream_ids = {
+                    edge.source
+                    for edge in inbound_edges.get(node_id, [])
+                }
+                payload["on_error"] = any(
+                    self._node_results.get(upstream_id) is not None
+                    and self._node_results[upstream_id].state
+                    == NodeState.FAILED
+                    for upstream_id in upstream_ids
                 )
 
             retry_policy: dict[str, Any] | None = None
