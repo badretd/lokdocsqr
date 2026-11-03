@@ -55,8 +55,8 @@ class _SpyNode(_NodeBase):
     """Minimal node that counts ``run`` invocations and records its payload."""
 
     title = "Spy Test Node"
-    inputs: list = []
-    outputs: list = []
+    inputs: list = []  # noqa: RUF012
+    outputs: list = []  # noqa: RUF012
 
     def __init__(self, node_id: str = "spy.test_node") -> None:
         self._spy_id = node_id

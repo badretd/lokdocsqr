@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import SafeFsError
@@ -54,11 +55,23 @@ class AuditLog:
         safe_fs.atomic_append(self.path, line)
 
     def iter_all(self) -> Iterator[ActionLog]:
-        """Yield every parseable ActionLog, skipping malformed lines."""
+        """Yield every parseable ActionLog, skipping malformed lines.
+
+        A missing audit file means "no entries yet", not a warning. The
+        executor asks for a rollback plan at the end of every run,
+        including read-only runs that never wrote an audit entry; emitting
+        a warning for that normal state makes every pure-read automation
+        noisy (and spams daemon logs on every schedule tick).
+        """
 
         try:
+            if not self.path.exists():
+                return
             raw_bytes = safe_fs.read_bytes(self.path)
         except SafeFsError as exc:
+            cause = exc.__cause__
+            if isinstance(cause, FileNotFoundError):
+                return
             logger.warning("audit: cannot read %s: %s", self.path, exc)
             return
 
@@ -118,7 +131,20 @@ class AuditLog:
         plan: list[RollbackOp] = []
         run_logs = [log for log in self.iter_all() if log.run_id == run_id]
 
+        # Rollback is itself appended to the same run id. Record which
+        # original entries have already been reversed so a second
+        # ``audit rollback`` does not try to move the file back again.
+        already_rolled_back: set[int] = set()
+        for log in run_logs:
+            if log.reason != "rollback":
+                continue
+            original = log.extra.get("original_log_index")
+            if isinstance(original, int):
+                already_rolled_back.add(original)
+
         for index, log in enumerate(run_logs):
+            if index in already_rolled_back:
+                continue
             if log.status != "applied" or not log.rollback_eligible:
                 continue
             if not log.source or not log.target:

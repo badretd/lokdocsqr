@@ -10,7 +10,6 @@ from typing import Any, ClassVar
 
 from lokdocsqr.core.errors import NodeExecutionError
 from lokdocsqr.core.node_api.decorators import register_node
-
 from lokdocsqr.nodes.flow._base import _FlowBase
 
 
@@ -75,7 +74,7 @@ class Notify(_FlowBase):
                 self._send_email(target, title, body, config)
             elif channel == "webhook":
                 self._send_webhook(target, title, body, config)
-        except Exception as exc:  # noqa: BLE001 - fail-soft per channel
+        except Exception as exc:
             return {
                 "sent": False,
                 "channel": channel,

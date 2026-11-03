@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from lokdocsqr.core.models import PolicyAction
 from lokdocsqr.core.planning import build_action_plan
 from lokdocsqr.core.policy import PolicyEngine

@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 from typing import Protocol
 
-__all__ = ["Clock", "SystemClock", "FakeClock"]
+__all__ = ["Clock", "FakeClock", "SystemClock"]
 
 
 class Clock(Protocol):

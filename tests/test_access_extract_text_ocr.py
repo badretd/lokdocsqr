@@ -11,8 +11,8 @@ import pytest
 
 from lokdocsqr.core.scope import ScopeManager
 from lokdocsqr.nodes.access.extract_text import (
-    ExtractTextNode,
     HANDLERS,
+    ExtractTextNode,
     register_handler,
 )
 

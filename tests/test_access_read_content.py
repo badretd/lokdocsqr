@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -54,8 +53,8 @@ def test_max_bytes_is_respected_per_item(tmp_path):
     )
     items = result["items"]
     assert len(items) == 2
-    ok_item = [item for item in items if item["path"].endswith("ok.txt")][0]
-    big_item = [item for item in items if item["path"].endswith("big.txt")][0]
+    ok_item = next(item for item in items if item["path"].endswith("ok.txt"))
+    big_item = next(item for item in items if item["path"].endswith("big.txt"))
     assert ok_item["text"] == "ok"
     assert big_item["bytes"] is None
     assert "exceeds max_bytes" in big_item["error"]
@@ -115,12 +114,12 @@ def test_exact_limit_and_zero_bytes_r2(tmp_path):
         make_ctx(tmp_path),
         {"paths": [str(exact), str(zero)], "max_bytes": 5},
     )
-    exact_item = [
+    exact_item = next(
         item for item in result["items"] if item["path"].endswith("exact.txt")
-    ][0]
-    zero_item = [
+    )
+    zero_item = next(
         item for item in result["items"] if item["path"].endswith("zero.txt")
-    ][0]
+    )
     assert exact_item["bytes"] == 5
     assert exact_item["truncated"] is False
     assert exact_item["text"] == "hello"
@@ -156,9 +155,9 @@ def test_strict_decode_error_per_item(tmp_path):
         make_ctx(tmp_path),
         {"paths": [str(ok), str(bad)], "errors": "strict"},
     )
-    bad_item = [
+    bad_item = next(
         item for item in result["items"] if item["path"].endswith("bad.bin")
-    ][0]
+    )
     assert "error" in bad_item
     assert "text" not in bad_item
 

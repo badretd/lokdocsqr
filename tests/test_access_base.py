@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import re
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,7 +9,7 @@ import pytest
 from lokdocsqr.core.errors import LokError
 from lokdocsqr.core.node_api.registry import registry
 from lokdocsqr.core.scope import ScopeManager
-from lokdocsqr.nodes.access import list_files, read_metadata, read_content
+from lokdocsqr.nodes.access import list_files, read_content, read_metadata
 from lokdocsqr.nodes.access._base import AccessBinaryError, AccessLimitError
 from lokdocsqr.nodes.access.list_files import ListFilesNode
 from lokdocsqr.nodes.access.read_content import ReadContentNode

@@ -1,14 +1,14 @@
 """Unimplemented MIME pair must raise converter_not_available with hint."""
 import os
+from pathlib import Path
 
 import pytest
 
 from lokdocsqr.core.errors import NodeExecutionError
 from lokdocsqr.nodes.fs_ops.convert import CONVERTERS, ConvertNode
 
-
 # CWD guard — see note in tests/test_archive_7z.py.
-_ORIGINAL_CWD = os.getcwd()
+_ORIGINAL_CWD = Path.cwd()
 
 
 @pytest.fixture(autouse=True)

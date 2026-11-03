@@ -13,7 +13,7 @@ from __future__ import annotations
 import fnmatch
 import stat as stat_module
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from lokdocsqr.core.errors import NodeExecutionError, ScopeViolation
 from lokdocsqr.core.node_api.decorators import register_node
@@ -27,8 +27,8 @@ class ListFilesNode(AccessBase):
 
     id = "access.list_files"
     title = "List Files / Glob"
-    inputs = {"path": "str"}
-    outputs = {"files": "FileRef[]"}
+    inputs: ClassVar[dict[str, str]] = {"path": "str"}
+    outputs: ClassVar[dict[str, str]] = {"files": "FileRef[]"}
 
     def __init__(
         self,
@@ -81,9 +81,7 @@ class ListFilesNode(AccessBase):
     ) -> bool:
         if min_size is not None and size < min_size:
             return False
-        if max_size is not None and size > max_size:
-            return False
-        return True
+        return not (max_size is not None and size > max_size)
 
     def _collect(self, ctx: Any, payload: dict[str, Any]) -> dict[str, Any]:
         raw_path = payload.get("path", self.path)
@@ -167,21 +165,28 @@ class ListFilesNode(AccessBase):
 
                     matches = False
                     if is_dir:
-                        if include_dirs and fnmatch.fnmatch(name, pattern):
-                            if self._size_ok(st.st_size, min_size, max_size):
-                                matches = True
+                        if (
+                            include_dirs
+                            and fnmatch.fnmatch(name, pattern)
+                            and self._size_ok(
+                                st.st_size, min_size, max_size
+                            )
+                        ):
+                            matches = True
                         if recursive:
                             stack.append(checked)
-                    else:
-                        if fnmatch.fnmatch(name, pattern):
-                            if extensions is None or any(
+                    elif (
+                        fnmatch.fnmatch(name, pattern)
+                        and (
+                            extensions is None
+                            or any(
                                 name.lower().endswith(ext)
                                 for ext in extensions
-                            ):
-                                if self._size_ok(
-                                    st.st_size, min_size, max_size
-                                ):
-                                    matches = True
+                            )
+                        )
+                        and self._size_ok(st.st_size, min_size, max_size)
+                    ):
+                        matches = True
 
                     if not matches:
                         continue

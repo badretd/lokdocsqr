@@ -22,7 +22,7 @@ _FUNCTION_NAMES = frozenset(
 )
 
 
-class SafeDict(dict):
+class SafeDict(dict[str, Any]):
     """Dict that leaves missing ``{key}`` placeholders intact."""
 
     def __missing__(self, key: str) -> str:
@@ -177,18 +177,28 @@ def _substitute_functions(
     return "".join(out), extra
 
 
+def expand_user_path(value: str | Path) -> Path:
+    """Return ``value`` with a leading ``~`` expanded to the user's home.
+
+    A small helper kept here so every configuration/scope entry point
+    treats ``~/inbox`` the same way. Node-level path templates still go
+    through the rendered-template rules; this is for operator-supplied
+    filesystem locations (scope roots, trash/log directories, base dir).
+    """
+    return Path(value).expanduser()
+
+
 def resolve_path(base_dir: Path, path: str | Path) -> Path:
     """Resolve ``path`` against ``base_dir``; reject ``..`` escapes."""
-    base_dir = Path(base_dir)
-    candidate = Path(path)
-    if candidate.is_absolute():
-        result = candidate
-    else:
-        result = base_dir / candidate
+    base_dir = expand_user_path(base_dir)
+    candidate = expand_user_path(path)
+    result = candidate if candidate.is_absolute() else base_dir / candidate
 
     try:
-        normalized = Path(os.path.abspath(str(result)))
-        base_normalized = Path(os.path.abspath(str(base_dir)))
+        # abspath (not resolve) keeps the lexical normalisation used by the
+        # scope checks; symlink rejection happens in ScopeManager.
+        normalized = Path(os.path.abspath(str(result)))  # noqa: PTH100
+        base_normalized = Path(os.path.abspath(str(base_dir)))  # noqa: PTH100
     except OSError as exc:
         raise ScopeViolation(f"Cannot normalize path {result}: {exc}") from exc
 

@@ -6,4 +6,4 @@ from .base import Node
 from .decorators import register_node
 from .registry import NodeRegistry, registry
 
-__all__ = ["Node", "registry", "NodeRegistry", "register_node"]
+__all__ = ["Node", "NodeRegistry", "register_node", "registry"]

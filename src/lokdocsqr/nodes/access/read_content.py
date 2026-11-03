@@ -32,13 +32,13 @@ from __future__ import annotations
 
 import base64
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import LokError, NodeExecutionError
 from lokdocsqr.core.node_api.decorators import register_node
 
-from ._base import AccessBase, AccessBinaryError, AccessLimitError, DEFAULT_MAX_BYTES_PER_FILE
+from ._base import DEFAULT_MAX_BYTES_PER_FILE, AccessBase, AccessBinaryError, AccessLimitError
 
 
 @register_node
@@ -47,8 +47,8 @@ class ReadContentNode(AccessBase):
 
     id = "access.read_content"
     title = "Read Content"
-    inputs = {"paths": "str|list[str]"}
-    outputs = {"items": "Content[]"}
+    inputs: ClassVar[dict[str, str]] = {"paths": "str|list[str]"}
+    outputs: ClassVar[dict[str, str]] = {"items": "Content[]"}
 
     def __init__(
         self,

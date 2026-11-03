@@ -11,6 +11,7 @@ and to the "Known read-only callers" block in ``core/safe_fs.py`` instead.
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import logging.handlers
 from pathlib import Path
@@ -39,10 +40,8 @@ def setup_logging(config: AppConfig | None = None) -> logging.Logger:
 
     for handler in list(logger.handlers):
         logger.removeHandler(handler)
-        try:
+        with contextlib.suppress(Exception):  # pragma: no cover - defensive
             handler.close()
-        except Exception:  # pragma: no cover - defensive
-            pass
 
     formatter = logging.Formatter(_LOG_FORMAT)
 
@@ -51,8 +50,9 @@ def setup_logging(config: AppConfig | None = None) -> logging.Logger:
     stream_handler.setLevel(logging.INFO)
     logger.addHandler(stream_handler)
 
-    if config is not None and getattr(config, "logs_dir", None):
-        logs_dir = Path(config.logs_dir)
+    logs_dir_value = getattr(config, "logs_dir", None) if config is not None else None
+    if logs_dir_value:
+        logs_dir = Path(logs_dir_value).expanduser()
         logs_dir.mkdir(parents=True, exist_ok=True)
         log_file = logs_dir / "lokdocsqr.log"
         file_handler = logging.handlers.RotatingFileHandler(

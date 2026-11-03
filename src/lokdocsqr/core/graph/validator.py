@@ -104,9 +104,10 @@ def _node_class_port_names(node_type: str, direction: str) -> set[str]:
         node_cls = registry.get(node_type)
     except (KeyError, ImportError):
         return set()
+    source: Any
     try:
         source = node_cls()
-    except Exception:  # noqa: BLE001 - metadata lookup must stay best-effort
+    except Exception:
         source = node_cls
     ports = getattr(source, direction, None)
     if isinstance(ports, dict):

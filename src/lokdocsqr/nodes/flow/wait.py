@@ -49,10 +49,10 @@ class WaitNode(_FlowBase):
         else:
             try:
                 seconds = float(raw)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError) as exc:
                 raise NodeExecutionError(
                     f"flow.wait: seconds must be a number, got {raw!r}"
-                )
+                ) from exc
 
         if seconds < 0:
             raise NodeExecutionError(

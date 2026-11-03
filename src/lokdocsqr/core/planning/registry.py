@@ -21,8 +21,8 @@ from typing import Any
 __all__ = [
     "DEFAULT_OPERATION_MAP",
     "DEFAULT_PATH_KEYS",
-    "ExtractionResult",
     "PAYLOAD_PATH_KEYS",
+    "ExtractionResult",
     "classify_node",
     "extract_paths",
     "extract_paths_detailed",

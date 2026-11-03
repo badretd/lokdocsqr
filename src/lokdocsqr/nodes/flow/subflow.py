@@ -50,7 +50,7 @@ from ._common import _resolve_child_graph
 __all__ = ["SubflowNode", "_build_inline"]
 
 
-def _build_inline(graph: dict) -> ResolvedGraph:
+def _build_inline(graph: dict[str, Any]) -> ResolvedGraph:
     """Build an inline raw graph.
 
     Kept at module level so the 8e regression can patch

@@ -15,6 +15,24 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from lokdocsqr.core.conditions import (
+    _compare as _core_compare,
+)
+from lokdocsqr.core.conditions import (
+    _CondError,
+)
+from lokdocsqr.core.conditions import (
+    _evaluate as _core_evaluate,
+)
+from lokdocsqr.core.conditions import (
+    _lookup as _core_lookup,
+)
+from lokdocsqr.core.conditions import (
+    _Parser as _CoreConditionParser,
+)
+from lokdocsqr.core.conditions import (
+    _tokenize as _core_tokenize,
+)
 from lokdocsqr.core.errors import GraphValidationError, NodeExecutionError
 from lokdocsqr.core.graph.builder import build_graph
 from lokdocsqr.core.graph.parser import parse_graph
@@ -22,16 +40,6 @@ from lokdocsqr.core.graph.resolver import resolve_states
 from lokdocsqr.core.graph.validator import validate_graph
 from lokdocsqr.core.models import ResolvedGraph
 from lokdocsqr.core.node_api.registry import registry
-
-
-from lokdocsqr.core.conditions import (
-    _CondError,
-    _Parser as _CoreConditionParser,
-    _compare as _core_compare,
-    _evaluate as _core_evaluate,
-    _lookup as _core_lookup,
-    _tokenize as _core_tokenize,
-)
 
 
 def _tokenize(expr: str) -> list[tuple[str, str]]:
@@ -95,7 +103,7 @@ def _extract_items(payload: Any) -> tuple[list[Any], bool]:
 # ── nested-graph resolution (Phase 8f) ────────────────────────────────
 _DEFAULT_MAX_DEPTH = 4
 
-BuildInline = Callable[[dict], ResolvedGraph]
+BuildInline = Callable[[dict[str, Any]], ResolvedGraph]
 
 
 def _resolve_max_depth(ctx: Any, payload: dict[str, Any]) -> Any:
@@ -129,7 +137,7 @@ def _subflow_stack(ctx: Any) -> tuple[str, ...]:
         return ()
 
 
-def _build_inline_default(graph: dict) -> ResolvedGraph:
+def _build_inline_default(graph: dict[str, Any]) -> ResolvedGraph:
     """Default inline builder (used by flow.loop_batch).
 
     ``flow.subflow`` deliberately does NOT use this — it defines its own
@@ -145,7 +153,7 @@ def _build_inline_default(graph: dict) -> ResolvedGraph:
 
 def _resolve_child_graph(
     ctx: Any,
-    payload: dict,
+    payload: dict[str, Any],
     *,
     build_inline: BuildInline | None = None,
 ) -> tuple[str | None, ResolvedGraph]:
@@ -234,17 +242,21 @@ def _resolve_child_graph(
             )
         return graph_id, built
 
+    if not isinstance(graph, dict):
+        raise NodeExecutionError(
+            "subflow: exactly one of graph_id or graph is required"
+        )
     builder = build_inline if build_inline is not None else _build_inline_default
     resolved = builder(graph)
     return None, resolved
 
 
 __all__ = [
+    "BuildInline",
     "_CondError",
-    "_evaluate",
     "_base_mapping",
+    "_build_inline_default",
+    "_evaluate",
     "_extract_items",
     "_resolve_child_graph",
-    "_build_inline_default",
-    "BuildInline",
 ]

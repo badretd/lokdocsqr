@@ -2433,15 +2433,19 @@ An explicit document setting is absolute: a document that says `default_dry_run 
 
 ```bash
 lokdocsqr serve <file-or-dir> [<file-or-dir> ...] [--base-dir DIR] [--include PATH] [--dry-run|--no-dry-run]
+lokdocsqr serve --daemon <file-or-dir> ...   # run each automation once, then serve
+lokdocsqr daemon <file-or-dir> ...           # alias for serve --daemon
+lokdocsqr run <automation> --daemon          # run once, then serve its triggers
 ```
 
 * Each positional argument is a `.ldsq` or `.json` automation file, or a directory containing them.
 * `--base-dir` sets the workspace used to resolve relative paths and the default scope.
 * `--include PATH` (repeatable; file or directory) registers additional automations, which is useful when one serving document references another by `graph_id`.
-* `--dry-run` / `--no-dry-run` become the Runtime default for bindings that do not set `params.dry_run`.
-* Registration prints `registered <automation_id>` for every document, then `serving; press Ctrl+C to stop`. Ctrl+C stops the runtime cleanly.
-
-The command performs no immediate run; trigger bindings execute through the same pipeline as `run`.
+* `--dry-run` / `--no-dry-run` become the Runtime default for bindings that do not set `params.dry_run`. Nested `flow.loop_batch`/`flow.subflow` previews are wired automatically.
+* `--daemon` executes every registered automation once before starting the trigger host. Without it, `serve` performs no immediate run.
+* Registration prints `registered <automation_id>` for every document, then `serving; press Ctrl+C to stop` (or `daemon running...`). Every subsequent run prints run, node, audit and completion events to the console.
+* `serve` and `--daemon` acquire `<base_dir>/.lokdocsqr-runtime.lock`; a second instance fails before doing work. SIGINT/SIGTERM stop cleanly and release the lock.
+* The command executes through the same pipeline as `run`; `--json`/`--format=json` emits one JSON object per event on stdout and sends status messages to stderr.
 
 ---
 

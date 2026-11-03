@@ -17,7 +17,6 @@ from typing import Any
 import pytest
 
 import lokdocsqr.nodes  # noqa: F401  (register built-in node families)
-from tests.helpers import make_ctx
 from lokdocsqr.core.dsl import document_to_dict, emit_dsl, parse_dsl
 from lokdocsqr.core.executor.engine import Executor
 from lokdocsqr.core.graph import (
@@ -37,15 +36,15 @@ from lokdocsqr.core.models import (
 )
 from lokdocsqr.core.node_api.base import Node
 from lokdocsqr.core.node_api.registry import registry
+from lokdocsqr.nodes.flow.filter import FilterNode
+from lokdocsqr.nodes.flow.loop_batch import LoopBatchNode
 from lokdocsqr.nodes.fs_ops.archive import ArchiveNode
 from lokdocsqr.nodes.fs_ops.convert import ConvertNode
 from lokdocsqr.nodes.fs_ops.copy import CopyNode
 from lokdocsqr.nodes.fs_ops.move import MoveNode
 from lokdocsqr.nodes.fs_ops.rename import RenameNode
 from lokdocsqr.nodes.fs_ops.trash import TrashNode
-from lokdocsqr.nodes.flow.filter import FilterNode
-from lokdocsqr.nodes.flow.loop_batch import LoopBatchNode
-
+from tests.helpers import make_ctx
 
 # ---------------------------------------------------------------------------
 # D1 — edge.condition is removed

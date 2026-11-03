@@ -27,7 +27,7 @@ from __future__ import annotations
 import hashlib
 import stat as stat_module
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import LokError, NodeExecutionError, ScopeViolation
@@ -44,8 +44,8 @@ class HashDedupeNode(AccessBase):
 
     id = "access.hash_dedupe"
     title = "Hash & Dedupe"
-    inputs = {"paths": "str|list[str]"}
-    outputs = {"groups": "dict[]"}
+    inputs: ClassVar[dict[str, str]] = {"paths": "str|list[str]"}
+    outputs: ClassVar[dict[str, str]] = {"groups": "dict[]"}
 
     def __init__(
         self,
@@ -133,9 +133,9 @@ class HashDedupeNode(AccessBase):
         hashed: dict[tuple[str, int], list[str]] = {}
         scanned = 0
 
-        # ``path``  — реальный путь для I/O (может быть резолвнут scope-гейтом).
-        # ``display`` — что показываем пользователю: исходное имя (entry/raw),
-        #               чтобы в отчёте был ``broken.txt``, а не ``nonexistent.txt``.
+        # ``path`` is the real I/O path (possibly resolved by the scope gate).
+        # ``display`` is what the user sees: the original entry/raw name, so
+        # reports show ``broken.txt`` rather than ``nonexistent.txt``.
         def handle_file(path: Path, display: Path, st: Any) -> None:
             nonlocal scanned
             scanned += 1

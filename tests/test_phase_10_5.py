@@ -13,8 +13,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import lokdocsqr.nodes  # noqa: F401  (registers all built-in nodes)
 import pytest
+
+import lokdocsqr.nodes  # noqa: F401  (registers all built-in nodes)
 from lokdocsqr.core.config import AppConfig
 from lokdocsqr.core.dsl import (
     compile_dsl,

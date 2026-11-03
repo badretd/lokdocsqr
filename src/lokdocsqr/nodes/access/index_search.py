@@ -3,11 +3,11 @@
 Node id: ``access.index_search``.
 
 Read-only, in-memory text search over files. Text extraction is dispatched
-exclusively through ``extract_text.HANDLERS`` — this module deliberately does
+exclusively through ``extract_text.HANDLERS`` - this module deliberately does
 not contain per-extension parsing or ``if ext == ...`` / ``elif ext == ...``
 dispatch.
 
-Risk notes (R13–R19)
+Risk notes (R13-R19)
 --------------------
 R13: Read-only. This node only stats and reads bytes. It never creates,
      mutates, renames, moves, or deletes files, and it never calls a mutating
@@ -37,14 +37,14 @@ from __future__ import annotations
 import re
 import stat as stat_module
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import LokError, NodeExecutionError, ScopeViolation
 from lokdocsqr.core.node_api.decorators import register_node
 
 from . import extract_text
-from ._base import AccessBase, AccessLimitError, DEFAULT_MAX_BYTES_PER_FILE
+from ._base import DEFAULT_MAX_BYTES_PER_FILE, AccessBase, AccessLimitError
 
 __all__ = ["IndexSearchNode"]
 
@@ -55,8 +55,8 @@ class IndexSearchNode(AccessBase):
 
     id = "access.index_search"
     title = "Index / Search"
-    inputs = {"paths": "str|list[str]"}
-    outputs = {"matches": "dict[]"}
+    inputs: ClassVar[dict[str, str]] = {"paths": "str|list[str]"}
+    outputs: ClassVar[dict[str, str]] = {"matches": "dict[]"}
 
     def __init__(
         self,
@@ -285,7 +285,7 @@ class IndexSearchNode(AccessBase):
 
             try:
                 extracted = handler(data, {})
-            except Exception as exc:  # noqa: BLE001 — per-item error boundary
+            except Exception as exc:
                 errors.append({"path": str(path), "error": str(exc)})
                 return
 

@@ -7,7 +7,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 
@@ -96,7 +95,7 @@ def test_safe_fs_docstring_matches_readonly_caller_list():
     ):
         assert module in text, (
             f"{module} missing from safe_fs docstring — the docstring must "
-            "match READONLY_FS_ALLOWED ∪ MUTATION_FS_ALLOWED in "
+            "match READONLY_FS_ALLOWED U MUTATION_FS_ALLOWED in "
             "tests/test_architecture.py"
         )
 

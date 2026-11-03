@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.audit import AuditLog
 from lokdocsqr.core.clock import FakeClock
@@ -32,7 +33,6 @@ from lokdocsqr.nodes.fs_ops.make_dir import MakeDirNode
 from lokdocsqr.nodes.fs_ops.tag import TagNode
 from lokdocsqr.nodes.fs_ops.trash import TrashNode
 from lokdocsqr.nodes.fs_ops.write_file import WriteFileNode
-
 from tests.test_dry_run import _TestCtx
 
 

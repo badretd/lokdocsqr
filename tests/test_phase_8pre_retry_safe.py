@@ -1,5 +1,4 @@
 """retry_safe default and fs_ops spot-check (SPEC §5)."""
-import pytest
 
 
 def test_node_retry_safe_default_false():

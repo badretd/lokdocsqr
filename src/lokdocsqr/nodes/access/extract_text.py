@@ -26,20 +26,22 @@ errors in both run and dry_run.
 """
 from __future__ import annotations
 
+import contextlib
 import csv
 import html as html_module
 import io
 import re
 import stat as stat_module
+from collections.abc import Callable
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, ClassVar
 
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import LokError, NodeExecutionError
 from lokdocsqr.core.node_api.decorators import register_node
 
-from ._base import AccessBase, AccessFormatError, DEFAULT_MAX_BYTES_PER_FILE
+from ._base import DEFAULT_MAX_BYTES_PER_FILE, AccessBase, AccessFormatError
 
 Handler = Callable[[bytes, dict[str, Any]], dict[str, Any]]
 HANDLERS: dict[str, Handler] = {}
@@ -137,8 +139,8 @@ class ExtractTextNode(AccessBase):
 
     id = "access.extract_text"
     title = "Extract Text"
-    inputs = {"paths": "str|list[str]"}
-    outputs = {"items": "Text[]"}
+    inputs: ClassVar[dict[str, str]] = {"paths": "str|list[str]"}
+    outputs: ClassVar[dict[str, str]] = {"items": "Text[]"}
 
     def __init__(
         self,
@@ -273,7 +275,7 @@ class ExtractTextNode(AccessBase):
             return item
         try:
             extracted = handler(data, params)
-        except Exception as exc:  # noqa: BLE001 - per-item error boundary
+        except Exception as exc:
             item["error"] = str(exc)
             return item
         if "text" in extracted:
@@ -361,7 +363,7 @@ class ExtractTextNode(AccessBase):
         return {"items": items}
 
 
-__all__ = ["ExtractTextNode", "HANDLERS", "register_handler"]
+__all__ = ["HANDLERS", "ExtractTextNode", "register_handler"]
 
 
 # ── 6c: image format handlers (OCR) ────────────────────────────────
@@ -388,8 +390,9 @@ def _ocr_handler(data: bytes, params: dict[str, Any]) -> dict[str, Any]:
         }
 
     try:
-        from PIL import Image
         import io as _io_module
+
+        from PIL import Image
     except ImportError:
         return {
             "text": None,
@@ -409,7 +412,7 @@ def _ocr_handler(data: bytes, params: dict[str, Any]) -> dict[str, Any]:
         text = pytesseract.image_to_string(
             image_obj, lang=lang, config=config
         )
-    except Exception as exc:  # noqa: BLE001 — per-item error boundary
+    except Exception as exc:
         _tnf = getattr(pytesseract, "TesseractNotFoundError", None)
         if (_tnf is not None and isinstance(exc, _tnf)) or (
             type(exc).__name__ == "TesseractNotFoundError"
@@ -453,17 +456,15 @@ def _pdf_handler(data: bytes, opts: dict[str, Any]) -> dict[str, Any]:
             tp = page.get_textpage()
             parts.append(tp.get_text_range())
         return {"text": "\n".join(parts), "error": None}
-    except Exception as e:  # noqa: BLE001 - per-item error boundary
+    except Exception as e:
         return {
             "text": None,
             "error": f"pdf parse error: {type(e).__name__}: {e}",
         }
     finally:
         if pdf is not None:
-            try:
+            with contextlib.suppress(Exception):
                 pdf.close()
-            except Exception:
-                pass
 
 
 def _docx_handler(data: bytes, opts: dict[str, Any]) -> dict[str, Any]:
@@ -491,7 +492,7 @@ def _docx_handler(data: bytes, opts: dict[str, Any]) -> dict[str, Any]:
                         table_cells.append(cell.text)
         text = "\n".join(paragraphs + table_cells)
         return {"text": text, "error": None}
-    except Exception as e:  # noqa: BLE001 - per-item error boundary
+    except Exception as e:
         return {
             "text": None,
             "error": f"docx parse error: {type(e).__name__}: {e}",
@@ -527,14 +528,14 @@ def _eml_handler(data: bytes, opts: dict[str, Any]) -> dict[str, Any]:
             ctype = part.get_content_type()
             if ctype == "text/plain":
                 payload = part.get_payload(decode=True)
-                if payload:
+                if isinstance(payload, bytes):
                     charset = part.get_content_charset() or "utf-8"
                     texts.append(payload.decode(charset, errors="replace"))
         if not texts:
             for part in msg.walk():
                 if part.get_content_type() == "text/html":
                     payload = part.get_payload(decode=True)
-                    if payload:
+                    if isinstance(payload, bytes):
                         charset = part.get_content_charset() or "utf-8"
                         html = payload.decode(charset, errors="replace")
                         texts.append(_strip_html(html))

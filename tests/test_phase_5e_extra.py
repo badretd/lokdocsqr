@@ -15,9 +15,10 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-import lokdocsqr.nodes.fs_ops.tag as tag_mod
 import pytest
 from freezegun import freeze_time
+
+import lokdocsqr.nodes.fs_ops.tag as tag_mod
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import NodeExecutionError
 from lokdocsqr.core.models import Risk

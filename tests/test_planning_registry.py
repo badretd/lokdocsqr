@@ -1,8 +1,6 @@
 """Tests for Phase 7a planning registry."""
 from __future__ import annotations
 
-import pytest
-
 from lokdocsqr.core.planning import DEFAULT_OPERATION_MAP, classify_node
 
 EXPECTED_INVENTORY = {

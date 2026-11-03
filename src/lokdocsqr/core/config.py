@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from lokdocsqr.core.errors import ConfigError
 from lokdocsqr.core.safe_fs import atomic_write
@@ -50,7 +51,7 @@ class AppConfig:
 
 
 
-def _flow_config_from_data(data: dict) -> FlowConfig:
+def _flow_config_from_data(data: dict[str, Any]) -> FlowConfig:
     """Return FlowConfig from a decoded config dict (Phase 8e)."""
     raw = data.get("flow")
     if isinstance(raw, dict):

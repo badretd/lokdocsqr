@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from lokdocsqr.core.audit import AuditLog
 from lokdocsqr.core.clock import FakeClock
 from lokdocsqr.core.config import AppConfig

@@ -15,7 +15,9 @@ Two invariants this file respects:
 """
 from __future__ import annotations
 
+import contextlib
 import os
+from pathlib import Path
 
 import pytest
 
@@ -26,10 +28,8 @@ from lokdocsqr.core.plugins import discover_plugins
 
 
 def _non_fail_closed_ids() -> list[str]:
-    try:
+    with contextlib.suppress(Exception):
         discover_plugins()
-    except Exception:
-        pass
     ids: list[str] = []
     try:
         metadata = registry.list()
@@ -173,7 +173,7 @@ def test_h6_non_fail_closed_nodes_return_declared_ports(
     # NOTE: do NOT use monkeypatch.chdir — its teardown runs after the
     # leak detector and would flag tmp_path as a CWD leak. try/finally
     # restores CWD before this function returns.
-    original_cwd = os.getcwd()
+    original_cwd = Path.cwd()
     try:
         os.chdir(tmp_path)
         for name in _FIXTURE_FILES:

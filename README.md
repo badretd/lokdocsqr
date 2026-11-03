@@ -1,6 +1,8 @@
 # LokDocSQR
 
-> **Status: pre-alpha. Active development. Nothing is stable; nothing works end-to-end yet. Do not use in production.**
+> **Status: Phase 11 CLI complete; desktop GUI (Phase 12) is not implemented yet.**
+> The headless CLI, runtime, triggers, DSL and audit/rollback path are usable;
+> treat the project as pre-1.0 and test against a copy of your data.
 
 A local automation builder for files: graph-based workflows, dry-run, audit and rollback, safe filesystem operations, and optional local LLM support.
 
@@ -116,7 +118,14 @@ and `--scope PATH` (repeatable) to override the writable workspace. A
 `--policy FILE` overrides the built-in fail-closed policy. Automations must use
 `.json` or `.ldsq`; other extensions are rejected.
 
-`lokdocsqr serve <automation...>` hosts watch/cron triggers until Ctrl+C.
+`lokdocsqr serve <file-or-directory...>` hosts watch/cron triggers until
+Ctrl+C or SIGTERM, prints every run/node/audit event to the console, and uses a
+single-instance lock. Add `--daemon` to execute each automation once before the
+trigger host starts. `run <automation> --daemon` executes once and then keeps
+serving the automation's declared triggers in the same process;
+`lokdocsqr daemon <file-or-directory...>` is the same as `serve --daemon`.
+
+`python -m lokdocsqr` is equivalent to the installed `lokdocsqr` entry point.
 See [`docs/PACKAGING.md`](./docs/PACKAGING.md) for the PyInstaller CLI build.
 
 ---

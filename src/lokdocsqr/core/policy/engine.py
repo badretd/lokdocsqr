@@ -45,7 +45,7 @@ class PolicyEngine:
         self._allow_read = False
 
     @classmethod
-    def default(cls) -> "PolicyEngine":
+    def default(cls) -> PolicyEngine:
         """Built-in rules: read ALLOW; write/move/copy/mkdir REQUIRE_VERIFY;
         everything else (including unknown) BLOCK.
         """
@@ -56,7 +56,7 @@ class PolicyEngine:
         return engine
 
     @classmethod
-    def from_json(cls, path: Path) -> "PolicyEngine":
+    def from_json(cls, path: Path) -> PolicyEngine:
         """Load policy configuration from JSON.
 
         # 7a-iter-1: from_json starts from default().config and overrides

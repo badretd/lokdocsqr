@@ -4,12 +4,10 @@ from __future__ import annotations
 import errno
 import json
 import os
-import types
 from pathlib import Path
 
 import pytest
 
-from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import SafeFsError
 from lokdocsqr.core.safe_fs import (
     atomic_append,
@@ -23,7 +21,6 @@ from lokdocsqr.core.safe_fs import (
     safe_rename,
     trash,
 )
-
 
 # ---------------------------------------------------------------------------
 # atomic_write / atomic_append

@@ -22,7 +22,6 @@ from lokdocsqr.core.models import (
     RollbackOp,
     RunResult,
 )
-
 from tests.helpers import make_scope
 
 # ---------------------------------------------------------------------------

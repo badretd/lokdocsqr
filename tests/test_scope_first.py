@@ -33,6 +33,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import ScopeViolation
 

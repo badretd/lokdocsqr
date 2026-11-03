@@ -16,8 +16,8 @@ from types import SimpleNamespace
 import pytest
 
 from lokdocsqr.nodes.access import extract_text
+from lokdocsqr.nodes.access._base import AccessLimitError
 from lokdocsqr.nodes.access.index_search import IndexSearchNode
-
 
 # ── helpers ────────────────────────────────────────────────────────
 
@@ -152,7 +152,7 @@ def test_ac3_invalid_regex_fails_before_traversal(tmp_path, monkeypatch):
 
     ctx = _build_ctx(tmp_path)
     node = IndexSearchNode(query="[unclosed", mode="regex")
-    with pytest.raises(Exception):
+    with pytest.raises(AccessLimitError):
         node.run(ctx, {"paths": [str(tmp_path)]})
     assert calls == [], "handler ran despite invalid regex"
 

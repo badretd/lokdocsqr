@@ -4,11 +4,10 @@ from __future__ import annotations
 import ast
 import inspect
 import sys
-from pathlib import Path
 
 import pytest
 
-from tests.trash.conftest import ROOT, SRC
+from tests.trash.conftest import SRC
 
 ACTIONLOG_ROLLBACK_FIELDS = (
     "rollback_eligible", "original_path", "trash_path",
@@ -50,15 +49,15 @@ def test_actionlog_declares_all_rollback_fields():
 
 def test_actionlog_constructible_with_rollback_fields():
     import lokdocsqr.core.models as models
-    ActionLog = getattr(models, "ActionLog", None)
-    Risk = getattr(models, "Risk", None)
-    if ActionLog is None or Risk is None:
+    action_log_cls = getattr(models, "ActionLog", None)
+    risk_cls = getattr(models, "Risk", None)
+    if action_log_cls is None or risk_cls is None:
         pytest.fail("BUG: models.py — ActionLog/Risk not exported")
     try:
-        log = ActionLog(
+        log = action_log_cls(
             run_id="r", automation_id="a", node_id="n",
             action_type="trash", source="/s", target="/t",
-            reason="test", confidence=1.0, risk=Risk.MEDIUM, dry_run=False,
+            reason="test", confidence=1.0, risk=risk_cls.MEDIUM, dry_run=False,
             rollback_eligible=True, original_path="/orig",
             trash_path="/trash", sidecar_path="/sc", hash_before="ab" * 32,
         )

@@ -16,9 +16,8 @@ from lokdocsqr.nodes.fs_ops.archive import (
     _resolve_entry_target,
 )
 
-
 # CWD guard — see note in tests/test_archive_7z.py.
-_ORIGINAL_CWD = os.getcwd()
+_ORIGINAL_CWD = Path.cwd()
 
 
 @pytest.fixture(autouse=True)

@@ -66,7 +66,7 @@ def _run_python(code: str) -> subprocess.CompletedProcess[str]:
 
 
 # ---------------------------------------------------------------------------
-# set_variables — mandatory negatives 1–4, 15
+# set_variables — mandatory negatives 1-4, 15
 # ---------------------------------------------------------------------------
 
 
@@ -145,7 +145,7 @@ def test_set_variables_failed_set_does_not_write_ctx_variables() -> None:
 
 
 # ---------------------------------------------------------------------------
-# json_validate — mandatory negatives 5–9
+# json_validate — mandatory negatives 5-9
 # ---------------------------------------------------------------------------
 
 

@@ -7,9 +7,8 @@ import pytest
 
 from lokdocsqr.nodes.fs_ops.archive import ArchiveNode
 
-
 # CWD guard — see note in tests/test_archive_7z.py.
-_ORIGINAL_CWD = os.getcwd()
+_ORIGINAL_CWD = Path.cwd()
 
 
 @pytest.fixture(autouse=True)
@@ -72,7 +71,7 @@ def test_dry_run_extract_never_opens_zip_for_write(ctx, tmp_path, monkeypatch):
     archive = tmp_path / "a.zip"
     with zipfile.ZipFile(archive, "w") as zf:
         zf.writestr("f.txt", b"hello")
-    target_dir = tmp_path / "out"
+    tmp_path / "out"
 
     modes_seen: list[str] = []
     real_init = zipfile.ZipFile.__init__
@@ -101,7 +100,7 @@ def test_dry_run_extract_never_calls_mutators(ctx, tmp_path, monkeypatch):
     archive = tmp_path / "a.zip"
     with zipfile.ZipFile(archive, "w") as zf:
         zf.writestr("f.txt", b"hello")
-    target_dir = tmp_path / "out"
+    tmp_path / "out"
 
     calls: list[str] = []
     real_aw = safe_fs_mod.atomic_write

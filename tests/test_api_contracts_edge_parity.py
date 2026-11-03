@@ -26,6 +26,7 @@ test-environment artefact, not an edge-resolution bug.
 from __future__ import annotations
 
 import pytest
+
 from lokdocsqr.core.executor.engine import Executor
 from lokdocsqr.core.models import (
     EdgeSpec,

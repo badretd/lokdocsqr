@@ -11,7 +11,6 @@ policy.
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from lokdocsqr.core.errors import ScopeViolation
@@ -32,7 +31,9 @@ class ScopeManager:
         roots = getattr(scope, "roots", None)
         if roots is None:
             roots = getattr(scope, "allowed_roots", []) or []
-        self._roots: list[Path] = [Path(r).resolve() for r in roots]
+        self._roots: list[Path] = [
+            Path(r).expanduser().resolve() for r in roots
+        ]
 
         writable = getattr(scope, "writable", None)
         if writable is None:
@@ -40,7 +41,9 @@ class ScopeManager:
         if writable is None:
             self._writable: list[Path] = list(self._roots)
         else:
-            self._writable = [Path(r).resolve() for r in writable]
+            self._writable = [
+                Path(r).expanduser().resolve() for r in writable
+            ]
 
         self._allow_symlinks = bool(getattr(scope, "allow_symlinks", False))
         self.allow_parent_traversal = bool(

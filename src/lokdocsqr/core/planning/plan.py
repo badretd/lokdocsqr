@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from ..models import ActionSummary, PolicyDecision
 from ..preview import ChangePreview
 
-__all__ = ["PlanError", "ActionPlan"]
+__all__ = ["ActionPlan", "PlanError"]
 
 
 @dataclass(frozen=True)
@@ -40,5 +40,5 @@ class ActionPlan:
     blocked: bool
 
     @property
-    def proposals(self):
+    def proposals(self) -> tuple[ActionSummary, ...]:
         return self.summaries

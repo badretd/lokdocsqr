@@ -9,6 +9,7 @@ from __future__ import annotations
 import types
 from typing import Any
 
+
 class _CondError(Exception):
     """Internal condition parse/evaluation failure."""
 
@@ -161,17 +162,17 @@ def _lookup(name: str, mapping: dict[str, Any]) -> Any:
 def _compare(left: Any, op: str, right: Any) -> bool:
     try:
         if op == "==":
-            return left == right
+            return bool(left == right)
         if op == "!=":
-            return left != right
+            return bool(left != right)
         if op == "<":
-            return left < right
+            return bool(left < right)
         if op == "<=":
-            return left <= right
+            return bool(left <= right)
         if op == ">":
-            return left > right
+            return bool(left > right)
         if op == ">=":
-            return left >= right
+            return bool(left >= right)
         if op == "in":
             if not isinstance(
                 right, (str, list, tuple, set, frozenset, dict)
@@ -186,7 +187,7 @@ def _compare(left: Any, op: str, right: Any) -> bool:
             return left not in right
     except _CondError:
         raise
-    except Exception as exc:  # noqa: BLE001 - converted to per-item error
+    except Exception as exc:
         raise _CondError("comparison failed") from exc
     raise _CondError("unsupported operator")
 

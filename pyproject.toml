@@ -50,7 +50,7 @@ dev = [
 [tool.ruff]
 target-version = "py310"
 line-length = 100
-src = ["core", "nodes", "gui", "cli"]
+src = ["src"]
 extend-exclude = ["packaging", ".venv", "dist", "build"]
 
 [tool.ruff.lint]

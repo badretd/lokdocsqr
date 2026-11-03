@@ -7,10 +7,10 @@ import pytest
 
 from lokdocsqr.core.models import ActionSummary
 from lokdocsqr.core.preview import (
+    NODE_CHANGE_KIND,
     ChangePreview,
     ChangeType,
     DiffEntry,
-    NODE_CHANGE_KIND,
     _resolve_change_type,
 )
 

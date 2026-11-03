@@ -8,7 +8,7 @@ H7: no ghost ids — classified but neither registered nor in
 M3: NODE_CHANGE_KIND covers every fs.* node id in DEFAULT_OPERATION_MAP.
 M5: ResolvedGraph rejects ordered_node_ids not present in document.
 L4: core/safe_fs.py docstring lists every module allowed by
-    test_architecture.py (READONLY_FS_ALLOWED ∪ MUTATION_FS_ALLOWED).
+    test_architecture.py (READONLY_FS_ALLOWED U MUTATION_FS_ALLOWED).
 H1b: access package exposes ExtractTextNode and HashDedupeNode publicly.
 
 """
@@ -29,7 +29,6 @@ from lokdocsqr.core.models import (
 from lokdocsqr.core.planning.registry import DEFAULT_OPERATION_MAP
 from lokdocsqr.core.plugins import discover_plugins
 from lokdocsqr.core.preview import NODE_CHANGE_KIND
-
 
 #: Nodes classified by the registry but not yet implemented. Kept in sync
 #: with docs/API_CONTRACTS.md. If a KNOWN_FUTURE node lands, remove it here.

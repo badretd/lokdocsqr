@@ -12,7 +12,6 @@ try:
         resolve_conflict_policy,
         risk_for_decision,
     )
-    from lokdocsqr.core.models import Risk
 except BaseException as exc:  # pragma: no cover
     pytest.skip(
         f"subphase 5b `_common.py` not importable: {exc!r}",

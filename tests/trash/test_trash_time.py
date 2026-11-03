@@ -1,7 +1,6 @@
 """Fake-clock test — isolated file so freezegun patch cost is paid once."""
 from __future__ import annotations
 
-import pytest
 from freezegun import freeze_time
 
 from tests.trash.conftest import run_trash

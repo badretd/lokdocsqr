@@ -22,7 +22,6 @@ from typing import Any
 import pytest
 
 import lokdocsqr.nodes.flow.subflow as subflow_mod
-from lokdocsqr.core.catalog import AutomationCatalog
 from lokdocsqr.core.clock import FakeClock
 from lokdocsqr.core.config import AppConfig, load_config, save_config
 from lokdocsqr.core.errors import (
@@ -35,7 +34,6 @@ from lokdocsqr.core.executor.context import ExecutionContext
 from lokdocsqr.core.node_api.registry import registry
 from lokdocsqr.core.plugins import discover_plugins
 from lokdocsqr.nodes.flow.subflow import SubflowNode
-
 
 # ---------------------------------------------------------------------------
 # Helpers / doubles

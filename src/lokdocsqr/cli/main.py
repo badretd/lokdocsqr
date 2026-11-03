@@ -22,8 +22,11 @@ requires either a policy that allows it or an explicit human opt-in
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
+import signal
 import sys
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -31,6 +34,7 @@ from typing import Any
 from lokdocsqr import __version__
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.audit import AuditLog
+from lokdocsqr.core.compat import normalize_document_data
 from lokdocsqr.core.config import AppConfig, load_config
 from lokdocsqr.core.dsl import (
     DSL_EXTENSION,
@@ -43,13 +47,21 @@ from lokdocsqr.core.errors import (
     GraphValidationError,
     LokError,
 )
-from lokdocsqr.core.events import EventBus
+from lokdocsqr.core.events import (
+    EVENT_AUDIT_LOGGED,
+    EVENT_NODE_FINISHED,
+    EVENT_NODE_STARTED,
+    EVENT_RUN_FINISHED,
+    EVENT_RUN_STARTED,
+    EventBus,
+)
 from lokdocsqr.core.graph import (
     build_graph,
     parse_graph,
     resolve_states,
     validate_graph,
 )
+from lokdocsqr.core.logging import setup_logging
 from lokdocsqr.core.models import (
     ActionLog,
     ActionSummary,
@@ -61,6 +73,7 @@ from lokdocsqr.core.models import (
     WorkspaceScope,
 )
 from lokdocsqr.core.node_api.registry import registry
+from lokdocsqr.core.paths import expand_user_path
 from lokdocsqr.core.plugins import discover_plugins
 from lokdocsqr.core.policy import PolicyEngine
 from lokdocsqr.core.runtime import Runtime
@@ -136,6 +149,14 @@ def _add_run_flags(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="report only the first validation error (legacy behaviour)",
     )
+    parser.add_argument(
+        "--daemon",
+        action="store_true",
+        help=(
+            "daemon mode: run once, keep serving declared watch/cron "
+            "triggers, and log every run to the console"
+        ),
+    )
 
 
 def _add_include_flags(parser: argparse.ArgumentParser) -> None:
@@ -152,12 +173,17 @@ def _add_include_flags(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_automation_argument(parser: argparse.ArgumentParser, *, many: bool = False) -> None:
+    help_text = (
+        "automation .json/.ldsq file or directory of automation files"
+        if many
+        else "automation .json file or .ldsq DSL file"
+    )
     parser.add_argument(
         "automation",
         type=Path,
         nargs="+" if many else None,
         metavar="AUTOMATION",
-        help="automation .json file or .ldsq DSL file",
+        help=help_text,
     )
 
 
@@ -254,7 +280,54 @@ def build_parser() -> argparse.ArgumentParser:
     _add_automation_argument(serve_parser, many=True)
     _add_run_flags(serve_parser)
     _add_include_flags(serve_parser)
+    serve_parser.add_argument(
+        "--explain",
+        action="store_true",
+        help="show per-node outputs, action logs and errors",
+    )
+    serve_parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default=None,
+        help="console log format (default: text, or json with --json)",
+    )
+    serve_parser.add_argument(
+        "--catalog-fallback",
+        action="store_true",
+        help=(
+            "when a graph_id is missing from the catalog, try "
+            "<base_dir>/<graph_id>.ldsq then .json"
+        ),
+    )
     serve_parser.set_defaults(handler=_cmd_serve)
+
+    daemon_parser = subparsers.add_parser(
+        "daemon",
+        help="run automations once, then serve their triggers until stopped",
+    )
+    _add_automation_argument(daemon_parser, many=True)
+    _add_run_flags(daemon_parser)
+    _add_include_flags(daemon_parser)
+    daemon_parser.add_argument(
+        "--explain",
+        action="store_true",
+        help="show per-node outputs, action logs and errors",
+    )
+    daemon_parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default=None,
+        help="console log format (default: text, or json with --json)",
+    )
+    daemon_parser.add_argument(
+        "--catalog-fallback",
+        action="store_true",
+        help=(
+            "when a graph_id is missing from the catalog, try "
+            "<base_dir>/<graph_id>.ldsq then .json"
+        ),
+    )
+    daemon_parser.set_defaults(handler=_cmd_serve, daemon=True)
 
     audit_parser = subparsers.add_parser("audit", help="inspect or roll back the audit log")
     audit_sub = audit_parser.add_subparsers(dest="audit_command", metavar="SUBCOMMAND")
@@ -295,35 +368,81 @@ def _resolve_path(base: Path, value: Path | str) -> Path:
 
 
 def _config_from_args(args: argparse.Namespace) -> AppConfig:
-    """Build the runtime config from ``--config`` / ``--base-dir`` / ``--scope``."""
-    scope_paths = [Path(item) for item in getattr(args, "scope", []) or []]
-    explicit_base = getattr(args, "base_dir", None)
+    """Build the runtime config from ``--config`` / ``--base-dir`` / ``--scope``.
 
+    Path semantics:
+
+    * a relative ``base_dir`` in a config file is resolved against the
+      config file's directory (not the process CWD);
+    * relative ``trash_dir`` / ``logs_dir`` entries are resolved against
+      the effective ``base_dir``;
+    * ``~`` is expanded everywhere;
+    * ``--base-dir`` overrides the config base and re-bases the default
+      trash/log directories so a run never splits output and audit across
+      two workspaces.
+    """
+    scope_paths = [
+        expand_user_path(item) for item in getattr(args, "scope", []) or []
+    ]
+    explicit_base = getattr(args, "base_dir", None)
     config_path = getattr(args, "config", None)
+
+    raw_config: dict[str, Any] = {}
+    config_dir = Path.cwd()
+    config: AppConfig
     if config_path is not None:
-        config = load_config(Path(config_path))
+        config_file = expand_user_path(config_path).resolve()
+        config = load_config(config_file)
+        config_dir = config_file.parent
+        try:
+            loaded = json.loads(config_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            loaded = {}
+        if isinstance(loaded, dict):
+            raw_config = loaded
     else:
         if explicit_base is not None:
-            base = Path(explicit_base).expanduser()
+            initial_base = expand_user_path(explicit_base)
         elif scope_paths:
-            # ``--scope`` without a config is the workspace: make relative
-            # automation paths resolve there instead of against the CWD.
-            base = scope_paths[0].expanduser()
+            # ``--scope`` without a config is the workspace.
+            initial_base = scope_paths[0]
         else:
-            base = Path.cwd()
-        config = AppConfig(base_dir=base)
+            initial_base = Path.cwd()
+        config = AppConfig(base_dir=initial_base)
 
-    config.base_dir = Path(config.base_dir).expanduser().resolve()
-
+    # Resolve the base directory first. Config-relative paths are anchored
+    # at the config file, CLI-relative paths at the process CWD.
+    raw_base = raw_config.get("base_dir", config.base_dir)
+    base = expand_user_path(raw_base)
+    if not base.is_absolute():
+        base = config_dir / base
     if explicit_base is not None:
-        config.base_dir = Path(explicit_base).expanduser().resolve()
-        if config_path is None:
-            config.trash_dir = config.base_dir / ".trash"
-            config.logs_dir = config.base_dir / ".logs"
+        base = expand_user_path(explicit_base)
+    base = base.resolve()
+    config.base_dir = base
+
+    def _resolve_config_path(key: str, default_name: str) -> Path:
+        raw = raw_config.get(key)
+        if raw is None or raw == "":
+            return (base / default_name).resolve()
+        value = expand_user_path(raw)
+        if not value.is_absolute():
+            value = base / value
+        return value.resolve()
+
+    # If --base-dir was supplied, a config's omitted trash/log paths follow
+    # the new base. Explicit config values are still honoured (absolute, or
+    # relative to the effective base).
+    config.trash_dir = _resolve_config_path("trash_dir", ".trash")
+    config.logs_dir = _resolve_config_path("logs_dir", ".logs")
 
     if scope_paths:
-        roots = [_resolve_path(config.base_dir, item) for item in scope_paths]
+        roots = [_resolve_path(base, item) for item in scope_paths]
         config.scope_roots = roots
+    else:
+        config.scope_roots = [
+            _resolve_path(base, item) for item in config.scope_roots
+        ]
 
     return config
 
@@ -347,9 +466,13 @@ def _read_automation(path: Path) -> tuple[str, str]:
 
 def _load_document(path: Path) -> WorkflowDocument:
     """Load a ``WorkflowDocument`` from a ``.json`` or ``.ldsq`` file."""
+    path = Path(path)
     suffix, text = _read_automation(path)
     if suffix == DSL_EXTENSION:
-        return parse_dsl(text)
+        try:
+            return parse_dsl(text)
+        except GraphParseError as exc:
+            raise GraphParseError(f"{path}: {exc}") from exc
 
     try:
         raw = json.loads(text)
@@ -358,7 +481,14 @@ def _load_document(path: Path) -> WorkflowDocument:
 
     if not isinstance(raw, dict):
         raise GraphParseError(f"{path}: automation JSON root must be an object")
-    return parse_graph(raw)
+
+    normalized = normalize_document_data(
+        raw, default_id=path.stem or None
+    )
+    try:
+        return parse_graph(normalized)
+    except GraphParseError as exc:
+        raise GraphParseError(f"{path}: {exc}") from exc
 
 
 def _iter_automation_paths(raw: str | Path) -> list[Path]:
@@ -406,8 +536,9 @@ def _register_catalog_fallback(
                 continue
             try:
                 document = _load_document(candidate)
+                _enable_recursive_preview(document)
                 runtime.register(document, automation_id=graph_id)
-            except Exception as exc:  # noqa: BLE001 - report and keep going
+            except Exception as exc:
                 print(
                     f"warning: catalog fallback for {graph_id!r} failed "
                     f"({candidate}): {exc}",
@@ -435,7 +566,13 @@ def _compile_payload(path: Path) -> dict[str, Any]:
 
     if not isinstance(raw, dict):
         raise GraphParseError(f"{path}: automation JSON root must be an object")
-    return document_to_dict(parse_graph(raw))
+    normalized = normalize_document_data(
+        raw, default_id=Path(path).stem or None
+    )
+    try:
+        return document_to_dict(parse_graph(normalized))
+    except GraphParseError as exc:
+        raise GraphParseError(f"{path}: {exc}") from exc
 
 
 def _apply_scope_override(
@@ -511,12 +648,14 @@ def _make_runtime(
     config: AppConfig,
     *,
     default_dry_run: bool | None = None,
+    events: EventBus | None = None,
+    single_instance: bool = False,
 ) -> Runtime:
     return Runtime(
         config,
         policy=_policy_from_args(args),
-        events=EventBus(),
-        single_instance=False,
+        events=events if events is not None else EventBus(),
+        single_instance=single_instance,
         default_dry_run=default_dry_run,
         verify_callback=_verify_callback(args),
     )
@@ -524,19 +663,34 @@ def _make_runtime(
 
 def _audit_log(config: AppConfig) -> AuditLog:
     logs_dir = (
-        Path(config.logs_dir) if config.logs_dir is not None else Path(config.base_dir) / ".logs"
+        Path(config.logs_dir)
+        if config.logs_dir is not None
+        else Path(config.base_dir) / ".logs"
     )
-    return AuditLog(logs_dir / _AUDIT_FILENAME)
+    return AuditLog(expand_user_path(logs_dir) / _AUDIT_FILENAME)
 
 
 def _scope_manager(config: AppConfig) -> ScopeManager:
-    roots = [Path(item).resolve() for item in config.scope_roots]
+    roots = [
+        expand_user_path(item).resolve() for item in config.scope_roots
+    ]
     if not roots:
-        roots = [Path(config.base_dir).resolve()]
+        roots = [expand_user_path(config.base_dir).resolve()]
+    writable = list(roots)
+    trash = getattr(config, "trash_dir", None)
+    if trash is not None:
+        trash_path = expand_user_path(trash).resolve()
+        try:
+            trash_path.relative_to(expand_user_path(config.base_dir).resolve())
+        except ValueError:
+            pass
+        else:
+            if trash_path not in writable:
+                writable.append(trash_path)
     return ScopeManager(
         WorkspaceScope(
             roots=list(roots),
-            writable=list(roots),
+            writable=writable,
             allow_symlinks=False,
             allow_parent_traversal=bool(
                 getattr(config, "allow_parent_traversal", False)
@@ -550,6 +704,148 @@ def _ensure_nodes() -> None:
         discover_plugins()
 
 
+def _assert_graph_buildable(document: WorkflowDocument) -> None:
+    """Fail before a run starts if the graph cannot be built.
+
+    ``validate_graph`` does not look up node handlers, so an unknown node
+    type currently surfaces only later inside ``Runtime._execute`` and is
+    reported as an exception. Building here keeps the CLI diagnostic clean
+    and avoids logging tracebacks for ordinary user errors.
+    """
+    _ensure_nodes()
+    states = resolve_states(document, registry)
+    build_graph(document, states, registry)
+
+
+def _prepare_documents_for_mode(
+    documents: list[WorkflowDocument],
+    *,
+    dry_run: bool | None,
+) -> None:
+    """Apply the CLI-only dry-run wiring to every document.
+
+    The flag is harmless during a real run and required whenever the
+    effective mode becomes a dry-run: CLI ``--dry-run``, a document
+    ``default_dry_run`` value, a config default, or a trigger's
+    ``params.dry_run``. The library keeps its strict opt-in behaviour.
+    """
+    del dry_run
+    for document in documents:
+        _enable_recursive_preview(document)
+
+
+def _collect_documents_from_args(
+    paths: list[str | Path],
+) -> list[WorkflowDocument]:
+    """Expand automation files/directories into ``WorkflowDocument``s."""
+    documents: list[WorkflowDocument] = []
+    for raw in paths:
+        candidates = _iter_automation_paths(raw)
+        if not candidates:
+            raise GraphParseError(
+                f"{raw}: no {_JSON_SUFFIX}/{DSL_EXTENSION} automations found"
+            )
+        for path in candidates:
+            documents.append(_load_document(path))
+    return documents
+
+
+def _install_console_event_logger(
+    bus: EventBus,
+    *,
+    as_json: bool = False,
+) -> None:
+    """Print every runtime event to the console for serve/daemon mode."""
+
+    def _emit(event_type: str, payload: dict[str, Any]) -> None:
+        if as_json:
+            record = {"event": event_type, **payload}
+            log = record.pop("action_log", None)
+            if log is not None:
+                record["action_log"] = log.to_dict()
+            print(
+                json.dumps(record, ensure_ascii=False, default=str),
+                flush=True,
+            )
+            return
+
+        run_id = payload.get("run_id", "-")
+        if event_type == EVENT_RUN_STARTED:
+            mode = "dry-run" if payload.get("dry_run") else "run"
+            print(
+                f"[run] {run_id} started "
+                f"automation={payload.get('automation_id', '-')} ({mode})",
+                flush=True,
+            )
+        elif event_type == EVENT_NODE_STARTED:
+            print(
+                f"[node] {run_id} {payload.get('node_id', '-')} "
+                f"started (attempt {payload.get('attempt', 1)})",
+                flush=True,
+            )
+        elif event_type == EVENT_NODE_FINISHED:
+            print(
+                f"[node] {run_id} {payload.get('node_id', '-')} "
+                f"{payload.get('state', '-')} "
+                f"({payload.get('attempts', 0)} attempt(s), "
+                f"{float(payload.get('duration', 0.0)):.4f}s)",
+                flush=True,
+            )
+        elif event_type == EVENT_AUDIT_LOGGED:
+            log = payload.get("action_log")
+            if log is not None:
+                print(f"[audit] {run_id} {_format_log(log)}", flush=True)
+        elif event_type == EVENT_RUN_FINISHED:
+            state = "ok" if payload.get("success") else "failed"
+            print(f"[run] {run_id} finished {state}", flush=True)
+            for error in payload.get("errors") or []:
+                print(f"[run] {run_id} error: {error}", flush=True)
+            for warning in payload.get("warnings") or []:
+                print(f"[run] {run_id} warning: {warning}", flush=True)
+
+    bus.subscribe(EVENT_RUN_STARTED, lambda payload: _emit(EVENT_RUN_STARTED, payload))
+    bus.subscribe(EVENT_NODE_STARTED, lambda payload: _emit(EVENT_NODE_STARTED, payload))
+    bus.subscribe(
+        EVENT_NODE_FINISHED,
+        lambda payload: _emit(EVENT_NODE_FINISHED, payload),
+    )
+    bus.subscribe(
+        EVENT_AUDIT_LOGGED,
+        lambda payload: _emit(EVENT_AUDIT_LOGGED, payload),
+    )
+    bus.subscribe(
+        EVENT_RUN_FINISHED,
+        lambda payload: _emit(EVENT_RUN_FINISHED, payload),
+    )
+
+
+def _serve_until_signal(runtime: Runtime) -> None:
+    """Block in ``Runtime.serve`` and stop gracefully on SIGINT/SIGTERM."""
+    stop_event = threading.Event()
+    previous: dict[int, Any] = {}
+
+    def _handler(signum: int, frame: Any) -> None:
+        del signum, frame
+        stop_event.set()
+
+    for name in ("SIGINT", "SIGTERM"):
+        signum = getattr(signal, name, None)
+        if signum is None:
+            continue
+        try:
+            previous[signum] = signal.getsignal(signum)
+            signal.signal(signum, _handler)
+        except (ValueError, OSError):  # not in the main thread / unsupported
+            previous.pop(signum, None)
+
+    try:
+        runtime.serve(stop_event)
+    finally:
+        for signum, handler in previous.items():
+            with contextlib.suppress(ValueError, OSError):
+                signal.signal(signum, handler)
+
+
 # ---------------------------------------------------------------------------
 # Command implementations
 # ---------------------------------------------------------------------------
@@ -561,19 +857,53 @@ def _cmd_run(args: argparse.Namespace) -> int:
     _apply_scope_override(document, args, config.base_dir)
 
     warnings: list[str] = []
-    validate_graph(document, warnings=warnings)
+    errors = list(validate_graph(document, warnings=warnings))
     for warning in warnings:
         print(f"warning: {warning}", file=sys.stderr)
+    if errors:
+        if getattr(args, "first_error", False):
+            errors = errors[:1]
+        raise GraphValidationError("; ".join(errors))
 
     included = _load_included_documents(getattr(args, "include", []))
-    if args.dry_run is True:
-        _enable_recursive_preview(document)
-        for included_document in included:
-            _enable_recursive_preview(included_document)
+    for included_document in included:
+        _apply_scope_override(included_document, args, config.base_dir)
+    for included_document in included:
+        included_warnings: list[str] = []
+        included_errors = list(
+            validate_graph(included_document, warnings=included_warnings)
+        )
+        for warning in included_warnings:
+            print(
+                f"warning: {included_document.metadata.id}: {warning}",
+                file=sys.stderr,
+            )
+        if included_errors:
+            prefix = f"{included_document.metadata.id}: "
+            raise GraphValidationError(
+                "; ".join(prefix + error for error in included_errors)
+            )
 
-    runtime = _make_runtime(args, config)
-    if args.dry_run is True:
-        runtime._planning_callback = _planning_callback(args)
+    all_documents = [document, *included]
+    _prepare_documents_for_mode(all_documents, dry_run=args.dry_run)
+    for candidate in all_documents:
+        _assert_graph_buildable(candidate)
+
+    output_format = _output_format(args)
+    as_json = output_format == "json"
+    explain = bool(getattr(args, "explain", False))
+    daemon = bool(getattr(args, "daemon", False))
+    if daemon:
+        setup_logging(config)
+    event_bus = EventBus()
+    runtime = _make_runtime(
+        args,
+        config,
+        default_dry_run=args.dry_run if daemon else None,
+        events=event_bus,
+        single_instance=daemon,
+    )
+    runtime._planning_callback = _planning_callback(args)
     for included_document in included:
         if included_document.metadata.id == document.metadata.id:
             continue
@@ -595,15 +925,32 @@ def _cmd_run(args: argparse.Namespace) -> int:
         _register_catalog_fallback(
             runtime, [document, *included], config
         )
-    result = runtime.run_once(automation_id, dry_run=args.dry_run)
 
-    output_format = _output_format(args)
-    _print_run_result(
-        result,
-        as_json=output_format == "json",
-        explain=bool(getattr(args, "explain", False)),
-    )
-    return 0 if result.success else 1
+    if not daemon:
+        result = runtime.run_once(automation_id, dry_run=args.dry_run)
+        _print_run_result(result, as_json=as_json, explain=explain)
+        return 0 if result.success else 1
+
+    # Daemon mode acquires the single-instance lock before doing any work,
+    # executes the automation once, then keeps serving declared triggers.
+    runtime.start(start_triggers=False)
+    try:
+        if not as_json:
+            _install_console_event_logger(event_bus, as_json=False)
+        result = runtime.run_once(automation_id, dry_run=args.dry_run)
+        _print_run_result(result, as_json=as_json, explain=explain)
+        if as_json:
+            _install_console_event_logger(event_bus, as_json=True)
+        runtime.start_triggers()
+        print(
+            "daemon running; press Ctrl+C to stop",
+            file=sys.stderr if as_json else sys.stdout,
+            flush=True,
+        )
+        _serve_until_signal(runtime)
+    finally:
+        runtime.stop()
+    return 0
 
 
 def _cmd_compile(args: argparse.Namespace) -> int:
@@ -641,11 +988,18 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         if included_document.metadata.id == document.metadata.id:
             continue
         included_warnings: list[str] = []
-        included_errors = validate_graph(
-            included_document, warnings=included_warnings
+        included_errors = list(
+            validate_graph(
+                included_document, warnings=included_warnings
+            )
         )
         for warning in included_warnings:
             print(f"warning: {warning}", file=sys.stderr)
+        if not included_errors:
+            try:
+                _assert_graph_buildable(included_document)
+            except GraphValidationError as exc:
+                included_errors.append(str(exc))
         prefix = f"{included_document.metadata.id}: "
         errors.extend(prefix + error for error in included_errors)
 
@@ -694,27 +1048,97 @@ def _cmd_list_nodes(args: argparse.Namespace) -> int:
 
 def _cmd_serve(args: argparse.Namespace) -> int:
     config = _config_from_args(args)
-    documents: list[WorkflowDocument] = []
-    for raw_path in args.automation:
-        document = _load_document(Path(raw_path))
+    setup_logging(config)
+    documents = _collect_documents_from_args(list(args.automation))
+    included = _load_included_documents(getattr(args, "include", []))
+    for document in [*documents, *included]:
         _apply_scope_override(document, args, config.base_dir)
-        documents.append(document)
 
-    runtime = _make_runtime(args, config, default_dry_run=args.dry_run)
     seen: set[str] = set()
-    for document in [
-        *documents,
-        *_load_included_documents(getattr(args, "include", [])),
-    ]:
+    unique: list[WorkflowDocument] = []
+    for document in [*documents, *included]:
         if document.metadata.id in seen:
             continue
         seen.add(document.metadata.id)
-        automation_id = runtime.register(document)
-        print(f"registered {automation_id}", flush=True)
+        unique.append(document)
 
-    print("serving; press Ctrl+C to stop", flush=True)
+    _prepare_documents_for_mode(unique, dry_run=args.dry_run)
+    for document in unique:
+        warnings: list[str] = []
+        errors = list(validate_graph(document, warnings=warnings))
+        for warning in warnings:
+            print(
+                f"warning: {document.metadata.id}: {warning}",
+                file=sys.stderr,
+            )
+        if errors:
+            raise GraphValidationError(
+                f"{document.metadata.id}: " + "; ".join(errors)
+            )
+        _assert_graph_buildable(document)
+
+    output_format = _output_format(args)
+    as_json = output_format == "json"
+    explain = bool(getattr(args, "explain", False))
+    daemon = bool(getattr(args, "daemon", False))
+
+    event_bus = EventBus()
+    runtime = _make_runtime(
+        args,
+        config,
+        default_dry_run=args.dry_run,
+        events=event_bus,
+        single_instance=True,
+    )
+    runtime._planning_callback = _planning_callback(args)
+
+    automation_ids: list[str] = []
+    for document in unique:
+        automation_id = runtime.register(document)
+        automation_ids.append(automation_id)
+        print(
+            f"registered {automation_id}",
+            file=sys.stderr if as_json else sys.stdout,
+            flush=True,
+        )
+
+    if getattr(args, "catalog_fallback", False):
+        _register_catalog_fallback(runtime, unique, config)
+
+    if daemon:
+        # Lock first, then run each automation once, then start triggers.
+        runtime.start(start_triggers=False)
+        try:
+            if not as_json:
+                _install_console_event_logger(event_bus, as_json=False)
+            for automation_id in automation_ids:
+                result = runtime.run_once(
+                    automation_id, dry_run=args.dry_run
+                )
+                _print_run_result(
+                    result, as_json=as_json, explain=explain
+                )
+            if as_json:
+                _install_console_event_logger(event_bus, as_json=True)
+            runtime.start_triggers()
+            print(
+                "daemon running; press Ctrl+C to stop",
+                file=sys.stderr if as_json else sys.stdout,
+                flush=True,
+            )
+            _serve_until_signal(runtime)
+        finally:
+            runtime.stop()
+        return 0
+
+    _install_console_event_logger(event_bus, as_json=as_json)
+    print(
+        "serving; press Ctrl+C to stop",
+        file=sys.stderr if as_json else sys.stdout,
+        flush=True,
+    )
     try:
-        runtime.serve()
+        _serve_until_signal(runtime)
     except KeyboardInterrupt:
         print("stopping", file=sys.stderr)
     finally:
@@ -804,7 +1228,7 @@ def _cmd_audit_rollback(args: argparse.Namespace) -> int:
 def _output_format(args: argparse.Namespace) -> str:
     """Resolve ``--format`` / ``--json`` / ``--explain`` precedence."""
     explicit = getattr(args, "format", None)
-    if explicit is not None:
+    if isinstance(explicit, str):
         return explicit
     if getattr(args, "json", False):
         return "json"

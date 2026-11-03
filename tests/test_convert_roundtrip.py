@@ -3,6 +3,7 @@ import csv
 import io
 import json
 import os
+from pathlib import Path
 
 import pytest
 
@@ -13,9 +14,8 @@ from lokdocsqr.nodes.fs_ops.convert import (
     _json_to_csv,
 )
 
-
 # CWD guard — see note in tests/test_archive_7z.py.
-_ORIGINAL_CWD = os.getcwd()
+_ORIGINAL_CWD = Path.cwd()
 
 
 @pytest.fixture(autouse=True)

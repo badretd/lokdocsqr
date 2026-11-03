@@ -75,7 +75,7 @@ def _resolve_trash_dir(ctx) -> Path:
             "trash_dir is not configured "
             "(set config.trash_dir to a path inside the workspace scope)"
         )
-    return Path(value)
+    return Path(value).expanduser()
 
 
 def _resolve_ttl_seconds(ctx, payload: dict[str, Any]) -> int:

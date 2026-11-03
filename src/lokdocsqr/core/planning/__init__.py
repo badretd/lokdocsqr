@@ -4,8 +4,8 @@ from .plan import ActionPlan, PlanError
 from .registry import (
     DEFAULT_OPERATION_MAP,
     DEFAULT_PATH_KEYS,
-    ExtractionResult,
     PAYLOAD_PATH_KEYS,
+    ExtractionResult,
     classify_node,
     extract_paths,
     extract_paths_detailed,
@@ -21,10 +21,10 @@ from .validator import (
 __all__ = [
     "DEFAULT_OPERATION_MAP",
     "DEFAULT_PATH_KEYS",
-    "ExtractionResult",
-    "PAYLOAD_PATH_KEYS",
     "MUTATING_OPERATIONS",
+    "PAYLOAD_PATH_KEYS",
     "ActionPlan",
+    "ExtractionResult",
     "PlanError",
     "ProposalValidationError",
     "build_action_plan",

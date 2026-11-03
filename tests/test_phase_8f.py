@@ -39,7 +39,6 @@ from lokdocsqr.nodes.flow._common import _resolve_child_graph
 from lokdocsqr.nodes.flow.loop_batch import LoopBatchNode
 from lokdocsqr.nodes.flow.subflow import SubflowNode
 
-
 # ---------------------------------------------------------------------------
 # Helpers / doubles
 # ---------------------------------------------------------------------------
@@ -836,7 +835,7 @@ def test_port_contract_loop_success(
     out = LoopBatchNode()._execute(
         ctx, {"items": [1], "graph_id": "g"}
     )
-    assert EXPECTED_LOOP_BATCH_KEYS <= set(out)
+    assert set(out) >= EXPECTED_LOOP_BATCH_KEYS
 
 
 def test_port_contract_empty_items(
@@ -848,7 +847,7 @@ def test_port_contract_empty_items(
         ctx,
         {"items": [], "mode": "batch", "batch_size": 10, "graph_id": "g"},
     )
-    assert EXPECTED_LOOP_BATCH_KEYS <= set(out)
+    assert set(out) >= EXPECTED_LOOP_BATCH_KEYS
 
 
 # ---------------------------------------------------------------------------

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import SafeFsError
@@ -30,8 +30,8 @@ class CopyNode(FsTemplateNode):
 
     id = "fs.copy"
     title = "Copy File(s)"
-    inputs = ("file",)
-    outputs = ("file",)
+    inputs: ClassVar[dict[str, str]] = {"file": "any"}
+    outputs: ClassVar[dict[str, str]] = {"file": "any"}
     action_type = "copy"
 
     def __init__(
@@ -103,11 +103,11 @@ class CopyNode(FsTemplateNode):
         if free < src_size:
             raise SafeFsError("insufficient_space")
 
-    def run(self, ctx, payload):
+    def run(self, ctx: Any, payload: Any) -> Any:
         return self._run_template(ctx, payload)
 
     # ── dry-run override: template adds probe before logging ─────────
-    def dry_run(self, ctx, payload):
+    def dry_run(self, ctx: Any, payload: Any) -> Any:
         src, final_dst, decision = self._plan(ctx, payload)
         if decision.action == "proceed":
             self._assert_free_space(src, final_dst)

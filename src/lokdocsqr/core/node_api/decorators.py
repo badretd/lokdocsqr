@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Callable, Optional, TypeVar, overload
+from typing import Any
 
 from .base import Node
 from .registry import registry
 
-_N = TypeVar("_N", bound=type[Node])
+_N = type[Node]
 
 
-def _register(cls: _N, name: Optional[str]) -> _N:
+def _register(cls: _N, name: str | None) -> _N:
     """Validate and register ``cls``; optionally store an explicit name."""
     if not (isinstance(cls, type) and issubclass(cls, Node)):
         raise TypeError(f"{cls!r} must be a subclass of Node")
@@ -22,13 +22,7 @@ def _register(cls: _N, name: Optional[str]) -> _N:
     return cls
 
 
-@overload
-def register_node(cls: _N) -> _N: ...
-@overload
-def register_node(name: str) -> Callable[[_N], _N]: ...
-
-
-def register_node(cls_or_name):
+def register_node(cls_or_name: _N | str) -> Any:
     """Class decorator that registers ``cls`` with the global ``registry``.
     Raises:
         TypeError: if the decorated object is not a subclass of :class:`Node`.

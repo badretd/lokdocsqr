@@ -1,6 +1,7 @@
 """Tests for lokdocsqr.core.logging.setup_logging."""
 from __future__ import annotations
 
+import contextlib
 import logging
 import logging.handlers
 from pathlib import Path
@@ -21,10 +22,8 @@ def isolated_logger():
     logger.handlers.clear()
     yield logger
     for handler in list(logger.handlers):
-        try:
+        with contextlib.suppress(Exception):  # pragma: no cover - defensive
             handler.close()
-        except Exception:  # pragma: no cover - defensive
-            pass
     logger.handlers.clear()
     logger.handlers.extend(saved_handlers)
     logger.setLevel(saved_level)

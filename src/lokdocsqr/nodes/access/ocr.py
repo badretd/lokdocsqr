@@ -45,14 +45,13 @@ from __future__ import annotations
 import importlib.util
 import stat as stat_module
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import LokError, NodeExecutionError
 from lokdocsqr.core.node_api.decorators import register_node
 
 from ._base import AccessBase, AccessOcrUnavailableError
-
 
 try:  # R7: no actual import — just availability check
     _PYTESSERACT_AVAILABLE: bool = (
@@ -71,7 +70,7 @@ _TESSERACT_MISSING = "tesseract binary not found — see docs/ocr-setup.md"
 def _require_pytesseract() -> Any:
     """Lazily import ``pytesseract``; raise :class:`AccessOcrUnavailableError`."""
     try:
-        import pytesseract  # type: ignore[import-not-found]
+        import pytesseract
     except ImportError as exc:
         raise AccessOcrUnavailableError(_INSTALL_HINT) from exc
     return pytesseract
@@ -101,7 +100,7 @@ def _preflight_tesseract(pytesseract: Any) -> str | None:
         return None
     try:
         getter()
-    except Exception as exc:  # noqa: BLE001 — preflight boundary
+    except Exception as exc:
         if _is_tesseract_not_found(exc, pytesseract):
             return _TESSERACT_MISSING
         return str(exc)
@@ -114,8 +113,8 @@ class OcrNode(AccessBase):
 
     id = "access.ocr"
     title = "OCR"
-    inputs = {"paths": "str|list[str]"}
-    outputs = {"items": "OcrItem[]"}
+    inputs: ClassVar[dict[str, str]] = {"paths": "str|list[str]"}
+    outputs: ClassVar[dict[str, str]] = {"items": "OcrItem[]"}
 
     def __init__(
         self,
@@ -254,13 +253,13 @@ class OcrNode(AccessBase):
             image_input = str(path)
         else:
             try:
-                from PIL import Image  # type: ignore[import-not-found]
+                from PIL import Image
             except ImportError:
                 return self._error_item(path, _INSTALL_HINT, lang=lang)
             try:
                 pil_img = Image.open(str(path))
                 pil_img.load()
-            except Exception as exc:  # noqa: BLE001 — per-item boundary
+            except Exception as exc:
                 return self._error_item(
                     path, exc, lang=lang, size=st.st_size
                 )
@@ -283,7 +282,7 @@ class OcrNode(AccessBase):
             text = pytesseract.image_to_string(
                 image_input, lang=lang, config=config
             )
-        except Exception as exc:  # noqa: BLE001 — per-item boundary
+        except Exception as exc:
             if _is_tesseract_not_found(exc, pytesseract):
                 return self._error_item(
                     path,
@@ -313,7 +312,7 @@ class OcrNode(AccessBase):
                     confs.append(value)
             if confs:
                 confidence = sum(confs) / len(confs)
-        except Exception:  # noqa: BLE001 — confidence is best-effort
+        except Exception:
             confidence = None
 
         return {

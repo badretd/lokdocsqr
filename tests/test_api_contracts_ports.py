@@ -22,7 +22,6 @@ from lokdocsqr.nodes.utils.json_validate import JsonValidateNode
 from lokdocsqr.nodes.utils.path_template import PathTemplateNode
 from lokdocsqr.nodes.utils.set_variables import SetVariablesNode
 
-
 # ---------------------------------------------------------------------------
 # H3 — path_template port contract
 # ---------------------------------------------------------------------------

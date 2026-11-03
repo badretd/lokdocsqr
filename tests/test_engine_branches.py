@@ -9,15 +9,14 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from tests.helpers import edge, make_ctx, make_doc, node_spec, port, resolved  # noqa: E402
-
-from lokdocsqr.core.executor.engine import execute  # noqa: E402
-from lokdocsqr.core.models import (  # noqa: E402
+from lokdocsqr.core.executor.engine import execute
+from lokdocsqr.core.models import (
     ActionLog,
     NodeResult,
     NodeState,
     ResolvedGraph,
 )
+from tests.helpers import edge, make_ctx, make_doc, node_spec, port, resolved
 
 
 class _InstanceNode:
@@ -40,7 +39,7 @@ class _InstanceNode:
 class _ClassNode:
     """A handler passed as a class — the engine must instantiate it."""
 
-    instances: list["_ClassNode"] = []
+    instances: list[_ClassNode] = []  # noqa: RUF012
 
     def __init__(self) -> None:
         self.calls = 0

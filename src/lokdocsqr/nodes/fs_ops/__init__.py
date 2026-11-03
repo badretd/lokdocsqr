@@ -16,12 +16,11 @@ and therefore populates the ``NodeRegistry`` with:
   * ``fs.archive``
   * ``fs.convert``
 """
-from . import make_dir, write_file  # noqa: F401  (registers nodes)
-from . import tag, trash, archive, convert  # noqa: F401  (registers nodes)
-from .make_dir import MakeDirNode
-from .write_file import WriteFileNode
+from . import archive, convert, make_dir, tag, trash, write_file  # noqa: F401  (registers nodes)  # noqa: F401  (registers nodes)
 from .copy import CopyNode
+from .make_dir import MakeDirNode
 from .move import MoveNode
 from .rename import RenameNode
+from .write_file import WriteFileNode
 
-__all__ = ["MakeDirNode", "WriteFileNode", "CopyNode", "MoveNode", "RenameNode"]
+__all__ = ["CopyNode", "MakeDirNode", "MoveNode", "RenameNode", "WriteFileNode"]

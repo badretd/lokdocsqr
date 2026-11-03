@@ -1,6 +1,5 @@
 """Clock Protocol / FakeClock / SystemClock (SPEC §2)."""
 import time
-import pytest
 
 
 def test_fakeclock_now_stable_without_sleep():

@@ -31,7 +31,7 @@ def test_all_packages_importable() -> None:
     for name in SUBPACKAGES:
         try:
             importlib.import_module(name)
-        except Exception as exc:  # noqa: BLE001 - collect and report
+        except Exception as exc:
             failures.append(f"{name}: {type(exc).__name__}: {exc}")
     assert not failures, "import failures:\n" + "\n".join(failures)
 

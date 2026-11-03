@@ -3,7 +3,6 @@ from __future__ import annotations
 import builtins
 import io
 import re
-import subprocess
 import sys
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
@@ -14,10 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 import lokdocsqr.nodes.access.extract_text as extract_text
-
-
 from lokdocsqr.nodes.access._base import DEFAULT_MAX_BYTES_PER_FILE
-
 
 _MISSING = object()
 
@@ -323,7 +319,7 @@ def test_pdf_missing_pypdfium2_error(tmp_path, monkeypatch):
     pdf = tmp_path / "hello.pdf"
     pdf.write_bytes(_make_minimal_pdf("Hello"))
     monkeypatch.setitem(sys.modules, "pypdfium2", None)
-    text, error = _norm_result(_call_handler("pdf", pdf))
+    _text, error = _norm_result(_call_handler("pdf", pdf))
     assert error is not None
     assert "pypdfium2 not installed" in error
     assert "lokdocsqr[pdf]" in error
@@ -351,7 +347,7 @@ def test_docx_success_paragraph_before_table(tmp_path):
 def test_docx_parse_error(tmp_path):
     docx_path = tmp_path / "broken.docx"
     docx_path.write_bytes(b"not a zip")
-    text, error = _norm_result(_call_handler("docx", docx_path))
+    _text, error = _norm_result(_call_handler("docx", docx_path))
     assert error is not None
     assert "docx parse error" in error
 
@@ -364,7 +360,7 @@ def test_docx_missing_python_docx_error(tmp_path, monkeypatch):
     docx_path = tmp_path / "hello.docx"
     docx_path.write_bytes(b"placeholder")
     monkeypatch.setitem(sys.modules, "docx", None)
-    text, error = _norm_result(_call_handler("docx", docx_path))
+    _text, error = _norm_result(_call_handler("docx", docx_path))
     assert error is not None
     assert "python-docx not installed" in error
     assert "lokdocsqr[docx]" in error

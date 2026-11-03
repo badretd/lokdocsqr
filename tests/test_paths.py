@@ -8,7 +8,6 @@ production code correctly let them through.
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -16,20 +15,19 @@ import pytest
 from lokdocsqr.core.errors import ScopeViolation
 from lokdocsqr.core.paths import render_template, resolve_path
 
-
 # ---------------------------------------------------------------------------
 # resolve_path
 # ---------------------------------------------------------------------------
 
 def test_resolve_path_relative_inside(tmp_path: Path) -> None:
     result = resolve_path(tmp_path, "sub/file.txt")
-    expected = os.path.abspath(str(tmp_path / "sub" / "file.txt"))
+    expected = str((tmp_path / "sub" / "file.txt").resolve())
     assert str(result) == expected
 
 
 def test_resolve_path_relative_inside_with_dot(tmp_path: Path) -> None:
     result = resolve_path(tmp_path, "./sub/./file.txt")
-    expected = os.path.abspath(str(tmp_path / "sub" / "file.txt"))
+    expected = str((tmp_path / "sub" / "file.txt").resolve())
     assert str(result) == expected
 
 
@@ -46,7 +44,7 @@ def test_resolve_path_absolute_inside_is_ok(tmp_path: Path) -> None:
     # An absolute path that happens to live under base_dir is allowed.
     inside = tmp_path / "sub" / "file.txt"
     result = resolve_path(tmp_path, inside)
-    assert result == Path(os.path.abspath(str(inside)))
+    assert result == inside.resolve()
 
 
 def test_resolve_path_parent_escape_raises(tmp_path: Path) -> None:

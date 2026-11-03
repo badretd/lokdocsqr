@@ -224,7 +224,7 @@ class LoopBatchNode(_FlowBase):
         except LokError as exc:
             if on_child_error == "fail" or not units:
                 raise
-            errors = [
+            child_errors = [
                 {
                     "index": index,
                     "error": str(exc),
@@ -232,15 +232,15 @@ class LoopBatchNode(_FlowBase):
                 }
                 for index, _unit in units
             ]
-            warnings = (
+            child_warnings = (
                 [self._warning(ctx, index, exc) for index, _unit in units]
                 if on_child_error == "warn"
                 else []
             )
             return self._result_dict(
                 results=[None for _ in units],
-                errors=errors,
-                warnings=warnings,
+                errors=child_errors,
+                warnings=child_warnings,
                 total=total,
                 mode=mode,
                 batch_size=batch_size,

@@ -12,7 +12,6 @@ from typing import Any
 import pytest
 
 import lokdocsqr.nodes  # noqa: F401  (register built-in node families)
-from tests.helpers import make_ctx
 from lokdocsqr.core.config import AppConfig
 from lokdocsqr.core.errors import ProposalValidationError
 from lokdocsqr.core.executor.engine import _check_policy_and_verify
@@ -23,6 +22,7 @@ from lokdocsqr.core.node_api.registry import registry as global_registry
 from lokdocsqr.core.planning.builder import build_action_plan
 from lokdocsqr.core.policy import PolicyConfig, PolicyEngine
 from lokdocsqr.core.runtime import Runtime
+from tests.helpers import make_ctx
 
 ALLOW_ACTION = PolicyAction.ALLOW
 

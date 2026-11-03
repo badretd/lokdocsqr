@@ -12,7 +12,6 @@ import pytest
 from lokdocsqr.core.models import ActionSummary
 from lokdocsqr.core.preview import ChangeType, preview_diff
 
-
 ALL_NODES = [
     ("access.list_files", "read", ChangeType.NOOP, False),
     ("access.extract_text", "read", ChangeType.NOOP, False),

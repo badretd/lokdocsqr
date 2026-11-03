@@ -30,9 +30,9 @@ DEFAULT_MAX_BYTES_PER_FILE = 1 * 1024 * 1024
 
 __all__ = [
     "AccessBase",
-    "AccessLimitError",
     "AccessBinaryError",
     "AccessFormatError",
+    "AccessLimitError",
     "AccessOcrUnavailableError",
 ]
 
@@ -103,8 +103,7 @@ class AccessBase(Node):
                 raise NodeExecutionError(
                     f"path must be str or Path, got {type(raw).__name__}"
                 )
-            candidate = Path(raw)
-            config = getattr(ctx, "config", None)
+            candidate = Path(raw).expanduser()
             base_dir = (
                 getattr(ctx.config, "base_dir", None)
                 if getattr(ctx, "config", None) is not None

@@ -1,7 +1,7 @@
 """Structural parser for Workflow specification v1.0."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NoReturn, cast
 
 from ..errors import GraphParseError
 from ..models import (
@@ -21,14 +21,14 @@ from ..models import (
 _SPEC_VERSION = "1.0"
 
 
-def _fail(message: str) -> None:
+def _fail(message: str) -> NoReturn:
     raise GraphParseError(message)
 
 
 def _as_dict(value: Any, context: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         _fail(f"{context} must be an object")
-    return value
+    return cast(dict[str, Any], value)
 
 
 def _require_str(obj: dict[str, Any], key: str, context: str) -> str:
@@ -101,7 +101,7 @@ def _optional_dict(
         return {}
     if not isinstance(value, dict):
         _fail(f"{context}.{key} must be an object")
-    return value
+    return cast(dict[str, Any], value)
 
 
 def _list_of_str(obj: dict[str, Any], key: str, context: str) -> list[str]:

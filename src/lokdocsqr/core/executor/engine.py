@@ -306,7 +306,7 @@ def _check_policy_and_verify(
     )
     # The executor only learns about dynamic proposals through this private
     # marker; it turns the deferral into a visible RunResult warning.
-    setattr(node, "_proposal_dynamic", proposal.dynamic)
+    node._proposal_dynamic = proposal.dynamic
 
     decision = ctx.policy.decide(proposal)
     if decision.action == PolicyAction.ALLOW:
@@ -614,12 +614,8 @@ class Executor:
             # before the retry loop (R38). Payload may be replaced
             # by an EDIT verdict.
             node_edges = inbound_edges.get(node_id, [])
-            setattr(
-                node,
-                "_proposal_has_source_edge",
-                has_inbound_source_edge(node_edges),
-            )
-            setattr(node, "_proposal_dynamic", False)
+            node._proposal_has_source_edge = has_inbound_source_edge(node_edges)
+            node._proposal_dynamic = False
             if not self.ctx.dry_run:
                 payload = _check_policy_and_verify(
                     node, self.ctx, payload, node_id=node_id,
@@ -821,6 +817,8 @@ class Executor:
                 "run_id": self.ctx.run_id,
                 "success": run_result.success,
                 "errors": list(errors),
+                "warnings": list(warnings),
+                "action_logs": len(run_logs),
             },
         )
         return run_result

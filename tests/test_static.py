@@ -66,11 +66,7 @@ def _find_ast_issues(path: Path) -> list[tuple[int, str, str]]:
         if len(chain) < 2:
             continue
         root, attr = chain[0], chain[-1]
-        if root == "os" and attr in OS_MUTATORS:
-            issues.append((node.lineno, line, ".".join(chain)))
-        elif root == "shutil" and attr in SHUTIL_MUTATORS:
-            issues.append((node.lineno, line, ".".join(chain)))
-        elif attr in PATH_MUTATORS and "Path" in chain:
+        if (root == "os" and attr in OS_MUTATORS) or (root == "shutil" and attr in SHUTIL_MUTATORS) or (attr in PATH_MUTATORS and "Path" in chain):
             issues.append((node.lineno, line, ".".join(chain)))
     return issues
 

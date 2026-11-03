@@ -12,11 +12,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 try:
+    from lokdocsqr.core.errors import SafeFsError, ScopeViolation
+    from lokdocsqr.nodes.fs_ops import _base as base_mod
     from lokdocsqr.nodes.fs_ops import copy as copy_mod
     from lokdocsqr.nodes.fs_ops import move as move_mod
     from lokdocsqr.nodes.fs_ops import rename as rename_mod
-    from lokdocsqr.nodes.fs_ops import _base as base_mod
-    from lokdocsqr.core.errors import SafeFsError, ScopeViolation
 except BaseException as exc:  # pragma: no cover
     pytest.skip(
         f"5b node modules not importable standalone: {exc!r}",
@@ -58,9 +58,11 @@ def test_rename_empty_render_raises(tmp_path):
     src = tmp_path / "foo.txt"
     src.write_text("x")
     node = rename_mod.RenameNode(template="X")
-    with patch.object(base_mod, "render_template", return_value="   "):
-        with pytest.raises(ValueError, match="rendered to empty"):
-            node.dry_run(_ctx(), {"source": str(src)})
+    with (
+        patch.object(base_mod, "render_template", return_value="   "),
+        pytest.raises(ValueError, match="rendered to empty"),
+    ):
+        node.dry_run(_ctx(), {"source": str(src)})
 
 
 def test_rename_dotdot_in_render_raises(tmp_path):
@@ -69,9 +71,8 @@ def test_rename_dotdot_in_render_raises(tmp_path):
     node = rename_mod.RenameNode(template="X")
     with patch.object(
         base_mod, "render_template", return_value="../evil.txt"
-    ):
-        with pytest.raises(ScopeViolation):
-            node.dry_run(_ctx(), {"source": str(src)})
+    ), pytest.raises(ScopeViolation):
+        node.dry_run(_ctx(), {"source": str(src)})
 
 
 def test_rename_no_change_returns_skip(tmp_path):

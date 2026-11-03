@@ -13,9 +13,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 import lokdocsqr.nodes.llm.local_llm as local_llm_mod
 import lokdocsqr.nodes.utils.json_validate  # noqa: F401  (registers the node)
-import pytest
 from lokdocsqr.core.audit import AuditLog
 from lokdocsqr.core.config import AppConfig
 from lokdocsqr.core.errors import NodeExecutionError

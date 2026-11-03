@@ -17,7 +17,6 @@ from lokdocsqr.core.planning import (
     extract_paths,
 )
 
-
 # Authoritative snapshot of PAYLOAD_PATH_KEYS shipped in
 # lokdocsqr.core.planning.registry (16 nodes).
 ACTUAL_PAYLOAD_PATH_KEYS = {

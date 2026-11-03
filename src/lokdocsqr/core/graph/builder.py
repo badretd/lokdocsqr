@@ -14,7 +14,7 @@ def _topological_order(document: WorkflowDocument) -> list[str]:
     all_ids = [node.id for node in document.nodes if node.id]
     id_set = set(all_ids)
 
-    in_degree: dict[str, int] = {node_id: 0 for node_id in all_ids}
+    in_degree: dict[str, int] = dict.fromkeys(all_ids, 0)
     adjacency: dict[str, list[str]] = {node_id: [] for node_id in all_ids}
 
     for edge in document.edges:

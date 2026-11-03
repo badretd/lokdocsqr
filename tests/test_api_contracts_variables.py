@@ -34,7 +34,6 @@ from lokdocsqr.core.models import (
     NodeState,
     PolicyAction,
     PolicyDecision,
-    PortSpec,
     ResolvedGraph,
     WorkflowDocument,
     WorkflowMetadata,
@@ -221,6 +220,7 @@ def _allow_scope():
 
 def test_validate_proposal_does_not_read_ctx_variables():
     from types import SimpleNamespace
+
     from lokdocsqr.core.models import ActionSummary
     from lokdocsqr.core.planning.validator import validate_proposal
 
@@ -239,6 +239,7 @@ def test_validate_proposal_does_not_read_ctx_variables():
 
 def test_preview_diff_does_not_read_ctx_variables():
     from types import SimpleNamespace
+
     from lokdocsqr.core.models import ActionSummary
     from lokdocsqr.core.preview import preview_diff
 
@@ -257,7 +258,9 @@ def test_preview_diff_does_not_read_ctx_variables():
 
 def test_classify_node_does_not_read_ctx_variables():
     import inspect
+
     import pytest
+
     from lokdocsqr.core.planning.registry import classify_node
 
     if "ctx" not in inspect.signature(classify_node).parameters:

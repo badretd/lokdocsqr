@@ -26,7 +26,7 @@ from typing import Any
 from lokdocsqr.core.node_api.decorators import register_node
 
 from ._base import _FlowBase
-from ._common import _CondError, _base_mapping, _evaluate, _extract_items
+from ._common import _base_mapping, _CondError, _evaluate, _extract_items
 
 
 @register_node("flow.if_branch")

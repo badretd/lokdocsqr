@@ -27,7 +27,6 @@ from lokdocsqr.core.node_api.decorators import register_node
 
 from ._base import _FlowBase
 
-
 _ALLOWED_MODES = frozenset({"last_wins", "concat", "dict_merge"})
 
 

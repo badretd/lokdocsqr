@@ -11,13 +11,10 @@ from typing import Any
 import pytest
 
 import lokdocsqr.nodes  # noqa: F401  (register built-in node families)
-from tests.helpers import make_ctx
 from lokdocsqr.cli.main import main
 from lokdocsqr.core.config import AppConfig
 from lokdocsqr.core.dsl import compile_dsl
 from lokdocsqr.core.errors import NodeExecutionError, ScopeViolation
-from lokdocsqr.core.runtime import Runtime
-from lokdocsqr.core.paths import render_template
 from lokdocsqr.core.executor.engine import Executor
 from lokdocsqr.core.graph import (
     build_graph,
@@ -37,9 +34,12 @@ from lokdocsqr.core.models import (
     WorkspaceScope,
 )
 from lokdocsqr.core.node_api.base import Node
-from lokdocsqr.core.scope import ScopeManager
 from lokdocsqr.core.node_api.registry import registry
+from lokdocsqr.core.paths import render_template
 from lokdocsqr.core.payload import build_node_payload
+from lokdocsqr.core.runtime import Runtime
+from lokdocsqr.core.scope import ScopeManager
+from tests.helpers import make_ctx
 
 
 def _run_document(tmp_path: Path, raw: dict[str, Any]) -> Any:

@@ -3,8 +3,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 
 def test_get_miss_returns_none():
     from lokdocsqr.core.catalog import AutomationCatalog

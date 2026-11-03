@@ -19,6 +19,8 @@ from typing import Any
 
 import pytest
 
+import lokdocsqr.nodes.flow.loop_batch as loop_batch_mod
+import lokdocsqr.nodes.flow.subflow as subflow_mod
 from lokdocsqr.core.errors import NodeExecutionError
 from lokdocsqr.core.executor.context import ExecutionContext
 from lokdocsqr.core.executor.engine import Executor
@@ -27,7 +29,6 @@ from lokdocsqr.core.models import (
     NodeResult,
     NodeSpec,
     NodeState,
-    PortSpec,
     ResolvedGraph,
     RunResult,
     WorkflowDocument,
@@ -36,14 +37,10 @@ from lokdocsqr.core.models import (
     WorkflowSettings,
 )
 from lokdocsqr.core.node_api.registry import registry
-from lokdocsqr.nodes.flow.retry import FlowRetry
-from lokdocsqr.nodes.utils.notify import Notify
-
-import lokdocsqr.nodes.flow.loop_batch as loop_batch_mod
-import lokdocsqr.nodes.flow.subflow as subflow_mod
 from lokdocsqr.nodes.flow.loop_batch import LoopBatchNode
+from lokdocsqr.nodes.flow.retry import FlowRetry
 from lokdocsqr.nodes.flow.subflow import SubflowNode
-
+from lokdocsqr.nodes.utils.notify import Notify
 
 # ---------------------------------------------------------------------------
 # Helpers / doubles
@@ -199,7 +196,7 @@ def _make_resolved(
         document=document,
         ordered_node_ids=list(ordered or nodes),
         handlers=dict(handlers),
-        states=states or {nid: NodeState.ENABLED for nid in nodes},
+        states=states or dict.fromkeys(nodes, NodeState.ENABLED),
     )
 
 
@@ -515,7 +512,7 @@ class _FakeResponse:
     def __init__(self, status: int) -> None:
         self.status = status
 
-    def __enter__(self) -> "_FakeResponse":
+    def __enter__(self) -> _FakeResponse:
         return self
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:

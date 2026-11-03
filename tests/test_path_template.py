@@ -1,9 +1,9 @@
 from __future__ import annotations
+
 import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-import pytest
 
 _HERE = Path(__file__).resolve()
 ROOT = _HERE.parent
@@ -14,7 +14,7 @@ SRC = ROOT / "src" / "lokdocsqr"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from lokdocsqr.nodes.utils.path_template import PathTemplateNode
+from lokdocsqr.nodes.utils.path_template import PathTemplateNode  # noqa: E402
 
 
 def _pt_ctx(variables: dict | None = None) -> SimpleNamespace:
@@ -65,7 +65,7 @@ def test_pt_absolute_rejected_not_raise() -> None:
     # NB: on Windows Path("/abs/x.txt").is_absolute() is False
     # (drive-less rooted path), so the POSIX-only literal would slip
     # through render_template and render successfully.
-    absolute_root = os.path.abspath(os.sep)
+    absolute_root = str(Path(os.sep).resolve())
     template = f"{absolute_root}abs{os.sep}{{name}}.txt"
     result = node.run(ctx, {"template": template, "variables": {"name": "x"}})
     assert result["path"] is None

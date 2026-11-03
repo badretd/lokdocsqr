@@ -26,7 +26,6 @@ from lokdocsqr.core.node_api.registry import registry
 from lokdocsqr.nodes.flow.merge import MergeNode
 from lokdocsqr.nodes.flow.wait import WaitNode
 
-
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------

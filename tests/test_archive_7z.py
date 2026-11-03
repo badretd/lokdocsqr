@@ -4,6 +4,7 @@ The zip backend remains supported. 7z is not advertised and creation
 fails with a clear message before any write.
 """
 import pytest
+
 from lokdocsqr.core.errors import NodeExecutionError
 from lokdocsqr.nodes.fs_ops.archive import ArchiveNode
 

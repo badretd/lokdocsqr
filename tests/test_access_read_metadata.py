@@ -73,9 +73,9 @@ def test_missing_file_is_per_item_error(tmp_path):
         make_ctx(tmp_path), {"paths": [str(ok), str(missing)]}
     )
     assert len(result["items"]) == 2
-    missing_item = [
+    missing_item = next(
         item for item in result["items"] if item["path"].endswith("missing.txt")
-    ][0]
+    )
     assert "error" in missing_item
     for field in ("size", "mtime", "mode", "is_dir", "is_symlink"):
         assert missing_item[field] is None

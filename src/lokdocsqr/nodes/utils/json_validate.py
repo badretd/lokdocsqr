@@ -306,8 +306,9 @@ class JsonValidateNode(_FlowBase):
 
     def _preview(self, ctx: Any, payload: Any) -> Any:
         result = _validate_payload(payload)
-        if result["valid"]:
-            preview = "валидно: 0 errors"
-        else:
-            preview = f"{result['error_count']} errors"
+        preview = (
+            "валидно: 0 errors"
+            if result["valid"]
+            else f"{result['error_count']} errors"
+        )
         return {**result, "preview": preview, "dry_run": True}

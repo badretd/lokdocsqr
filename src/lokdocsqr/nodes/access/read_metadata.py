@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import stat as stat_module
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import LokError, NodeExecutionError
@@ -24,8 +24,8 @@ class ReadMetadataNode(AccessBase):
 
     id = "access.read_metadata"
     title = "Read Metadata"
-    inputs = {"paths": "str|list[str]"}
-    outputs = {"items": "Metadata[]"}
+    inputs: ClassVar[dict[str, str]] = {"paths": "str|list[str]"}
+    outputs: ClassVar[dict[str, str]] = {"items": "Metadata[]"}
 
     def __init__(
         self,

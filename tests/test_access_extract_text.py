@@ -2,8 +2,8 @@
 AC-13, AC-14, AC-15, AC-16)."""
 from __future__ import annotations
 
+import contextlib
 import inspect
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -207,8 +207,8 @@ def test_csv_nul_byte_is_per_item_error(tmp_path):
         {"paths": [str(tmp_path / "bad.csv"), str(tmp_path / "ok.csv")]},
     )
     assert len(result["items"]) == 2
-    bad = [i for i in result["items"] if "bad.csv" in i["path"]][0]
-    ok = [i for i in result["items"] if "ok.csv" in i["path"]][0]
+    bad = next(i for i in result["items"] if "bad.csv" in i["path"])
+    ok = next(i for i in result["items"] if "ok.csv" in i["path"])
     assert "error" in bad
     assert "error" not in ok
     assert ok["csv"] == [["name", "age"], ["Alice", "30"], ["Bob", "25"]]
@@ -235,7 +235,7 @@ def test_register_handler_is_module_level_function():
 
 
 def test_register_handler_accepts_custom_format(tmp_path):
-    from lokdocsqr.nodes.access.extract_text import register_handler, HANDLERS
+    from lokdocsqr.nodes.access.extract_text import HANDLERS, register_handler
     ctx = make_ctx(tmp_path)
 
     def foo_handler(data, params):
@@ -451,10 +451,8 @@ def test_out_of_scope_is_per_item_error(tmp_path):
         result = ExtractTextNode().run(ctx, {"paths": str(outside)})
         assert "error" in result["items"][0]
     finally:
-        try:
+        with contextlib.suppress(OSError):
             outside.unlink()
-        except OSError:
-            pass
 
 
 def test_invalid_max_bytes_raises(tmp_path):

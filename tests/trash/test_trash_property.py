@@ -5,8 +5,8 @@ import hashlib
 import tempfile
 from pathlib import Path
 
-import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from tests.trash.conftest import _build_ctx, find_node_class
 
@@ -25,8 +25,9 @@ def test_trash_preserves_hash(data):
         src.write_bytes(data)
         expected = hashlib.sha256(data).hexdigest()
 
-        import lokdocsqr.nodes.fs_ops.trash  # noqa: F401
         import sys
+
+        import lokdocsqr.nodes.fs_ops.trash  # noqa: F401
         mod = sys.modules["lokdocsqr.nodes.fs_ops.trash"]
         node = find_node_class(mod)()
         result = node.run(ctx, src)

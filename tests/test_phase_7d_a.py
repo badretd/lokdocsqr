@@ -24,7 +24,6 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
-import os
 
 import pytest
 
@@ -48,7 +47,6 @@ from lokdocsqr.nodes.fs_ops.make_dir import MakeDirNode
 from lokdocsqr.nodes.fs_ops.write_file import WriteFileNode
 from lokdocsqr.nodes.utils.path_template import PathTemplateNode
 from lokdocsqr.nodes.utils.set_variables import SetVariablesNode
-
 
 # ---------------------------------------------------------------------------
 # Test doubles
@@ -371,7 +369,7 @@ def test_b2_edge_wins_over_static() -> None:
     plan = build_action_plan(graph, ctx, AllowPolicy())
 
     assert not plan.blocked, f"blocked unexpectedly: {plan.errors}"
-    targets = _target_paths(plan, "n2")           # <- падает с диагностикой
+    targets = _target_paths(plan, "n2")           # <- fails with diagnostics
     assert "x.txt" in targets, (
         f"edge did NOT win; expected 'x.txt', got {sorted(targets)}"
     )
@@ -387,7 +385,7 @@ def test_b3_missing_path_template() -> None:
 
     try:
         plan = build_action_plan(graph, ctx, AllowPolicy())
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         pytest.fail(f"build_action_plan raised {type(exc).__name__}: {exc}")
 
     assert plan.blocked
@@ -406,7 +404,7 @@ def test_c1_no_exception_outward() -> None:
 
     try:
         plan = build_action_plan(graph, ctx, AllowPolicy())
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         pytest.fail(f"payload-build error escaped: {type(exc).__name__}: {exc}")
 
     assert plan.blocked

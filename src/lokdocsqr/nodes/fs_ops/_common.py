@@ -22,7 +22,7 @@ from lokdocsqr.core.paths import render_template
 T = TypeVar("T")
 
 
-class ActionResult(dict):
+class ActionResult(dict[str, Any]):
     """Node return value carrying an audit log and declared output ports.
 
     The executor recognizes ``{"action_log": ...}`` and exposes every other
@@ -161,11 +161,17 @@ def resolve_path(ctx: Any, raw: str | Path, *, write: bool = False) -> Path:
     relative path with no usable ``base_dir`` is left as-is for mocked
     or backward-compatible contexts.
     """
-    path = Path(raw)
-    if not path.is_absolute():
-        base = _base_dir(ctx)
-        if base is not None:
-            path = base / path
+    base = _base_dir(ctx)
+    raw_text = str(raw)
+    # A small legacy/source convenience: ``{base}`` expands to the
+    # configured workspace base. It is accepted only here, for source-like
+    # paths; target templates still go through render_and_check and remain
+    # relative by contract.
+    if base is not None and "{base}" in raw_text:
+        raw_text = raw_text.replace("{base}", str(base))
+    path = Path(raw_text).expanduser()
+    if not path.is_absolute() and base is not None:
+        path = base / path
     return check_scope(ctx, path, write=write)
 
 
@@ -210,7 +216,7 @@ def render_and_check(
     if not allow_parent and ".." in parts:
         raise ScopeViolation(f"rendered path contains '..': {rendered!r}")
 
-    path = Path(rendered)
+    path = Path(rendered).expanduser()
     if not path.is_absolute():
         base = _base_dir(ctx)
         if base is not None:

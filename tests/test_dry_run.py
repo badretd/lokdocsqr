@@ -18,22 +18,19 @@ from types import SimpleNamespace
 
 import pytest
 
-from lokdocsqr.core.errors import ScopeViolation
-
+import lokdocsqr.nodes.fs_ops.archive
+import lokdocsqr.nodes.fs_ops.convert
+import lokdocsqr.nodes.fs_ops.copy
 
 # Ensure every fs_ops node is registered at import time.
-import lokdocsqr.nodes.fs_ops.make_dir    # noqa: F401
+import lokdocsqr.nodes.fs_ops.make_dir
+import lokdocsqr.nodes.fs_ops.move
+import lokdocsqr.nodes.fs_ops.rename
+import lokdocsqr.nodes.fs_ops.tag
+import lokdocsqr.nodes.fs_ops.trash
 import lokdocsqr.nodes.fs_ops.write_file  # noqa: F401
-import lokdocsqr.nodes.fs_ops.rename      # noqa: F401
-import lokdocsqr.nodes.fs_ops.copy        # noqa: F401
-import lokdocsqr.nodes.fs_ops.move        # noqa: F401
-import lokdocsqr.nodes.fs_ops.trash       # noqa: F401
-import lokdocsqr.nodes.fs_ops.archive     # noqa: F401
-import lokdocsqr.nodes.fs_ops.convert     # noqa: F401
-import lokdocsqr.nodes.fs_ops.tag         # noqa: F401
-
-from lokdocsqr.core.node_api.registry import registry  # noqa: E402
-
+from lokdocsqr.core.errors import ScopeViolation
+from lokdocsqr.core.node_api.registry import registry
 
 FS_OPS_NODE_IDS = (
     "fs.make_dir",
@@ -218,7 +215,7 @@ def _check_one(node_id: str) -> None:
         before = _snapshot(tmp_path)
         try:
             node.dry_run(ctx, payload)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             after = _snapshot(tmp_path)
             if before != after:
                 raise AssertionError(
@@ -248,7 +245,7 @@ def check_invariant_6() -> None:
             _check_one(node_id)
         except AssertionError as exc:
             failures.append(str(exc))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             failures.append(f"{node_id}: unexpected error in dry_run: {exc!r}")
     assert not failures, (
         "Invariant 6 (dry-run purity) failures:\n" + "\n".join(failures)

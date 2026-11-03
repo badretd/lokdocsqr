@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ARCHIVE_SRC = PROJECT_ROOT / "src" / "lokdocsqr" / "nodes" / "fs_ops" / "archive.py"
 
@@ -47,9 +46,7 @@ def _first_arg_is_bytesio(call: ast.Call) -> bool:
             return True
     # `buf = io.BytesIO()` — local variable bound to a BytesIO; the
     # current archive.py uses exactly this pattern.
-    if isinstance(first, ast.Name):
-        return True
-    return False
+    return bool(isinstance(first, ast.Name))
 
 
 def test_write_mode_zipfile_only_on_bytesio():

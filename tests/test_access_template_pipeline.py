@@ -41,7 +41,7 @@ def test_run_and_dry_run_are_thin_wrappers():
         ]:
             method = getattr(cls, method_name)
             src = inspect.getsource(method)
-            lines = [l for l in src.split("\n") if l.strip()]
+            lines = [line for line in src.split("\n") if line.strip()]
             assert len(lines) <= 5, (
                 f"{cls.__name__}.{method_name} is too long:\n{src}"
             )

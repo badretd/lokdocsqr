@@ -8,20 +8,18 @@ from unittest.mock import Mock
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from tests.helpers import edge, make_ctx, make_doc, node_spec, port, resolved  # noqa: E402
-
-from lokdocsqr.core.errors import GraphValidationError, NodeExecutionError  # noqa: E402
-from lokdocsqr.core.events import (  # noqa: E402
+from lokdocsqr.core.errors import GraphValidationError
+from lokdocsqr.core.events import (
     EVENT_AUDIT_LOGGED,
     EVENT_NODE_FINISHED,
     EVENT_NODE_STARTED,
     EVENT_RUN_FINISHED,
     EVENT_RUN_STARTED,
 )
-from lokdocsqr.core.executor.engine import execute  # noqa: E402
-from lokdocsqr.core.models import ActionLog, NodeResult, NodeState  # noqa: E402
-from lokdocsqr.core.node_api import Node  # noqa: E402
-
+from lokdocsqr.core.executor.engine import execute
+from lokdocsqr.core.models import ActionLog, NodeResult, NodeState
+from lokdocsqr.core.node_api import Node
+from tests.helpers import edge, make_ctx, make_doc, node_spec, port, resolved
 
 _SENTINEL = object()
 

@@ -90,6 +90,8 @@ Run these commands against the built executable (`.exe` omitted on POSIX):
 ./dist/lokdocsqr/lokdocsqr compile examples/vertical_slice.ldsq
 ./dist/lokdocsqr/lokdocsqr validate examples/vertical_slice.json
 ./dist/lokdocsqr/lokdocsqr run examples/vertical_slice.json --dry-run
+# CLI daemon smoke: starts, runs once, then serves declared triggers.
+./dist/lokdocsqr/lokdocsqr run examples/vertical_slice.json --dry-run --daemon
 ```
 
 Expected:

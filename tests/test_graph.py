@@ -27,7 +27,6 @@ from lokdocsqr.core.graph import (
 )
 from lokdocsqr.core.models import NodeState, PortSpec
 
-
 # ---------------------------------------------------------------------------
 # Field-name shim.
 #

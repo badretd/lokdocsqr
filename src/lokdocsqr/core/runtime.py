@@ -919,16 +919,24 @@ class Runtime:
         single_instance: bool = True,
         default_dry_run: bool | None = None,
         verify_callback: Callable[[ActionSummary], VerifyResult] | None = None,
+        max_results: int | None = 1000,
     ) -> None:
         self.config = config
         if max_concurrency is not None and max_concurrency < 1:
             raise ValueError("max_concurrency must be >= 1")
         self._max_concurrency = max_concurrency
+        if max_results is not None and max_results < 1:
+            raise ValueError("max_results must be >= 1 or None")
+        self._max_results = max_results
         self._default_dry_run = default_dry_run
         self._registry = registry
         self._events = events if events is not None else bus
         self._clock: Clock = clock or SystemClock()
         self._verify_callback = verify_callback
+        # Set by the CLI for recursive dry-run planning of nested graphs.
+        self._planning_callback: (
+            Callable[[Any, Any, str | None], Any] | None
+        ) = None
         if isinstance(policy, _UnsetType):
             self._policy: PolicyEngine | None = PolicyEngine.default()
         else:
@@ -939,8 +947,10 @@ class Runtime:
         else:
             logs_dir = getattr(config, "logs_dir", None)
             if not isinstance(logs_dir, (str, Path)):
-                logs_dir = Path(config.base_dir) / ".logs"
-            self.audit = AuditLog(Path(logs_dir) / "audit.jsonl")
+                logs_dir = Path(config.base_dir).expanduser() / ".logs"
+            self.audit = AuditLog(
+                Path(logs_dir).expanduser() / "audit.jsonl"
+            )
 
         self._single_instance = bool(single_instance)
         self.lock_path = (
@@ -980,6 +990,11 @@ class Runtime:
     @property
     def is_running(self) -> bool:
         return self._running
+
+    @property
+    def events(self) -> EventBus:
+        """The event bus used by runs dispatched by this runtime."""
+        return self._events
 
     @property
     def max_concurrency(self) -> int:
@@ -1322,11 +1337,35 @@ class Runtime:
     def _resolve_roots(self, values: Sequence[str | Path]) -> list[Path]:
         roots: list[Path] = []
         for value in values:
-            path = Path(value)
+            path = Path(value).expanduser()
             if not path.is_absolute():
-                path = Path(self.config.base_dir) / path
+                path = Path(self.config.base_dir).expanduser() / path
             roots.append(path.resolve())
         return roots
+
+    def _trash_dir_for_scope(self) -> Path | None:
+        """Return the configured trash directory when it is inside the base.
+
+        The default trash directory lives at ``<base_dir>/.trash``. A
+        workflow may legitimately narrow its readable roots to ``inbox`` and
+        ``out``; without adding the internal trash directory to the writable
+        set, ``fs.trash`` would fail even though the operator configured
+        nothing unusual. A trash directory outside ``base_dir`` remains
+        explicitly opt-in through the workflow scope/config.
+        """
+        raw = getattr(self.config, "trash_dir", None)
+        if raw is None:
+            return None
+        base = Path(self.config.base_dir).expanduser().resolve()
+        trash = Path(raw).expanduser()
+        if not trash.is_absolute():
+            trash = base / trash
+        trash = trash.resolve()
+        try:
+            trash.relative_to(base)
+        except ValueError:
+            return None
+        return trash
 
     def _scope_for(self, document: WorkflowDocument) -> ScopeManager:
         settings = document.settings.scope
@@ -1334,8 +1373,13 @@ class Runtime:
         if not roots:
             roots = self._resolve_roots(self.config.scope_roots)
         if not roots:
-            roots = [Path(self.config.base_dir).resolve()]
+            roots = [
+                Path(self.config.base_dir).expanduser().resolve()
+            ]
         writable = self._resolve_roots(settings.writable) or list(roots)
+        trash = self._trash_dir_for_scope()
+        if trash is not None and trash not in writable:
+            writable.append(trash)
         return ScopeManager(
             WorkspaceScope(
                 roots=roots,
@@ -1466,8 +1510,17 @@ class Runtime:
                 )
                 result = Executor(context).execute(self._build(automation))
             except Exception as exc:
-                logger.exception(
-                    "runtime: automation %s failed", automation.id
+                # Keep the operator-facing diagnostic concise. A traceback
+                # is still available at DEBUG level (file logs / --verbose).
+                logger.error(
+                    "runtime: automation %s failed: %s: %s",
+                    automation.id,
+                    type(exc).__name__,
+                    exc,
+                )
+                logger.debug(
+                    "runtime: automation %s traceback", automation.id,
+                    exc_info=True,
                 )
                 result = RunResult(
                     run_id=(
@@ -1484,6 +1537,11 @@ class Runtime:
                 )
         with self._state_lock:
             self._results.append(result)
+            if (
+                self._max_results is not None
+                and len(self._results) > self._max_results
+            ):
+                del self._results[: -(self._max_results)]
         return result
 
     def run_once(
@@ -1657,9 +1715,17 @@ class Runtime:
             )
             self._stop_event.wait(timeout)
 
-    def start(self) -> Runtime:
-        """Acquire the lock and start watcher/scheduler threads."""
+    def start(self, *, start_triggers: bool = True) -> Runtime:
+        """Acquire the lock and start watcher/scheduler threads.
+
+        ``start_triggers=False`` is used by the CLI daemon path: the
+        single-instance lock is acquired first, the initial run is executed
+        synchronously, and triggers are only started afterwards. Calling
+        :meth:`start_triggers` separately is idempotent.
+        """
         if self._running:
+            if start_triggers:
+                self.start_triggers()
             return self
         self._stop_event = threading.Event()
 
@@ -1672,21 +1738,12 @@ class Runtime:
                 )
             self._instance_lock = instance_lock
 
+        self._running = True
+        if not start_triggers:
+            return self
+
         try:
-            with self._state_lock:
-                watchers = list(self._watch_bindings)
-                has_cron = bool(self._cron_bindings)
-            self._running = True
-            for binding in watchers:
-                binding.watcher.start()
-            if has_cron:
-                thread = threading.Thread(
-                    target=self._scheduler_loop,
-                    name="lokdocsqr-scheduler",
-                    daemon=True,
-                )
-                self._scheduler_thread = thread
-                thread.start()
+            self.start_triggers()
         except Exception:
             self._running = False
             for binding in self._watch_bindings:
@@ -1696,6 +1753,31 @@ class Runtime:
                 self._instance_lock = None
             raise
         return self
+
+    def start_triggers(self) -> None:
+        """Start watching/scheduling for an already-started runtime."""
+        with self._state_lock:
+            if not self._running:
+                raise RuntimeError("runtime is not running")
+            watchers = list(self._watch_bindings)
+            has_cron = bool(self._cron_bindings)
+            scheduler = self._scheduler_thread
+            needs_scheduler = (
+                has_cron
+                and (scheduler is None or not scheduler.is_alive())
+            )
+            thread: threading.Thread | None = None
+            if needs_scheduler:
+                thread = threading.Thread(
+                    target=self._scheduler_loop,
+                    name="lokdocsqr-scheduler",
+                    daemon=True,
+                )
+                self._scheduler_thread = thread
+        for binding in watchers:
+            binding.watcher.start()
+        if thread is not None:
+            thread.start()
 
     def stop(self) -> None:
         """Stop triggers and the run pool, then release the lock."""

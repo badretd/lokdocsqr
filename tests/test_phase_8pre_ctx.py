@@ -18,13 +18,14 @@ def test_set_variable_reserved_names_raise(exec_ctx):
 
 
 def test_variables_dict_isolated_per_instance(exec_ctx):
-    from lokdocsqr.core.executor.context import ExecutionContext
-    from lokdocsqr.core.scope import ScopeManager
+    import tempfile
+    from types import SimpleNamespace
+
     from lokdocsqr.core.audit import AuditLog
     from lokdocsqr.core.clock import FakeClock
     from lokdocsqr.core.events import EventBus
-    from types import SimpleNamespace
-    import tempfile
+    from lokdocsqr.core.executor.context import ExecutionContext
+    from lokdocsqr.core.scope import ScopeManager
 
     tmp = __import__("pathlib").Path(tempfile.mkdtemp())
     scope = ScopeManager(SimpleNamespace(roots=[tmp], writable=[tmp], allow_symlinks=False))
@@ -38,6 +39,7 @@ def test_variables_dict_isolated_per_instance(exec_ctx):
 
 def test_new_fields_have_defaults():
     import inspect
+
     from lokdocsqr.core.executor.context import ExecutionContext
     sig = inspect.signature(ExecutionContext)
     for name in ("clock", "flow_depth", "automations"):
@@ -48,7 +50,6 @@ def test_new_fields_have_defaults():
 
 def test_variables_default_factory_dict(exec_ctx):
     """Each ctx gets its own dict; not a shared class-level dict."""
-    import inspect
     from lokdocsqr.core.executor.context import ExecutionContext
     field = ExecutionContext.__dataclass_fields__["variables"]
     assert field.default_factory is dict
@@ -58,6 +59,7 @@ def test_variables_default_factory_dict(exec_ctx):
 def test_policy_none_old_path_r37(exec_ctx):
     """R37: ctx.policy is None -> executor behaves as pre-7c (no gate effect)."""
     from types import SimpleNamespace
+
     from lokdocsqr.core.executor.engine import Executor
     from lokdocsqr.core.models import NodeState
 

@@ -235,13 +235,13 @@ is incomplete.
 
 | Status | Content |
 |---|---|
-| **Closed** | 0 … 8z, 8.5 (P1-nested: ActionSummary, flow.* bare, recursive_preview, builder recursion) |
-| **Next** | 8.6-pre (ticket closeout), then 8.6 (P0 engine hardening) |
-| **Blocked** | 9, 10, 10.5, 11, 12a, 12b — all wait on 8.6 |
+| **Closed** | 0 … 8z, 8.5, 8.6-pre, 8.6, 8.7, 9, 10, 10.5, 11, 11-final |
+| **Next** | 12a / 12b (GUI bridge/viewmodels, then views/widgets) |
+| **Blocked** | none for the headless CLI |
 | **Background** | 8.8 (tooling) — no blockers |
-| **Audit backlog** | F-01, F-02, F-03 → 8.6; F-04…F-09, F-10A, F-15 → 8.7; F-11, F-12, F-23 → 8.6-pre; F-13, F-14, F-16…F-19 → 8.8 |
+| **Audit backlog** | remaining tooling items (F-17…F-19) only |
 
-**Baseline at 8.5 close:** `pytest -q` green (1355 collected / 1341 passed / 11 skipped / 3 xfailed — verify against current `PHASE_STATE.md`).
+**Baseline after 11-final:** `pytest -q` green (see current `PHASE_STATE.md`).
 
 ---
 

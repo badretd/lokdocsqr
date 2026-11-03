@@ -12,6 +12,7 @@ from dataclasses import FrozenInstanceError, is_dataclass
 from pathlib import Path
 
 import pytest
+
 from lokdocsqr.core import models
 from lokdocsqr.core.models import (
     ActionLog,

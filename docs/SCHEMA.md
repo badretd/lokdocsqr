@@ -43,6 +43,15 @@ The root of an automation is a JSON object with the following keys:
 `parse_graph` rejects any document whose `spec_version` is not `"1.0"`, and
 requires `metadata` and `metadata.id`.
 
+The CLI additionally accepts legacy/simple JSON at its input boundary through
+`core.compat.normalize_document_data`: a missing `spec_version` defaults to
+`"1.0"`, a top-level `id`/`title` becomes `metadata.id`/`metadata.name`, an
+omitted `edges` list becomes `[]`, and known legacy node ids (for example
+`move_files` → `fs.move`, `list_files` → `access.list_files`) are mapped.
+Legacy source paths may also use the `{base}` placeholder, which expands to
+the configured workspace base. The core `parse_graph` API remains strict;
+compatibility is not silently applied to library callers.
+
 ### 1.1 `metadata`
 
 ```json

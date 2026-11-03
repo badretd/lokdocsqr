@@ -1,11 +1,11 @@
 """Per-node retry_policy + gate + D3 (SPEC §5, R38, D3)."""
-import pytest
 from types import SimpleNamespace
+
+import pytest
 
 from lokdocsqr.core.errors import NodeExecutionError
 from lokdocsqr.core.executor.engine import Executor, _read_node_retry_policy
 from lokdocsqr.core.models import NodeState
-
 
 # --- simple fake nodes ---
 

@@ -19,8 +19,8 @@ from .resolver import resolve_states
 from .validator import validate_graph
 
 __all__ = [
-    "parse_graph",
-    "validate_graph",
-    "resolve_states",
     "build_graph",
+    "parse_graph",
+    "resolve_states",
+    "validate_graph",
 ]

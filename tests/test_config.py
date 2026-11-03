@@ -9,7 +9,6 @@ import pytest
 from lokdocsqr.core.config import AppConfig, load_config, save_config
 from lokdocsqr.core.errors import ConfigError
 
-
 # ---------------------------------------------------------------------------
 # AppConfig
 # ---------------------------------------------------------------------------
