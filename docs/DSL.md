@@ -2998,7 +2998,9 @@ For inline graphs the same inheritance applies; `graph_id` is `None` and no stac
 
 ### 15.6 Preview behavior
 
-`flow.subflow._preview` and `flow.loop_batch._preview` raise `NodeExecutionError("... nested graph is not supported by the action plan builder")` unless `recursive_preview=true`. With `recursive_preview=true`, they require `ctx.planning_callback` and return a child action plan in `result`/`results`. This means a normal `dry_run` of a graph containing a subflow records a planning error unless the planner supplies the recursive callback.
+`flow.subflow._preview` and `flow.loop_batch._preview` raise `NodeExecutionError("... nested graph is not supported by the action plan builder")` unless `recursive_preview=true`. With `recursive_preview=true`, they require `ctx.planning_callback` and return a child action plan in `result`/`results`. This means a normal library `dry_run` of a graph containing a subflow records a planning error unless the planner supplies the recursive callback.
+
+The CLI is deliberately more forgiving: `lokdocsqr run --dry-run` sets `recursive_preview=true` on nested nodes and wires `ctx.planning_callback` to `core.planning.builder.build_action_plan` when the context has none. Thus a CLI dry-run of a graph containing `flow.loop_batch` or `flow.subflow` succeeds and produces child plans, while the library API remains strict and fail-closed unless the caller opts in.
 ## 16. End-to-end examples
 
 Each DSL example was compiled, parsed, emitted to a fixed point, and round-tripped through `parse_graph(document_to_dict(...))`; see the verification log at the end.
@@ -3950,8 +3952,8 @@ These are real differences that remain between prose/documentation, declared met
 7. **`access.extract_text` does not forward OCR options.**
    The image handler supports `lang`/`psm`/`oem`, but `ExtractTextNode._process` passes only `csv_*` and `html_*` params. Image OCR through `extract_text` always uses `eng`, `psm=3`, `oem=3`. Use `access.ocr` for control.
 
-8. **Nested previews fail closed by design.**
-   `flow.subflow`/`flow.loop_batch` `dry_run` raises unless `recursive_preview=true` and `ctx.planning_callback` exists. A graph with these nodes cannot be planned by the normal builder without that opt-in.
+8. **Nested previews fail closed in the library; the CLI auto-wires.**
+   Library `flow.subflow`/`flow.loop_batch` `dry_run` raises unless `recursive_preview=true` and `ctx.planning_callback` exists. `lokdocsqr run --dry-run` now sets `recursive_preview=true` on those nodes and supplies the planning callback automatically; the library API deliberately keeps its strict opt-in behavior.
 
 9. **Subflow/loop_batch child scope ignores the child document's scope settings.**
    Child contexts inherit the parent `ScopeManager` by identity. A child document with different `settings.scope.roots`/`writable` will not use them when invoked through `flow.subflow` or `flow.loop_batch`. File to change: `nodes/flow/_common.py:_resolve_child_graph`/callers would need to construct a child `ScopeManager`.

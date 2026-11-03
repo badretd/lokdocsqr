@@ -1418,6 +1418,7 @@ class Runtime:
             ),
             clock=self._clock,
             automations=self._catalog(),
+            planning_callback=getattr(self, "_planning_callback", None),
         )
 
     def _execute(

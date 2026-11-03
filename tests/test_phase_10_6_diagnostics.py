@@ -571,3 +571,64 @@ node "loop" {
     )
     result = capsys.readouterr()
     assert "parent" in result.out
+
+
+# ---------------------------------------------------------------------------
+# Item 12 — CLI dry-run auto-wires nested previews
+# ---------------------------------------------------------------------------
+
+
+def test_cli_dry_run_with_loop_batch_succeeds(
+    tmp_path: Path, capsys: Any
+) -> None:
+    child = {
+        "spec_version": "1.0",
+        "metadata": {"id": "child"},
+        "nodes": [
+            {
+                "id": "mk",
+                "type": "fs.make_dir",
+                "params": {"path_template": "child-out"},
+            }
+        ],
+        "edges": [],
+    }
+    parent = tmp_path / "parent.json"
+    parent.write_text(
+        json.dumps(
+            {
+                "spec_version": "1.0",
+                "metadata": {"id": "parent-dry"},
+                "nodes": [
+                    {
+                        "id": "loop",
+                        "type": "flow.loop_batch",
+                        "params": {
+                            "items": [1],
+                            "graph": child,
+                        },
+                    }
+                ],
+                "edges": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    assert (
+        main(
+            [
+                "run",
+                str(parent),
+                "--base-dir",
+                str(workspace),
+                "--scope",
+                str(workspace),
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert not (workspace / "child-out").exists()

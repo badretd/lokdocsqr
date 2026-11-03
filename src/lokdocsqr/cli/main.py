@@ -469,6 +469,30 @@ def _verify_callback(
     return None
 
 
+def _enable_recursive_preview(document: WorkflowDocument) -> None:
+    """Opt nested nodes into preview when the CLI is dry-running."""
+    for node in document.nodes:
+        if node.type in ("flow.loop_batch", "flow.subflow"):
+            node.params["recursive_preview"] = True
+
+
+def _planning_callback(
+    args: argparse.Namespace,
+) -> Callable[[Any, Any, str | None], Any]:
+    """Return a recursive planner callback for CLI dry-runs."""
+    from lokdocsqr.core.planning.builder import build_action_plan
+
+    policy = _policy_from_args(args)
+
+    def callback(
+        child_ctx: Any, child_graph: Any, graph_id: str | None
+    ) -> Any:
+        del graph_id
+        return build_action_plan(child_graph, child_ctx, policy)
+
+    return callback
+
+
 def _make_runtime(
     args: argparse.Namespace,
     config: AppConfig,
@@ -529,7 +553,14 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"warning: {warning}", file=sys.stderr)
 
     included = _load_included_documents(getattr(args, "include", []))
+    if args.dry_run is True:
+        _enable_recursive_preview(document)
+        for included_document in included:
+            _enable_recursive_preview(included_document)
+
     runtime = _make_runtime(args, config)
+    if args.dry_run is True:
+        runtime._planning_callback = _planning_callback(args)
     for included_document in included:
         if included_document.metadata.id == document.metadata.id:
             continue
