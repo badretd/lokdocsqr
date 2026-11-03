@@ -1,0 +1,6 @@
+Release checklist
+
+[x] Write the examples
+[ ] TODO: dry-run every automation
+[ ] TODO: run the test suite
+[ ] TODO: build the CLI binary

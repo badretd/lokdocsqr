@@ -3,6 +3,14 @@
 Node id: ``access.list_files``. Read-only: no content is read, including
 in ``dry_run``. Every candidate path is scope-checked before stat/iterdir.
 
+Each emitted ``files[].path`` is relative to ``ctx.config.base_dir``
+whenever the entry lies inside it, so it can feed ``{item[path]}`` and
+the downstream ``fs.*``/``access.*`` nodes (which resolve relative paths
+against ``config.base_dir``). The absolute form is always available as
+``files[].absolute_path``. An entry outside ``base_dir`` (possible when a
+scope root is configured elsewhere) cannot be expressed relative to it, so
+``path`` falls back to the absolute form in that case.
+
 Truncation semantics: ``truncated`` is ``True`` only if a *matching* entry
 is found after ``limit`` items have already been collected. Collecting
 exactly ``limit`` matching entries and then exhausting the tree leaves
@@ -82,6 +90,29 @@ class ListFilesNode(AccessBase):
         if min_size is not None and size < min_size:
             return False
         return not (max_size is not None and size > max_size)
+
+    @staticmethod
+    def _display_path(ctx: Any, path: Path) -> tuple[str, str]:
+        """Return ``(path, absolute_path)`` for one discovered entry.
+
+        ``path`` is base-relative when the entry is inside
+        ``config.base_dir``; otherwise both values are the absolute form.
+        A base-relative ``path`` is what ``{item[path]}`` (via
+        ``utils.path_template``) and the ``fs.*`` nodes expect, because
+        ``render_template`` rejects absolute results and ``resolve_path``
+        resolves relative sources against ``config.base_dir``.
+        """
+        absolute = str(path)
+        config = getattr(ctx, "config", None)
+        base = getattr(config, "base_dir", None)
+        if base is None:
+            return absolute, absolute
+        try:
+            base_resolved = Path(base).expanduser().resolve(strict=False)
+            relative = Path(path).resolve(strict=False).relative_to(base_resolved)
+        except (OSError, ValueError):
+            return absolute, absolute
+        return str(relative), absolute
 
     def _collect(self, ctx: Any, payload: dict[str, Any]) -> dict[str, Any]:
         raw_path = payload.get("path", self.path)
@@ -196,9 +227,11 @@ class ListFilesNode(AccessBase):
                         stopped = True
                         break
 
+                    display_path, absolute_path = self._display_path(ctx, checked)
                     files.append(
                         {
-                            "path": str(checked),
+                            "path": display_path,
+                            "absolute_path": absolute_path,
                             "size": st.st_size,
                             "is_dir": is_dir,
                         }

@@ -1,28 +1,183 @@
 # LokDocSQR
 
-> **Status: Phase 11 CLI complete; desktop GUI (Phase 12) is not implemented yet.**
-> The headless CLI, runtime, triggers, DSL and audit/rollback path are usable;
-> treat the project as pre-1.0 and test against a copy of your data.
+> **Status: pre-1.0.** The headless CLI (Phase 11) is complete and usable.
+> The desktop GUI (Phase 12) is not implemented yet. Treat the project as
+> pre-1.0 and test against a copy of your data.
 
-A local automation builder for files: graph-based workflows, dry-run, audit and rollback, safe filesystem operations, and optional local LLM support.
+A **local-first** automation engine for files: graph-based workflows with
+dry-run, append-only audit and rollback, scope-enforced filesystem operations,
+and optional local LLM support.
+
+LokDocSQR runs entirely on your machine. It opens no network listener and
+never uploads data: every automation, trigger and audit record stays local.
 
 ---
 
 ## What This Is
 
-LokDocSQR is a desktop and headless tool for building automations over local files: “if a PDF from a certain author appears in this folder, move it to `{year}/{category}/` and record the decision in the audit log.”
+LokDocSQR builds automations over local files, for example: *"when a PDF
+appears in this folder, move it to `{year}/{category}/` and record the decision
+in the audit log."*
 
-Workflows are described as a graph of nodes. Every filesystem operation goes through `safe_fs`, respects `WorkspaceScope`, supports dry-run, writes an `ActionLog`, and can be rolled back.
+Workflows are described as a graph of nodes. Every filesystem operation goes
+through `core.safe_fs`, respects `WorkspaceScope`, supports dry-run, writes an
+`ActionLog`, and can be rolled back.
 
-Two binaries from one codebase:
+Two binaries are planned from one codebase:
 
-- `cli/` — headless mode (watchers, scheduler, batch runs).
-- `gui/` — desktop graph editor and run monitor.
+- `cli/` — headless mode (batch runs, watchers, scheduler, audit). **This is
+  the release target.**
+- `gui/` — desktop graph editor (Phase 12, not implemented).
 
 ---
 
-## Tests, tests, tests...
-In terms of tests, this is the worst I’ve ever seen. Right now, we have 500+ completely useless tests that verify themselves, trigger other tests, check documentation, and—God knows what else. I honestly tried to fix this using AI, but neither my sanity nor the AI’s could handle it.
+## Requirements
+
+- Python 3.10+ (the project targets 3.10).
+- A writable workspace directory for the files you automate.
+- Optional: OCR/PDF/DOCX/LLM extras for the corresponding nodes. Missing
+  optional libraries are reported at node runtime, not at startup.
+
+---
+
+## Installation
+
+From a checkout, using [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv sync --group dev
+uv run lokdocsqr --version
+```
+
+Or install the package into an existing environment:
+
+```bash
+uv pip install -e .
+lokdocsqr --version
+```
+
+`python -m lokdocsqr` is equivalent to the installed `lokdocsqr` entry point.
+
+---
+
+## Quick Start
+
+Validate and dry-run the bundled vertical slice:
+
+```bash
+lokdocsqr validate examples/vertical_slice.json
+lokdocsqr run examples/vertical_slice.json --dry-run
+lokdocsqr list-nodes
+```
+
+Browse the runnable DSL automations — inbox archiving, batch rename, filtering,
+watch/scheduled triggers, search, trash and conversion:
+
+```bash
+cat examples/README.md
+```
+
+Compile the DSL example to canonical automation JSON:
+
+```bash
+lokdocsqr compile examples/vertical_slice.ldsq
+lokdocsqr compile examples/vertical_slice.ldsq --output /tmp/vertical_slice.json
+```
+
+A real run against a scratch workspace:
+
+```bash
+lokdocsqr run examples/vertical_slice.json \
+  --base-dir /tmp/lokdocsqr-demo --no-dry-run
+
+lokdocsqr audit show <run-id> --base-dir /tmp/lokdocsqr-demo
+lokdocsqr audit rollback <run-id> --base-dir /tmp/lokdocsqr-demo
+```
+
+---
+
+## Dry-Run, Real Runs and Approval
+
+Every mutation has two phases:
+
+| Flag | Behaviour |
+|---|---|
+| `--dry-run` | Simulate; write `dry_run` audit entries; touch nothing. |
+| `--no-dry-run` | Execute for real **and** approve required verification. |
+| `--yes` | Approve verification for real runs (unattended). |
+
+The default `PolicyEngine` is **fail-closed**: `write`, `move`, `copy` and
+`mkdir` require verification. A document that sets `default_dry_run = false`
+requests real execution, but the operator must still opt in on the command line
+with `--no-dry-run` or `--yes`. If a real-run document is invoked without
+approval, the CLI refuses **before any node runs** and prints the exact flags
+to add.
+
+A `--policy FILE` overrides the built-in policy. A `--config FILE` sets
+`base_dir`, `trash_dir`, `logs_dir` and scope roots; `--scope PATH`
+(repeatable) overrides the writable workspace. Automations must use `.json` or
+`.ldsq`; other extensions are rejected.
+
+---
+
+## Triggers and Long-Running Mode
+
+An automation can declare triggers (`watch_folder`, `scheduled_scan`) that the
+runtime hosts. See [`docs/DSL.md`](./docs/DSL.md) §10 for the full reference.
+
+```bash
+# Host watch/cron triggers until Ctrl+C or SIGTERM.
+lokdocsqr serve <automation-or-directory...>
+
+# Run each automation once first, then host its triggers.
+lokdocsqr serve --daemon <automation...>
+lokdocsqr daemon <automation...>          # alias for serve --daemon
+
+# Run one automation once, then host its triggers.
+lokdocsqr run <automation> --daemon
+```
+
+`--daemon` / `serve` are only meaningful for automations that declare
+`watch_folder` or `scheduled_scan` triggers. With no such triggers, `serve`
+exits with guidance and `run --daemon` performs its single run and exits
+instead of idling.
+
+`manual_run` and `webhook` triggers are **not** served continuously. Fire them
+locally, with no socket and no network listener:
+
+```bash
+lokdocsqr trigger <automation> --type manual_run --files inbox/a.pdf
+lokdocsqr trigger <automation> --type webhook --payload '{"event": "pushed"}'
+lokdocsqr trigger <automation> --type webhook --payload @payload.json
+cat payload.json | lokdocsqr trigger <automation> --type webhook --payload -
+```
+
+---
+
+## Audit and Rollback
+
+The audit log is append-only; every file change leaves a record suitable for
+rollback planning. Each run prints a run id.
+
+```bash
+lokdocsqr audit show <run-id>      --base-dir <workspace>
+lokdocsqr audit rollback <run-id>  --base-dir <workspace> --dry-run
+lokdocsqr audit rollback <run-id>  --base-dir <workspace>
+```
+
+Locations (defaults):
+
+| Thing | Location |
+|---|---|
+| Workspace base | `--base-dir`, else config `base_dir`, else current directory |
+| Scope roots | `--scope`, else workflow settings, else config, else `base_dir` |
+| Trash | config `trash_dir`, else `<base_dir>/.trash` |
+| Audit log | config `logs_dir`, else `<base_dir>/.logs/audit.jsonl` |
+| Runtime lock | `<base_dir>/.lokdocsqr-runtime.lock` |
+
+The CLI never writes files directly. All mutations go through
+`core.safe_fs` via the executor/nodes, and rollback goes through
+`AuditLog.apply_rollback`.
 
 ---
 
@@ -46,7 +201,7 @@ In terms of tests, this is the worst I’ve ever seen. Right now, we have 500+ c
 
 ## Development Status
 
-Following the plan in [`modules.md`](./docs/modules.md), section 8. The order is:
+Following the plan in [`docs/modules.md`](./docs/modules.md), section 8.
 
 - [x] `core/safe_fs.py`, `core/errors.py`, `core/models.py`, `core/scope.py`
 - [x] `core/node_api/*`, `core/plugins.py`, `core/events.py`,
@@ -58,93 +213,77 @@ Following the plan in [`modules.md`](./docs/modules.md), section 8. The order is
 - [x] `nodes/flow/*`, `nodes/utils/*`
 - [x] `nodes/llm/local_llm.py`
 - [x] `nodes/triggers/*` + `core/runtime.py`
-- [x] `cli/main.py` (run, validate, list-nodes, serve, audit)
+- [x] `cli/main.py` (run, compile, validate, list-nodes, trigger, serve,
+      daemon, audit)
 - [ ] `gui/*`
 
-The checklist is updated as work progresses. See
-[`docs/PHASE_STATE.md`](./docs/PHASE_STATE.md) for the current phase status and
-the implemented / tested / integrated breakdown.
+See [`docs/PHASE_STATE.md`](./docs/PHASE_STATE.md) for the current phase status
+and the implemented / tested / integrated breakdown.
 
 ---
 
-## Why This May Be Interesting
+## Testing
 
-- Filesystem operations with guaranteed dry-run, audit, and rollback are rare
-  in desktop automation tools.
-- Strict `core` / `nodes` / `gui` separation means nodes can be tested in
-  isolation against a temporary workspace without pulling in Qt.
-- The only module that touches disk is `core/safe_fs.py`. This is not “best
-  effort”; it is an architectural invariant enforced by tests and review.
+The repository ships an extensive test suite (1500+ tests) covering the core
+invariants, the executor, every node family, the DSL round-trip, the runtime
+triggers and the CLI:
+
+```bash
+uv run pytest -q
+```
+
+Documentation examples are executable and checked by CI:
+
+```bash
+uv run python tools/verify_dsl_docs.py   # docs/DSL.md examples compile/round-trip
+uv run pytest tests/test_dsl_docs.py tests/test_contract_docs.py
+```
+
+Static checks:
+
+```bash
+uv run ruff check src tests
+uv run mypy src/lokdocsqr
+```
 
 ---
 
-## How to Run
+## Building Release Binaries
 
-Install the project in editable mode (or use `uv run`):
+The CLI is packaged with PyInstaller (one-dir mode). See
+[`docs/PACKAGING.md`](./docs/PACKAGING.md) for the full build guide, smoke
+tests, data-file layout and troubleshooting.
 
-```bash
-uv pip install -e .
-lokdocsqr --version
-```
-
-Validate and dry-run the bundled vertical slice:
+Build locally (on the target OS — PyInstaller is not a cross-compiler):
 
 ```bash
-lokdocsqr validate examples/vertical_slice.json
-lokdocsqr run examples/vertical_slice.json --dry-run
-lokdocsqr list-nodes
+uv sync --group dev
+uv run pyinstaller packaging/lokdocsqr-cli.spec --noconfirm
+./dist/lokdocsqr/lokdocsqr --version
 ```
 
-Compile the DSL example to canonical automation JSON:
-
-```bash
-lokdocsqr compile examples/vertical_slice.ldsq
-lokdocsqr compile examples/vertical_slice.ldsq --output /tmp/vertical_slice.json
-```
-
-A real run is an explicit opt-in. `--no-dry-run` (or `--yes`) supplies the
-human approval required by the default fail-closed policy engine:
-
-```bash
-lokdocsqr run examples/vertical_slice.json \
-  --base-dir /tmp/lokdocsqr-demo --no-dry-run
-
-lokdocsqr audit show <run-id> --base-dir /tmp/lokdocsqr-demo
-lokdocsqr audit rollback <run-id> --base-dir /tmp/lokdocsqr-demo
-```
-
-Use `--config FILE` to set `base_dir`, `trash_dir`, `logs_dir` and scope roots,
-and `--scope PATH` (repeatable) to override the writable workspace. A
-`--policy FILE` overrides the built-in fail-closed policy. Automations must use
-`.json` or `.ldsq`; other extensions are rejected.
-
-`lokdocsqr serve <file-or-directory...>` hosts watch/cron triggers until
-Ctrl+C or SIGTERM, prints every run/node/audit event to the console, and uses a
-single-instance lock. Add `--daemon` to execute each automation once before the
-trigger host starts. `run <automation> --daemon` executes once and then keeps
-serving the automation's declared triggers in the same process;
-`lokdocsqr daemon <file-or-directory...>` is the same as `serve --daemon`.
-
-`python -m lokdocsqr` is equivalent to the installed `lokdocsqr` entry point.
-See [`docs/PACKAGING.md`](./docs/PACKAGING.md) for the PyInstaller CLI build.
+Cross-platform builds (Linux, macOS, Windows) are produced by a CI matrix; a
+ready-to-use GitHub Actions workflow is documented in
+[`docs/PACKAGING.md`](./docs/PACKAGING.md#7-ci-cross-platform-builds) and
+provided at `.github/workflows/build.yml`.
 
 ---
 
 ## Documentation
 
-- [`modules.md`](./docs/modules.md) — the authoritative module map: paths,
-  responsibilities, and dependency rules. This is the source of truth for
-  architecture.
-- Everything else will be added as it appears. For now, the README and
-  `modules.md` cover what you need to know at the start.
+- [`examples/README.md`](./examples/README.md) — runnable DSL automations and a feature tour.
+- [`docs/modules.md`](./docs/modules.md) — the authoritative module map.
+- [`docs/DSL.md`](./docs/DSL.md) — the automation DSL and full node reference.
+- [`docs/SCHEMA.md`](./docs/SCHEMA.md) — the JSON automation schema.
+- [`docs/PACKAGING.md`](./docs/PACKAGING.md) — building and shipping the CLI.
+- [`docs/PHASE_STATE.md`](./docs/PHASE_STATE.md) — current phase status.
 
 ---
 
 ## Contributing
 
-The project is in early development. Issues and architecture discussions are
-welcome. Pull requests should be preceded by an issue so time is not wasted.
-A contributing guide will appear when there is something to contribute to.
+The project is pre-1.0. Issues and architecture discussions are welcome.
+Please open an issue before a substantial pull request.
 
 ---
 

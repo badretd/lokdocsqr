@@ -1,0 +1,61 @@
+# Continuously watch inbox/ and move new PDFs into processed/.
+#
+# Demonstrates: a watch_folder trigger + the triggers.watch_folder node (which
+# receives the changed files from the runtime event) -> flow.loop_batch ->
+# fs.move. Run it with `lokdocsqr serve` or `lokdocsqr run ... --daemon`.
+
+automation "watch-inbox-to-processed"
+
+name = "Watch inbox and move new PDFs to processed/"
+description = "On every new PDF in inbox/, move it to processed/."
+default_dry_run = true
+
+scope {
+  roots = ["inbox", "processed"]
+  writable = ["inbox", "processed"]
+}
+
+trigger "watch-inbox" {
+  type = "triggers.watch_folder"
+  params {
+    path = "inbox"
+    patterns = "*.pdf"
+    recursive = false
+  }
+}
+
+node "watch" {
+  type = "triggers.watch_folder"
+  params {
+    path = "inbox"
+    patterns = "*.pdf"
+    recursive = false
+  }
+  outputs = [{name = "files", type = "FileRef[]"}]
+}
+
+node "loop" {
+  type = "flow.loop_batch"
+  inputs = ["items"]
+  params {
+    mode = "loop"
+    graph {
+      spec_version = "1.0"
+      metadata { id = "processed-move-child" }
+      nodes = [
+        {id = "pt", type = "utils.path_template", params = {template = "{item[path]}"}, outputs = [{name = "path", type = "string"}]},
+        {id = "mv", type = "fs.move", params = {target_dir = "processed", template = "{name}{ext}", conflict_policy = "rename"}, inputs = ["source"]}
+      ]
+      edges = [
+        {id = "pt-mv", source = "pt", target = "mv", source_port = "path", target_port = "source"}
+      ]
+    }
+  }
+}
+
+edge "watch-loop" {
+  source = "watch"
+  target = "loop"
+  source_port = "files"
+  target_port = "items"
+}

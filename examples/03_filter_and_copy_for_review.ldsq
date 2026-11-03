@@ -1,0 +1,65 @@
+# Copy every non-empty file from inbox/ into review/, keeping the originals.
+#
+# Demonstrates: access.list_files -> flow.filter (numeric condition) ->
+#               flow.loop_batch -> utils.path_template -> fs.copy.
+
+automation "review-non-empty-files"
+
+name = "Copy non-empty inbox files for review"
+description = "Copy every non-empty file from inbox/ to review/, renaming on conflict."
+default_dry_run = true
+
+scope {
+  roots = ["inbox", "review"]
+  writable = ["inbox", "review"]
+}
+
+node "ls" {
+  type = "access.list_files"
+  params {
+    path = "inbox"
+    recursive = false
+  }
+  outputs = [{name = "files", type = "FileRef[]"}]
+}
+
+node "flt" {
+  type = "flow.filter"
+  inputs = ["items"]
+  params {
+    condition = "size > 0"
+  }
+}
+
+node "loop" {
+  type = "flow.loop_batch"
+  inputs = ["items"]
+  params {
+    mode = "loop"
+    graph {
+      spec_version = "1.0"
+      metadata { id = "review-copy-child" }
+      nodes = [
+        {id = "pt", type = "utils.path_template", params = {template = "{item[path]}"}, outputs = [{name = "path", type = "string"}]},
+        {id = "cp", type = "fs.copy", params = {target_dir = "review", template = "{name}{ext}", conflict_policy = "rename"}, inputs = ["source"]}
+      ]
+      edges = [
+        {id = "pt-cp", source = "pt", target = "cp", source_port = "path", target_port = "source"}
+      ]
+    }
+  }
+}
+
+edge "ls-flt" {
+  source = "ls"
+  target = "flt"
+  source_port = "files"
+  target_port = "items"
+}
+
+edge "flt-loop" {
+  source = "flt"
+  target = "loop"
+  source_port = "items"
+  target_port = "items"
+}

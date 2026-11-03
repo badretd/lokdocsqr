@@ -90,7 +90,13 @@ Run these commands against the built executable (`.exe` omitted on POSIX):
 ./dist/lokdocsqr/lokdocsqr compile examples/vertical_slice.ldsq
 ./dist/lokdocsqr/lokdocsqr validate examples/vertical_slice.json
 ./dist/lokdocsqr/lokdocsqr run examples/vertical_slice.json --dry-run
-# CLI daemon smoke: starts, runs once, then serves declared triggers.
+# Trigger dispatch is local-only (no socket): a webhook payload can be
+# supplied inline, from a file (@FILE) or stdin (-).
+./dist/lokdocsqr/lokdocsqr trigger <automation> --type webhook \
+  --payload '{"event": "smoke"}' --dry-run
+# Daemon smoke. vertical_slice declares no triggers, so --daemon runs once
+# and exits with guidance; use an automation with a `trigger` block to host
+# watch/cron loops.
 ./dist/lokdocsqr/lokdocsqr run examples/vertical_slice.json --dry-run --daemon
 ```
 
@@ -102,6 +108,9 @@ Expected:
 * `validate` prints `OK: vertical-slice (3 nodes, 0 edges)`.
 * `run --dry-run` exits `0`, writes `dry_run` audit entries, and creates no
   automation output files.
+* `trigger --dry-run` dispatches the local trigger event without touching disk.
+* `run --daemon` on a trigger-less automation runs once and exits instead of
+  idling.
 
 A real run needs an explicit opt-in because the CLI defaults to the fail-closed
 `PolicyEngine`:
@@ -178,3 +187,141 @@ The CLI never writes files directly. All mutations go through
   ```
 
   The historical 260 MB figure is not a gate; the reproducible spec above is.
+
+---
+
+## 7. CI: cross-platform builds
+
+PyInstaller cannot cross-compile, so a release needs one job per target OS.
+The repository ships `.github/workflows/build.yml`, a ready-to-use GitHub
+Actions pipeline that:
+
+1. runs the test suite and static checks on Linux, macOS and Windows;
+2. builds the one-dir CLI on each platform;
+3. smoke-tests the frozen executable;
+4. uploads a per-platform archive as a workflow artifact.
+
+It triggers on `v*` tags and on manual dispatch. Adjust `on:` for your release
+process (for example, publish a GitHub Release from the uploaded artifacts).
+
+### 7.1 Workflow outline
+
+```yaml
+name: build-cli
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.10"
+      - run: uv sync --group dev
+      - run: uv run pytest -q
+      - run: uv run python tools/verify_dsl_docs.py
+      - run: uv run ruff check src tests
+      - run: uv run mypy src/lokdocsqr
+
+  package:
+    name: Package (${{ matrix.os }})
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: lokdocsqr-linux-x86_64
+          - os: macos-latest
+            artifact: lokdocsqr-macos
+          - os: windows-latest
+            artifact: lokdocsqr-windows-x86_64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.10"
+      - run: uv sync --group dev
+      - run: uv run pyinstaller packaging/lokdocsqr-cli.spec --noconfirm
+      - name: Smoke test
+        shell: bash
+        run: |
+          exe="./dist/lokdocsqr/lokdocsqr"
+          if [ "$RUNNER_OS" = "Windows" ]; then exe="$exe.exe"; fi
+          "$exe" --version
+          "$exe" list-nodes --json > /dev/null
+          "$exe" validate examples/vertical_slice.json
+      - name: Package archive
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            7z a "${{ matrix.artifact }}.zip" ./dist/lokdocsqr/*
+          else
+            tar -czf "${{ matrix.artifact }}.tar.gz" -C dist lokdocsqr
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}.zip
+            ${{ matrix.artifact }}.tar.gz
+          if-no-files-found: error
+```
+
+### 7.2 Platform notes
+
+* **Linux** runners produce glibc-based binaries. If you must support older
+  distributions, build in a container with the oldest glibc you target.
+* **macOS** `macos-latest` now maps to Apple silicon. Build on the
+  architecture you ship; for universal binaries you need an explicit
+  `target_arch` / `lipo` step, which is outside this spec.
+* **Windows** runners produce an `.exe` plus `_internal/`. Sign the executable
+  in your release process if you distribute widely (see §5).
+* **Lean CLI builds:** `PySide6` is a main dependency but the CLI never uses it
+  (the GUI package is a stub and the spec filters `lokdocsqr.gui` out of the
+  hidden imports). To keep CI images small you may install without it:
+  `uv sync --group dev --no-install-package pyside6`.
+* **No network at runtime.** The CLI never opens a listener; the pipeline only
+  uses the network to fetch dependencies and upload artifacts.
+
+### 7.3 Artifacts and checksums
+
+Archive names encode the platform. Add a checksum step if you publish
+downloads:
+
+```bash
+sha256sum dist/lokdocsqr.tar.gz > dist/lokdocsqr.tar.gz.sha256   # POSIX
+```
+
+Record the PyInstaller and Python versions in the release notes for
+reproducibility.
+
+---
+
+## 8. Release checklist
+
+Before tagging a release:
+
+- [ ] `uv run pytest -q` is green on all three OSes.
+- [ ] `uv run python tools/verify_dsl_docs.py` passes.
+- [ ] `uv run ruff check src tests` and `uv run mypy src/lokdocsqr` pass.
+- [ ] `uv run pyinstaller packaging/lokdocsqr-cli.spec --noconfirm` builds.
+- [ ] The smoke tests in §3 pass against the frozen binary.
+- [ ] `LICENSE`, `NOTICE`, `THIRD-PARTY-NOTICES` are present in `_internal/`.
+- [ ] The version in `pyproject.toml` / `lokdocsqr.__version__` is bumped.
+- [ ] Release notes list PyInstaller and Python versions.
+

@@ -1,0 +1,12 @@
+%PDF-1.4
+% Sample placeholder used by the batch-rename example.
+% LokDocSQR never reads file content to rename or move a file.
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [] /Count 0 >>
+endobj
+trailer
+<< /Root 1 0 R >>
+%%EOF

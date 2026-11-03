@@ -171,10 +171,12 @@ def test_cli_high_risk_without_explicit_opt_in_fails_closed(tmp_path: Path, caps
     automation, config, base = _workspace(tmp_path)
 
     # The config says "real run", but the operator did not pass --no-dry-run
-    # or --yes, so the default PolicyEngine must block the first mutation.
+    # or --yes, so the CLI refuses early with actionable guidance instead of
+    # running until the first mutation hits the policy gate.
     assert main(["run", str(automation), "--config", str(config)]) == 1
     captured = capsys.readouterr()
-    assert "verify required" in captured.err or "verify required" in captured.out
+    assert "default_dry_run = false" in captured.err
+    assert "--no-dry-run" in captured.err
     assert not (base / "work").exists()
 
 

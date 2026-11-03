@@ -1,0 +1,4 @@
+# Example guide
+
+TODO: replace this paragraph with the real project guide.
+TODO: add a screenshot of the graph editor once the GUI lands.

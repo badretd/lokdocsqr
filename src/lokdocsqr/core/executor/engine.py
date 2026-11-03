@@ -317,7 +317,9 @@ def _check_policy_and_verify(
     # REQUIRE_VERIFY
     if ctx.verify_callback is None:
         raise PolicyBlockedError(
-            f"{node_id}: verify required but no callback"
+            f"{node_id}: verify required but no callback is configured; "
+            "supply a verify callback or run with explicit approval "
+            "(CLI: --no-dry-run or --yes)"
         )
     verify_result = ctx.verify_callback(proposal)
     if verify_result.action == VerifyAction.APPROVE:
@@ -616,6 +618,16 @@ class Executor:
             node_edges = inbound_edges.get(node_id, [])
             node._proposal_has_source_edge = has_inbound_source_edge(node_edges)
             node._proposal_dynamic = False
+            # Diagnostic context for nodes (e.g. fs.move) that receive a
+            # ``None`` value over an edge: name the producing node instead
+            # of resolving ``None`` to ``<base_dir>/None``.
+            node._inbound_sources = tuple(
+                dict.fromkeys(
+                    edge.source
+                    for edge in node_edges
+                    if getattr(edge, "kind", "data") != "order"
+                )
+            )
             if not self.ctx.dry_run:
                 payload = _check_policy_and_verify(
                     node, self.ctx, payload, node_id=node_id,

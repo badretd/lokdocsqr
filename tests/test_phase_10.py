@@ -300,7 +300,8 @@ def test_manual_and_webhook_nodes_normalise_event_payloads(
         },
     }
     manual = ManualRunNode().run(ctx, {})
-    assert manual["paths"] == [str(selected)]
+    assert manual["paths"] == ["selected.txt"]
+    assert manual["files"][0]["absolute_path"] == str(selected)
     assert manual["payload"]["source"] == "manual"
 
     ctx.variables["trigger"] = {
@@ -332,8 +333,10 @@ def test_scan_trigger_nodes_report_files(tmp_path: Path) -> None:
         ctx, {"path": str(inbox), "patterns": ["*.txt"]}
     )
 
-    assert watched["paths"] == [str(inbox / "a.txt")]
-    assert scheduled["paths"] == [str(inbox / "a.txt")]
+    assert watched["paths"] == ["inbox/a.txt"]
+    assert scheduled["paths"] == ["inbox/a.txt"]
+    assert watched["files"][0]["absolute_path"] == str(inbox / "a.txt")
+    assert scheduled["files"][0]["absolute_path"] == str(inbox / "a.txt")
 
 
 def test_runtime_manual_and_webhook_triggers_reach_the_graph(
@@ -350,9 +353,11 @@ def test_runtime_manual_and_webhook_triggers_reach_the_graph(
         payload={"files": [str(tmp_path / "missing.txt")]},
     )
     assert executed.success
-    assert executed.node_results["manual"].outputs["paths"] == [
-        str(tmp_path / "missing.txt")
-    ]
+    assert executed.node_results["manual"].outputs["paths"] == ["missing.txt"]
+    assert (
+        executed.node_results["manual"].outputs["files"][0]["absolute_path"]
+        == str(tmp_path / "missing.txt")
+    )
 
     runtime.unregister(AUTOMATION_ID)
     runtime.register(

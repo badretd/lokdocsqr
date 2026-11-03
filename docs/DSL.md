@@ -1312,7 +1312,9 @@ Lists files/directories under scoped roots with glob and metadata filters. Sourc
 |---|---|
 | `files` | FileRef[] |
 
-**Runtime result keys.** `files` (list of `{path, size, is_dir}`), `truncated` (bool), `scanned` (int). `truncated` is true only when a matching entry exists beyond `limit`. `scanned` is always present, including `0` for an empty folder; `--explain` prints it as `<node_id>: scanned N file(s)`.
+**Runtime result keys.** `files` (list of `{path, absolute_path, size, is_dir}`), `truncated` (bool), `scanned` (int). `truncated` is true only when a matching entry exists beyond `limit`. `scanned` is always present, including `0` for an empty folder; `--explain` prints it as `<node_id>: scanned N file(s)`.
+
+`files[].path` is **relative to `config.base_dir`** whenever the entry lies inside it (for example `watch/report.pdf`); this is the value to feed to `{item[path]}` and to downstream `fs.*`/`access.*` nodes, which resolve relative paths against `config.base_dir`. `files[].absolute_path` is always the absolute form. If a scope root lies outside `config.base_dir`, the entry cannot be made base-relative and `path` falls back to the absolute form; in that case do not pass it through `utils.path_template` (§12.6).
 
 ```ldsq
 node "ls" {
@@ -2089,6 +2091,8 @@ node "llm" {
 
 These nodes are ordinary nodes that normalize runtime events. They are distinct from the *trigger declarations* in a document (`triggers[]`) that `Runtime` binds; see §10.
 
+**FileRef contract.** Like `access.list_files`, the trigger nodes emit `files[].path` **relative to `config.base_dir`** whenever the entry lies inside it (for example `inbox/report.pdf`), with the absolute form under `files[].absolute_path`. This means `{item[path]}` / `utils.path_template` and downstream `fs.*` / `access.*` nodes work the same for a trigger-driven item as for a listed item. An entry outside `base_dir` falls back to an absolute `path`; do not route that through `utils.path_template` (§12.6).
+
 #### `triggers.watch_folder` — Watch Folder
 
 Reports files observed by a folder watcher or a fresh scan. Source: `src/lokdocsqr/nodes/triggers/watch_folder.py`.
@@ -2376,6 +2380,12 @@ trigger "poll" {
 
 Manual triggers are not bound at registration. They are driven by `Runtime.trigger(automation_id, trigger_type="manual_run", payload=...)` or `Runtime.run_once(...)`. The trigger declaration's `params` are not consumed by the binding; the `triggers.manual_run` **node** consumes its own NodeSpec params (`files`, `payload`).
 
+The CLI exposes this locally, with no network involved:
+
+```bash
+lokdocsqr trigger <automation> --type manual_run --files inbox/a.pdf
+```
+
 | Param | Type | Default | Meaning |
 |---|---|---|---|
 | `dry_run` | bool | unset | Read generically by `_bind_document_triggers`, then ignored for manual/webhook; pass `dry_run=` to `Runtime.trigger` instead |
@@ -2397,6 +2407,14 @@ node "mr" {
 ### 10.5 `webhook`
 
 Also not bound at registration. Use `Runtime.trigger_webhook(automation_id, payload=...)` or `Runtime.trigger(..., trigger_type="webhook", payload=...)`. As with manual runs, `params.dry_run` has no effect on the binding.
+
+LokDocSQR is local-only: there is **no built-in HTTP listener**. Fire a webhook trigger locally with the CLI, passing the payload inline, from a file (`@FILE`) or from stdin (`-`):
+
+```bash
+lokdocsqr trigger <automation> --type webhook --payload '{"event": "pushed"}'
+lokdocsqr trigger <automation> --type webhook --payload @payload.json
+cat payload.json | lokdocsqr trigger <automation> --type webhook --payload -
+```
 
 | Param | Type | Default | Meaning |
 |---|---|---|---|
@@ -2443,6 +2461,7 @@ lokdocsqr run <automation> --daemon          # run once, then serve its triggers
 * `--include PATH` (repeatable; file or directory) registers additional automations, which is useful when one serving document references another by `graph_id`.
 * `--dry-run` / `--no-dry-run` become the Runtime default for bindings that do not set `params.dry_run`. Nested `flow.loop_batch`/`flow.subflow` previews are wired automatically.
 * `--daemon` executes every registered automation once before starting the trigger host. Without it, `serve` performs no immediate run.
+* `serve` and `--daemon` only host `watch_folder` / `scheduled_scan` triggers. If none are declared, `serve` exits with guidance and `run --daemon` performs its single run then exits rather than idling. Use `trigger` (§10.4/§10.5) for manual/webhook dispatch.
 * Registration prints `registered <automation_id>` for every document, then `serving; press Ctrl+C to stop` (or `daemon running...`). Every subsequent run prints run, node, audit and completion events to the console.
 * `serve` and `--daemon` acquire `<base_dir>/.lokdocsqr-runtime.lock`; a second instance fails before doing work. SIGINT/SIGTERM stop cleanly and release the lock.
 * The command executes through the same pipeline as `run`; `--json`/`--format=json` emits one JSON object per event on stdout and sends status messages to stderr.
@@ -2789,6 +2808,8 @@ node "loop-path" {
 ```
 
 Inside `flow.loop_batch`, `item` is the current dict; this selects its `path` key when rendering with a populated context. The document passes `validate_graph` and `build_graph`, and the node renders the current item's path at runtime (for example `a/b.txt` for `{path = "a/b.txt"}`).
+
+`{item[path]}` works when `item.path` is **relative**, because `render_template` rejects absolute results. This is why `access.list_files` emits `files[].path` relative to `config.base_dir` (with the absolute form under `files[].absolute_path`): a `list_files → flow.loop_batch → fs.move` chain with `template = "{item[path]}"` works out of the box. If an item's `path` is absolute, `utils.path_template` returns `path = None` plus an `errors` entry; do not wire that `None` into `fs.move.source` (the fs node fails with a clear `NodeExecutionError` rather than `ScopeViolation: .../None`).
 
 A template `../archive/{name}{ext}` is rejected by `render_template`/`render_and_check` by default; relative destination templates cannot escape `source.parent` via `..`. To move to a sibling directory without enabling traversal, choose a source whose parent makes the relative destination correct (for example source `invoice.txt` at `base_dir` with template `archive/{name}{ext}`), or use `target_dir` (§9.1).
 

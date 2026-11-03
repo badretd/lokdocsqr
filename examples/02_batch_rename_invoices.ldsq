@@ -1,0 +1,52 @@
+# Bulk-rename PDF invoices in inbox/ with an "acme-" prefix.
+#
+# Demonstrates: access.list_files with a name pattern -> flow.loop_batch ->
+#               utils.path_template -> fs.rename. This is a one-shot rename;
+#               re-running it on already-prefixed files would prefix again.
+
+automation "batch-rename-invoices"
+
+name = "Batch-rename PDF invoices"
+description = "Rename every PDF in inbox/ to acme-<original-name>.pdf."
+default_dry_run = true
+
+scope {
+  roots = ["inbox"]
+  writable = ["inbox"]
+}
+
+node "ls" {
+  type = "access.list_files"
+  params {
+    path = "inbox"
+    pattern = "*.pdf"
+    recursive = false
+  }
+  outputs = [{name = "files", type = "FileRef[]"}]
+}
+
+node "loop" {
+  type = "flow.loop_batch"
+  inputs = ["items"]
+  params {
+    mode = "loop"
+    graph {
+      spec_version = "1.0"
+      metadata { id = "rename-child" }
+      nodes = [
+        {id = "pt", type = "utils.path_template", params = {template = "{item[path]}"}, outputs = [{name = "path", type = "string"}]},
+        {id = "rn", type = "fs.rename", params = {template = "acme-{name}{ext}", conflict_policy = "rename"}, inputs = ["source"]}
+      ]
+      edges = [
+        {id = "pt-rn", source = "pt", target = "rn", source_port = "path", target_port = "source"}
+      ]
+    }
+  }
+}
+
+edge "ls-loop" {
+  source = "ls"
+  target = "loop"
+  source_port = "files"
+  target_port = "items"
+}

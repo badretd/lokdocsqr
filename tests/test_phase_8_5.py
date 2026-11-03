@@ -323,12 +323,17 @@ def test_loop_batch_preview_calls_callback_when_opt_in(
         ctx, {"recursive_preview": True, "items": [1, 2], "graph": {"x": 1}}
     )
 
-    assert len(seen) == 1
-    child_ctx, child_graph, graph_id = seen[0]
-    assert child_graph is sentinel
-    assert graph_id is None
-    assert child_ctx.flow_depth == 1
+    # Preview must inject the same per-item variables the real run does,
+    # otherwise ``{item[path]}`` cannot render in the child graph.
+    assert len(seen) == 2
+    for index, (child_ctx, child_graph, graph_id) in enumerate(seen):
+        assert child_graph is sentinel
+        assert graph_id is None
+        assert child_ctx.flow_depth == 1
+        assert child_ctx.variables["item"] == index + 1
+        assert child_ctx.variables["index"] == index
     assert out["total"] == 2
+    assert len(out["results"]) == 2
     assert isinstance(out["results"][0], _Plan)
 
 

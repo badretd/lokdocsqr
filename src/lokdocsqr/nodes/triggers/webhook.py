@@ -1,8 +1,10 @@
 """Webhook / external trigger node (``triggers.webhook``).
 
-The HTTP entry point itself is intentionally out of scope for this phase
-(runtime triggers can be fired through :meth:`Runtime.trigger_webhook`). This
-node normalizes the received JSON payload and headers for downstream nodes.
+LokDocSQR is local-only: there is no built-in HTTP listener. A webhook
+trigger is dispatched locally through the CLI
+(``lokdocsqr trigger <automation> --type webhook --payload ...``) or through
+:meth:`Runtime.trigger_webhook`. This node normalizes the received JSON
+payload and headers for downstream nodes.
 """
 from __future__ import annotations
 

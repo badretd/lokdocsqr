@@ -1,0 +1,51 @@
+# Move every file in inbox/ into archive/<file-date>/ (non-recursive).
+#
+# Demonstrates: access.list_files -> flow.loop_batch -> utils.path_template
+#               -> fs.move, the {date}/{name}{ext} template variables, and
+#               target_dir for a destination outside the source folder.
+
+automation "inbox-to-archive-by-date"
+
+name = "Archive inbox files into date folders"
+description = "Move every file in inbox/ into archive/<file-date>/."
+default_dry_run = true
+
+scope {
+  roots = ["inbox", "archive"]
+  writable = ["inbox", "archive"]
+}
+
+node "ls" {
+  type = "access.list_files"
+  params {
+    path = "inbox"
+    recursive = false
+  }
+  outputs = [{name = "files", type = "FileRef[]"}]
+}
+
+node "loop" {
+  type = "flow.loop_batch"
+  inputs = ["items"]
+  params {
+    mode = "loop"
+    graph {
+      spec_version = "1.0"
+      metadata { id = "archive-by-date-child" }
+      nodes = [
+        {id = "pt", type = "utils.path_template", params = {template = "{item[path]}"}, outputs = [{name = "path", type = "string"}]},
+        {id = "mv", type = "fs.move", params = {target_dir = "archive", template = "{date}/{name}{ext}", conflict_policy = "rename"}, inputs = ["source"]}
+      ]
+      edges = [
+        {id = "pt-mv", source = "pt", target = "mv", source_port = "path", target_port = "source"}
+      ]
+    }
+  }
+}
+
+edge "ls-loop" {
+  source = "ls"
+  target = "loop"
+  source_port = "files"
+  target_port = "items"
+}

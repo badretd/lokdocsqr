@@ -46,7 +46,7 @@ class ManualRunNode(Node):
         raw_files = values.get("files")
         if raw_files is None:
             raw_files = values.get("paths")
-        files = normalise_files(raw_files)
+        files = normalise_files(raw_files, ctx)
         if not files:
             files = files_from_event(ctx)
 

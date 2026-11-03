@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from lokdocsqr.core.errors import ScopeViolation
+from lokdocsqr.core.errors import NodeExecutionError, ScopeViolation
 from lokdocsqr.core.models import ActionLog
 from lokdocsqr.core.node_api.base import Node
 from lokdocsqr.core.paths import render_template
@@ -234,9 +234,20 @@ class FsTemplateNode(FsNode):
         as a programmatically constructed one. Instance attributes remain
         the defaults (and the fallback for direct callers).
         """
-        src = resolve_path(
-            ctx, payload["source"], write=self._source_write
-        )
+        raw_source = payload.get("source")
+        if raw_source is None:
+            upstream = tuple(getattr(self, "_inbound_sources", ()) or ())
+            if upstream:
+                names = ", ".join(repr(item) for item in upstream)
+                edge_text = f"; inbound edge from {names} produced no path"
+            else:
+                edge_text = ""
+            raise NodeExecutionError(
+                f"{self.id}: 'source' resolved to None{edge_text}. "
+                "Check the upstream node's errors (for example, "
+                "utils.path_template rejects an absolute template result)."
+            )
+        src = resolve_path(ctx, raw_source, write=self._source_write)
 
         template = _payload_str(payload, "template", self.template, self.id)
         conflict_policy = _payload_str(

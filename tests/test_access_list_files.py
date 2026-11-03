@@ -163,7 +163,8 @@ def test_scope_check_called_for_root_and_every_result(tmp_path):
     checked = {path for path, _write in calls}
     assert root.resolve() in checked
     for item in result["files"]:
-        assert Path(item["path"]).resolve() in checked
+        # ``path`` is base-relative; the absolute form stays available.
+        assert Path(item["absolute_path"]).resolve() in checked
 
 
 def test_symlink_is_not_followed_by_default_and_node_does_not_crash(tmp_path):

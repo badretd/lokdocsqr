@@ -1,0 +1,26 @@
+# Convert inbox/rows.csv to archive/rows.json.
+#
+# Demonstrates: fs.convert (the only implemented pair is CSV <-> JSON).
+# Adjust source/target to your own file, or copy the sample data.
+
+automation "convert-csv-to-json"
+
+name = "Convert a CSV file to JSON"
+description = "Convert inbox/rows.csv to archive/rows.json."
+default_dry_run = true
+
+scope {
+  roots = ["inbox", "archive"]
+  writable = ["inbox", "archive"]
+}
+
+node "convert" {
+  type = "fs.convert"
+  params {
+    source = "inbox/rows.csv"
+    target = "archive/rows.json"
+    from_mime = "text/csv"
+    to_mime = "application/json"
+    overwrite = true
+  }
+}

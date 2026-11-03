@@ -1,0 +1,4 @@
+Quarterly report
+
+This is a small sample text file used by the LokDocSQR examples.
+It contains no real data.

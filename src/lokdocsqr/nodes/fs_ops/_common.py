@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from lokdocsqr.core import safe_fs
-from lokdocsqr.core.errors import ScopeViolation
+from lokdocsqr.core.errors import NodeExecutionError, ScopeViolation
 from lokdocsqr.core.models import ActionLog, Risk
 from lokdocsqr.core.paths import render_template
 
@@ -161,6 +161,8 @@ def resolve_path(ctx: Any, raw: str | Path, *, write: bool = False) -> Path:
     relative path with no usable ``base_dir`` is left as-is for mocked
     or backward-compatible contexts.
     """
+    if raw is None:
+        raise NodeExecutionError("path resolved to None")
     base = _base_dir(ctx)
     raw_text = str(raw)
     # A small legacy/source convenience: ``{base}`` expands to the

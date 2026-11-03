@@ -1,0 +1,28 @@
+# Read-only search for TODO markers across docs/.
+#
+# Demonstrates: access.index_search (substring/word/regex search over text
+# files). It never mutates anything, so it is safe to run for real. Inspect
+# the matches with `--explain` or `--json`.
+
+automation "find-todos"
+
+name = "Find TODO markers in docs/"
+description = "Read-only search for TODO markers across docs/."
+default_dry_run = true
+
+scope {
+  roots = ["docs"]
+  writable = ["docs"]
+}
+
+node "search" {
+  type = "access.index_search"
+  params {
+    paths = ["docs"]
+    query = "TODO"
+    mode = "word"
+    case_sensitive = false
+    context_chars = 60
+    max_matches_per_file = 50
+  }
+}

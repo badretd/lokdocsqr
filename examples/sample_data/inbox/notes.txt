@@ -1,0 +1,4 @@
+Meeting notes
+
+- Review the inbox automation examples.
+- Try the dry-run first, then a real run against a copy of your data.

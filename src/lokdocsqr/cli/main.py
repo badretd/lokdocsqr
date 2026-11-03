@@ -112,8 +112,8 @@ def _add_config_flags(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _add_run_flags(parser: argparse.ArgumentParser) -> None:
-    _add_config_flags(parser)
+def _add_dry_run_flags(parser: argparse.ArgumentParser) -> None:
+    """Add the dry-run/approval/output flags shared by execution commands."""
     dry = parser.add_mutually_exclusive_group()
     dry.add_argument(
         "--dry-run",
@@ -144,6 +144,11 @@ def _add_run_flags(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="print the RunResult as JSON instead of a human summary",
     )
+
+
+def _add_run_flags(parser: argparse.ArgumentParser) -> None:
+    _add_config_flags(parser)
+    _add_dry_run_flags(parser)
     parser.add_argument(
         "--first-error",
         action="store_true",
@@ -153,8 +158,9 @@ def _add_run_flags(parser: argparse.ArgumentParser) -> None:
         "--daemon",
         action="store_true",
         help=(
-            "daemon mode: run once, keep serving declared watch/cron "
-            "triggers, and log every run to the console"
+            "daemon mode: run once, then keep serving declared watch/cron "
+            "triggers (requires at least one trigger; a trigger-less "
+            "automation runs once and exits)"
         ),
     )
 
@@ -232,6 +238,50 @@ def build_parser() -> argparse.ArgumentParser:
         help="output format (default: text, or json with --json)",
     )
     run_parser.set_defaults(handler=_cmd_run)
+
+    trigger_parser = subparsers.add_parser(
+        "trigger",
+        help="fire a manual/webhook trigger locally (no network listener)",
+    )
+    _add_automation_argument(trigger_parser)
+    _add_config_flags(trigger_parser)
+    _add_include_flags(trigger_parser)
+    _add_dry_run_flags(trigger_parser)
+    trigger_parser.add_argument(
+        "--type",
+        dest="trigger_type",
+        choices=("manual_run", "webhook"),
+        default="manual_run",
+        help="trigger type to fire (default: manual_run)",
+    )
+    trigger_parser.add_argument(
+        "--payload",
+        metavar="JSON|@FILE|-",
+        default=None,
+        help=(
+            "JSON object delivered as the trigger payload; read from a "
+            "file with @FILE or from stdin with -"
+        ),
+    )
+    trigger_parser.add_argument(
+        "--files",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="file path passed to a manual_run trigger (repeatable)",
+    )
+    trigger_parser.add_argument(
+        "--explain",
+        action="store_true",
+        help="show per-node outputs, action logs and errors",
+    )
+    trigger_parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default=None,
+        help="output format (default: text, or json with --json)",
+    )
+    trigger_parser.set_defaults(handler=_cmd_trigger)
 
     compile_parser = subparsers.add_parser(
         "compile", help="compile a DSL (or JSON) automation to canonical JSON"
@@ -619,6 +669,81 @@ def _verify_callback(
     return None
 
 
+def _effective_dry_run(
+    args: argparse.Namespace,
+    document: WorkflowDocument,
+    config: AppConfig,
+) -> bool:
+    """Resolve the mode a run will use, mirroring ``Runtime._execute``."""
+    if getattr(args, "dry_run", None) is not None:
+        return bool(args.dry_run)
+    settings = document.settings
+    if (
+        getattr(settings, "default_dry_run_explicit", False)
+        or settings.default_dry_run is False
+    ):
+        return bool(settings.default_dry_run)
+    return bool(getattr(config, "default_dry_run", True))
+
+
+def _missing_real_run_approval(
+    args: argparse.Namespace,
+    documents: list[WorkflowDocument],
+    config: AppConfig,
+) -> bool:
+    """True when a real run is configured but no approval flag was supplied.
+
+    ``default_dry_run = false`` requests real execution, but the fail-closed
+    policy still needs an explicit approval callback. The CLI supplies one
+    only for ``--no-dry-run`` / ``--yes``. Catching this before the run turns
+    a mid-graph ``verify required but no callback`` into clear guidance.
+    """
+    if getattr(args, "dry_run", None) is not None:
+        return False
+    if getattr(args, "yes", False):
+        return False
+    return any(
+        not _effective_dry_run(args, document, config)
+        for document in documents
+    )
+
+
+def _print_real_run_guidance() -> None:
+    print(
+        "lokdocsqr: this automation is configured for a real run "
+        "(default_dry_run = false), but no approval was supplied.\n"
+        "  Re-run with --no-dry-run to execute for real, --yes to approve, "
+        "or --dry-run to simulate.",
+        file=sys.stderr,
+    )
+
+
+def _read_trigger_payload(raw: str | None) -> dict[str, Any]:
+    """Read a trigger payload from inline JSON, ``@FILE`` or stdin (``-``)."""
+    if raw is None:
+        return {}
+    if raw == "-":
+        text = sys.stdin.read()
+    elif raw.startswith("@"):
+        text = Path(raw[1:]).read_text(encoding="utf-8")
+    else:
+        text = raw
+    if not text.strip():
+        return {}
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise GraphParseError(f"--payload is not valid JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise GraphParseError("--payload must be a JSON object")
+    return data
+
+
+def _has_bound_triggers(runtime: Runtime) -> bool:
+    """True when at least one watch/cron trigger was bound for serving."""
+    return bool(runtime.watch_bindings or runtime.cron_bindings)
+
+
 def _enable_recursive_preview(document: WorkflowDocument) -> None:
     """Opt nested nodes into preview when the CLI is dry-running."""
     for node in document.nodes:
@@ -889,6 +1014,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
     for candidate in all_documents:
         _assert_graph_buildable(candidate)
 
+    if _missing_real_run_approval(args, all_documents, config):
+        _print_real_run_guidance()
+        return 1
+
     output_format = _output_format(args)
     as_json = output_format == "json"
     explain = bool(getattr(args, "explain", False))
@@ -931,6 +1060,17 @@ def _cmd_run(args: argparse.Namespace) -> int:
         _print_run_result(result, as_json=as_json, explain=explain)
         return 0 if result.success else 1
 
+    if not _has_bound_triggers(runtime):
+        print(
+            "lokdocsqr: --daemon has no watch_folder/scheduled_scan triggers "
+            "to serve; running once and exiting (add a `trigger` block for "
+            "continuous mode).",
+            file=sys.stderr,
+        )
+        result = runtime.run_once(automation_id, dry_run=args.dry_run)
+        _print_run_result(result, as_json=as_json, explain=explain)
+        return 0 if result.success else 1
+
     # Daemon mode acquires the single-instance lock before doing any work,
     # executes the automation once, then keeps serving declared triggers.
     runtime.start(start_triggers=False)
@@ -951,6 +1091,71 @@ def _cmd_run(args: argparse.Namespace) -> int:
     finally:
         runtime.stop()
     return 0
+
+
+def _cmd_trigger(args: argparse.Namespace) -> int:
+    """Fire a manual/webhook trigger synchronously, entirely locally.
+
+    This is the CLI surface for the trigger types that cannot be *served*
+    (``manual_run`` / ``webhook``). It never opens a socket: the payload is
+    supplied inline, from a file (``@FILE``) or from stdin (``-``).
+    """
+    config = _config_from_args(args)
+    document = _load_document(Path(args.automation))
+    _apply_scope_override(document, args, config.base_dir)
+
+    included = _load_included_documents(getattr(args, "include", []))
+    for included_document in included:
+        _apply_scope_override(included_document, args, config.base_dir)
+
+    all_documents = [document, *included]
+    for candidate in all_documents:
+        warnings: list[str] = []
+        errors = list(validate_graph(candidate, warnings=warnings))
+        for warning in warnings:
+            print(
+                f"warning: {candidate.metadata.id}: {warning}",
+                file=sys.stderr,
+            )
+        if errors:
+            raise GraphValidationError(
+                f"{candidate.metadata.id}: " + "; ".join(errors)
+            )
+    _prepare_documents_for_mode(all_documents, dry_run=args.dry_run)
+    for candidate in all_documents:
+        _assert_graph_buildable(candidate)
+
+    if _missing_real_run_approval(args, all_documents, config):
+        _print_real_run_guidance()
+        return 1
+
+    trigger_payload = _read_trigger_payload(args.payload)
+    files = list(getattr(args, "files", []) or [])
+    if files:
+        trigger_payload = {**trigger_payload, "files": files}
+
+    runtime = _make_runtime(args, config)
+    for included_document in included:
+        if included_document.metadata.id == document.metadata.id:
+            continue
+        try:
+            runtime.register(included_document)
+        except ValueError as exc:
+            print(f"warning: {exc}", file=sys.stderr)
+    automation_id = runtime.register(document)
+
+    result = runtime.run_once(
+        automation_id,
+        dry_run=args.dry_run,
+        trigger_type=args.trigger_type,
+        trigger_payload=trigger_payload,
+    )
+    _print_run_result(
+        result,
+        as_json=_output_format(args) == "json",
+        explain=bool(getattr(args, "explain", False)),
+    )
+    return 0 if result.success else 1
 
 
 def _cmd_compile(args: argparse.Namespace) -> int:
@@ -1077,6 +1282,10 @@ def _cmd_serve(args: argparse.Namespace) -> int:
             )
         _assert_graph_buildable(document)
 
+    if _missing_real_run_approval(args, unique, config):
+        _print_real_run_guidance()
+        return 1
+
     output_format = _output_format(args)
     as_json = output_format == "json"
     explain = bool(getattr(args, "explain", False))
@@ -1105,6 +1314,16 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     if getattr(args, "catalog_fallback", False):
         _register_catalog_fallback(runtime, unique, config)
 
+    has_triggers = _has_bound_triggers(runtime)
+    if not has_triggers and not daemon:
+        print(
+            "lokdocsqr: no watch_folder/scheduled_scan triggers are declared; "
+            "nothing to serve. Use `run` for a one-shot execution, `trigger` "
+            "for manual/webhook runs, or add a `trigger` block.",
+            file=sys.stderr,
+        )
+        return 1
+
     if daemon:
         # Lock first, then run each automation once, then start triggers.
         runtime.start(start_triggers=False)
@@ -1118,6 +1337,13 @@ def _cmd_serve(args: argparse.Namespace) -> int:
                 _print_run_result(
                     result, as_json=as_json, explain=explain
                 )
+            if not has_triggers:
+                print(
+                    "lokdocsqr: no watch_folder/scheduled_scan triggers are "
+                    "declared; ran once and exiting.",
+                    file=sys.stderr,
+                )
+                return 0
             if as_json:
                 _install_console_event_logger(event_bus, as_json=True)
             runtime.start_triggers()

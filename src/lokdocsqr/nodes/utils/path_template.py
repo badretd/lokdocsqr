@@ -138,10 +138,17 @@ class PathTemplateNode(_FlowBase):
         except ScopeViolation as exc:
             # render_template raises for absolute results, ``..`` escapes,
             # and malformed format specs.
+            message = str(exc)
+            if "absolute" in message.lower():
+                message = (
+                    f"path_template: rendered absolute path is not "
+                    f"allowed ({message}). Provide a relative template "
+                    "or use a relative base."
+                )
             return _error_result(
                 template=template,
                 mapping=mapping,
-                message=str(exc),
+                message=message,
             )
 
         if "{" in rendered:

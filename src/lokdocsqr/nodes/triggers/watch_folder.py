@@ -80,7 +80,8 @@ class WatchFolderNode(Node):
                     for change in changes
                     if change.get("kind") != "deleted"
                     and isinstance(change.get("path"), (str, Path))
-                ]
+                ],
+                ctx,
             )
             scanned = len(files)
         if not files and isinstance(raw_path, (str, Path)) and str(raw_path):

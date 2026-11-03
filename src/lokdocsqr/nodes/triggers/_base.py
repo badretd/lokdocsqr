@@ -49,6 +49,30 @@ def _base_dir(ctx: Any) -> Path | None:
     return Path(raw) if isinstance(raw, (str, Path)) else None
 
 
+def display_path(ctx: Any, path: str | Path) -> tuple[str, str]:
+    """Return ``(path, absolute_path)`` for one trigger-supplied entry.
+
+    Mirrors :meth:`lokdocsqr.nodes.access.list_files.ListFilesNode._display_path`:
+    ``path`` is relative to ``ctx.config.base_dir`` when the entry is inside
+    it, so ``{item[path]}`` and downstream ``fs.*``/``access.*`` nodes (which
+    resolve relative paths against ``config.base_dir``) can consume it. The
+    absolute form is always available as ``absolute_path``.
+    """
+    absolute = str(path)
+    base = _base_dir(ctx)
+    if base is None:
+        return absolute, absolute
+    candidate = Path(path).expanduser()
+    if not candidate.is_absolute():
+        candidate = base / candidate
+    try:
+        base_resolved = base.expanduser().resolve(strict=False)
+        relative = candidate.resolve(strict=False).relative_to(base_resolved)
+    except (OSError, ValueError):
+        return absolute, absolute
+    return str(relative), str(candidate)
+
+
 def resolve_read_path(ctx: Any, raw: str | Path) -> Path:
     """Resolve a read-only path against the workflow base and scope-check it."""
     path = Path(raw)
@@ -80,13 +104,23 @@ def _matches(entry: Path, root: Path, patterns: Sequence[str]) -> bool:
     return False
 
 
-def _file_entry(entry: Path) -> dict[str, Any]:
+def _file_entry(entry: Path, ctx: Any = None) -> dict[str, Any]:
+    if ctx is None:
+        path, absolute = str(entry), str(entry)
+    else:
+        path, absolute = display_path(ctx, entry)
     try:
         stat = entry.stat()
     except OSError:
-        return {"path": str(entry), "size": 0, "is_dir": False}
+        return {
+            "path": path,
+            "absolute_path": absolute,
+            "size": 0,
+            "is_dir": False,
+        }
     return {
-        "path": str(entry),
+        "path": path,
+        "absolute_path": absolute,
         "size": int(stat.st_size),
         "is_dir": False,
     }
@@ -107,7 +141,7 @@ def scan_files_counted(
     try:
         if root.is_file():
             matched = (
-                [_file_entry(root)]
+                [_file_entry(root, ctx)]
                 if _matches(root, root.parent, patterns)
                 else []
             )
@@ -139,7 +173,7 @@ def scan_files_counted(
             scanned += 1
             if not _matches(entry, root, patterns):
                 continue
-            result.append(_file_entry(entry))
+            result.append(_file_entry(entry, ctx))
             if len(result) >= limit:
                 break
     return result, scanned
@@ -164,8 +198,12 @@ def scan_files(
     return files
 
 
-def normalise_files(value: Any) -> list[dict[str, Any]]:
-    """Normalize a files value into a list of ``{path, size, is_dir}`` dicts."""
+def normalise_files(value: Any, ctx: Any = None) -> list[dict[str, Any]]:
+    """Normalize a files value into ``{path, absolute_path, size, is_dir}`` dicts.
+
+    When ``ctx`` is supplied, ``path`` is base-relative whenever possible so
+    the result is interchangeable with ``access.list_files`` output.
+    """
     if value is None:
         return []
 
@@ -183,18 +221,25 @@ def normalise_files(value: Any) -> list[dict[str, Any]]:
         if isinstance(item, Mapping):
             raw_path = item.get("path")
             if not isinstance(raw_path, (str, Path)) or not str(raw_path):
+                raw_path = item.get("absolute_path")
+            if not isinstance(raw_path, (str, Path)) or not str(raw_path):
                 continue
+            if ctx is not None:
+                path, absolute = display_path(ctx, raw_path)
+            else:
+                path = str(raw_path)
+                absolute = str(item.get("absolute_path", raw_path))
             result.append(
                 {
                     **dict(item),
-                    "path": str(raw_path),
+                    "path": path,
+                    "absolute_path": absolute,
                     "size": int(item.get("size", 0) or 0),
                     "is_dir": bool(item.get("is_dir", False)),
                 }
             )
         elif isinstance(item, (str, Path)):
-            path = Path(item)
-            result.append(_file_entry(path))
+            result.append(_file_entry(Path(item), ctx))
     return result
 
 
@@ -207,7 +252,7 @@ def files_from_event(ctx: Any) -> list[dict[str, Any]]:
     value = payload.get("files")
     if value is None:
         value = payload.get("paths")
-    return normalise_files(value)
+    return normalise_files(value, ctx)
 
 
 def event_changes(ctx: Any) -> list[dict[str, Any]]:
@@ -228,6 +273,7 @@ def empty_files_result() -> dict[str, Any]:
 
 __all__ = [
     "as_string_tuple",
+    "display_path",
     "empty_files_result",
     "event_changes",
     "event_payload",

@@ -114,45 +114,113 @@ class LoopBatchNode(_FlowBase):
             else:
                 batch_size = 1
 
+            on_child_error = payload.get("on_child_error", "warn")
+            if on_child_error not in ("continue", "fail", "warn"):
+                raise NodeExecutionError(
+                    f"loop_batch: invalid on_child_error "
+                    f"{on_child_error!r}, expected 'continue', 'fail' "
+                    f"or 'warn'"
+                )
+
             items_raw = payload.get("items")
             if items_raw is None:
-                total = 0
+                items: list[Any] = []
             elif isinstance(items_raw, (list, tuple)):
-                total = len(items_raw)
+                items = list(items_raw)
             else:
                 raise NodeExecutionError(
                     f"loop_batch: items must be a list or tuple, "
                     f"got {type(items_raw).__name__}"
                 )
 
+            # Resolve the child graph even for an empty item list, matching
+            # the fail-closed behaviour of ``_execute`` (D8f.6).
             graph_id, child_graph = _resolve_child_graph(ctx, payload)
+            units = self._units(items, mode, batch_size)
             flow_vars = {
                 "flow.run_id": ctx.run_id,
                 "flow.automation_id": graph_id,
                 "flow.depth": ctx.flow_depth + 1,
                 "flow.parent_run_id": ctx.run_id,
             }
-            child_ctx = replace(
-                ctx,
-                variables={**ctx.variables, **flow_vars},
-                flow_depth=ctx.flow_depth + 1,
-                subflow_stack=ctx.subflow_stack
-                + ((graph_id,) if graph_id is not None else ()),
+            child_stack_extra: tuple[str, ...] = (
+                (graph_id,) if graph_id is not None else ()
             )
-            child_plan = callback(child_ctx, child_graph, graph_id)
-            child_errors = tuple(getattr(child_plan, "errors", ()) or ())
-            return {
-                "results": [child_plan],
-                "errors": [
-                    getattr(err, "error", str(err)) for err in child_errors
-                ],
-                "error_count": len(child_errors),
-                "total": total,
+
+            results: list[Any] = []
+            errors: list[dict[str, Any]] = []
+            warnings: list[str] = []
+            # Preview every unit with the same per-item variables the real
+            # execution injects. Without this, ``{item[path]}`` cannot render
+            # and the plan is reported as a spurious error.
+            for index, unit in units:
+                if mode == "loop":
+                    item_var: Any = unit
+                    batch_var: Any = [unit]
+                else:  # batch
+                    item_var = None
+                    batch_var = unit
+                child_ctx = replace(
+                    ctx,
+                    variables={
+                        **ctx.variables,
+                        "item": item_var,
+                        "index": index,
+                        "batch": batch_var,
+                        **flow_vars,
+                    },
+                    flow_depth=ctx.flow_depth + 1,
+                    subflow_stack=ctx.subflow_stack + child_stack_extra,
+                )
+                try:
+                    child_plan = callback(child_ctx, child_graph, graph_id)
+                except LokError as exc:
+                    if on_child_error == "fail":
+                        raise
+                    errors.append(
+                        {
+                            "index": index,
+                            "error": str(exc),
+                            "error_type": type(exc).__name__,
+                        }
+                    )
+                    if on_child_error == "warn":
+                        warnings.append(self._warning(ctx, index, exc))
+                    results.append(None)
+                    continue
+                child_errors = tuple(
+                    getattr(child_plan, "errors", ()) or ()
+                )
+                if child_errors:
+                    for error in child_errors:
+                        errors.append(
+                            {
+                                "index": index,
+                                "error": getattr(error, "error", str(error)),
+                                "error_type": getattr(
+                                    error, "exc_type", "PlanError"
+                                ),
+                            }
+                        )
+                    results.append(None)
+                else:
+                    results.append(child_plan)
+
+            result: dict[str, Any] = {
+                "results": results,
+                "errors": errors,
+                "error_count": len(errors),
+                "total": len(units),
                 "mode": mode,
                 "batch_size": batch_size,
                 "graph_id": graph_id,
                 "depth": ctx.flow_depth + 1,
             }
+            if warnings:
+                result["warnings"] = warnings
+            if on_child_error == "warn" and errors:
+                result["_force_failed"] = True
+            return result
         raise NodeExecutionError(
             "loop_batch: nested graph is not supported by the action plan builder"
         )
@@ -207,15 +275,7 @@ class LoopBatchNode(_FlowBase):
         # Step 4 — build units before resolving the child so a failed
         # resolution can still be reported per unit under ``warn`` /
         # ``continue``.
-        if mode == "loop":
-            units = [(i, item) for i, item in enumerate(items)]
-        else:  # batch
-            units = [
-                (chunk_index, items[offset : offset + batch_size])
-                for chunk_index, offset in enumerate(
-                    range(0, len(items), batch_size)
-                )
-            ]
+        units = self._units(items, mode, batch_size)
         total = len(units)
 
         # Step 5 — resolve child graph (fail-closed, even when items empty).
@@ -343,6 +403,18 @@ class LoopBatchNode(_FlowBase):
             depth=ctx.flow_depth + 1,
             force_failed=on_child_error == "warn" and bool(errors),
         )
+
+    @staticmethod
+    def _units(items: list[Any], mode: str, batch_size: int) -> list[tuple[int, Any]]:
+        """Split ``items`` into ``(index, unit)`` pairs for the run mode."""
+        if mode == "loop":
+            return [(index, item) for index, item in enumerate(items)]
+        return [
+            (chunk_index, items[offset : offset + batch_size])
+            for chunk_index, offset in enumerate(
+                range(0, len(items), batch_size)
+            )
+        ]
 
     def _warning(self, ctx: Any, index: int, exc: BaseException) -> str:
         node_id = getattr(ctx, "node_id", None) or self.id

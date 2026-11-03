@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+from collections.abc import Mapping
 from typing import Any
 
 from ..models import ActionSummary, PolicyAction, PolicyDecision
@@ -155,6 +156,28 @@ class _PlanningState:
     visited_graph_ids: set[str] = dataclasses.field(default_factory=set)
 
 
+def _initial_planning_vars(ctx: Any) -> dict[str, Any]:
+    """Seed planning variables from the incoming context.
+
+    Nested previews (``flow.loop_batch`` / ``flow.subflow``) arrive with
+    per-item variables such as ``item`` / ``index`` / ``batch`` already in
+    ``ctx.variables``. ``_isolated_ctx`` replaces ``ctx.variables`` with the
+    planning copy, so the copy must start from the caller's variables or the
+    child graph cannot render ``{item[path]}``. Reserved keys are filtered
+    exactly as in :func:`_merge_planning_vars`.
+    """
+    variables = getattr(ctx, "variables", None)
+    if not isinstance(variables, Mapping):
+        return {}
+    from ..executor.context import RESERVED_VARIABLES
+
+    return {
+        key: value
+        for key, value in variables.items()
+        if key not in RESERVED_VARIABLES
+    }
+
+
 def _build_action_plan(
     graph: Any,
     ctx: Any,
@@ -178,7 +201,7 @@ def _build_action_plan(
     # still needs to know whether a mutating node's source is edge-supplied.
     edges_by_target: dict[str, list[Any]] = _inbound_edges_by_target(doc)
 
-    planning_vars: dict[str, Any] = {}
+    planning_vars: dict[str, Any] = _initial_planning_vars(ctx)
     outputs_by_node: dict[str, dict[str, Any]] = {}
 
     summaries: list[ActionSummary] = []

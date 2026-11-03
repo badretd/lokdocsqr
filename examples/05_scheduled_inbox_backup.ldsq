@@ -1,0 +1,59 @@
+# Every night at 02:00, copy inbox/ files into backup/<date>/ (originals stay).
+#
+# Demonstrates: a scheduled_scan trigger + the triggers.scheduled_scan node ->
+# flow.loop_batch -> fs.copy. Host it with `lokdocsqr serve` or
+# `lokdocsqr daemon`; trigger the scan manually once with `lokdocsqr run`.
+
+automation "scheduled-inbox-backup"
+
+name = "Scheduled inbox backup"
+description = "Every night, copy inbox/ files into backup/<date>/."
+default_dry_run = true
+
+scope {
+  roots = ["inbox", "backup"]
+  writable = ["inbox", "backup"]
+}
+
+trigger "nightly" {
+  type = "triggers.scheduled_scan"
+  params {
+    path = "inbox"
+    cron = "0 2 * * *"
+  }
+}
+
+node "scan" {
+  type = "triggers.scheduled_scan"
+  params {
+    path = "inbox"
+    recursive = false
+  }
+  outputs = [{name = "files", type = "FileRef[]"}]
+}
+
+node "loop" {
+  type = "flow.loop_batch"
+  inputs = ["items"]
+  params {
+    mode = "loop"
+    graph {
+      spec_version = "1.0"
+      metadata { id = "scheduled-backup-child" }
+      nodes = [
+        {id = "pt", type = "utils.path_template", params = {template = "{item[path]}"}, outputs = [{name = "path", type = "string"}]},
+        {id = "cp", type = "fs.copy", params = {target_dir = "backup", template = "{date}/{name}{ext}", conflict_policy = "rename"}, inputs = ["source"]}
+      ]
+      edges = [
+        {id = "pt-cp", source = "pt", target = "cp", source_port = "path", target_port = "source"}
+      ]
+    }
+  }
+}
+
+edge "scan-loop" {
+  source = "scan"
+  target = "loop"
+  source_port = "files"
+  target_port = "items"
+}

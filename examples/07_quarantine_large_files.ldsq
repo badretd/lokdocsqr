@@ -1,0 +1,66 @@
+# Quarantine files larger than 1 KiB from inbox/ (never deletes).
+#
+# Demonstrates: access.list_files -> flow.filter (size) -> flow.loop_batch ->
+# utils.path_template -> fs.trash. Files move into the workspace trash
+# (<base_dir>/.trash) with a sidecar + TTL, so they can be restored or expire.
+
+automation "quarantine-large-files"
+
+name = "Quarantine large inbox files"
+description = "Move files larger than 1 KiB from inbox/ to the workspace trash."
+default_dry_run = true
+
+scope {
+  roots = ["inbox"]
+  writable = ["inbox"]
+}
+
+node "ls" {
+  type = "access.list_files"
+  params {
+    path = "inbox"
+    recursive = false
+  }
+  outputs = [{name = "files", type = "FileRef[]"}]
+}
+
+node "flt" {
+  type = "flow.filter"
+  inputs = ["items"]
+  params {
+    condition = "size > 1024"
+  }
+}
+
+node "loop" {
+  type = "flow.loop_batch"
+  inputs = ["items"]
+  params {
+    mode = "loop"
+    graph {
+      spec_version = "1.0"
+      metadata { id = "quarantine-child" }
+      nodes = [
+        {id = "pt", type = "utils.path_template", params = {template = "{item[path]}"}, outputs = [{name = "path", type = "string"}]},
+        {id = "tr", type = "fs.trash", params = {ttl_seconds = 604800, reason = "large file"}, inputs = ["path"]}
+      ]
+      edges = [
+        {id = "pt-tr", source = "pt", target = "tr", source_port = "path", target_port = "path"}
+      ]
+    }
+  }
+}
+
+edge "ls-flt" {
+  source = "ls"
+  target = "flt"
+  source_port = "files"
+  target_port = "items"
+}
+
+edge "flt-loop" {
+  source = "flt"
+  target = "loop"
+  source_port = "items"
+  target_port = "items"
+}

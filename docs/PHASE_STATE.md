@@ -1,6 +1,6 @@
 # Phase State
 
-Done: 0-8, 8.6-pre, 8.6, 8.7, 9, 10, 10.5, 11, 11-final
+Done: 0-8, 8.6-pre, 8.6, 8.7, 9, 10, 10.5, 11, 11-final, 11-hardening
 Current: 8.8 (background tooling)
 
 ## 8.6-pre — ticket closeout
@@ -178,3 +178,27 @@ were created for 8.6 or 8.7.
 - New regression file: `tests/test_phase_11_final.py`.
 - `python -m lokdocsqr` and the installed console script share `cli.main:main`.
 - No `pyproject.toml` / `THIRD-PARTY-NOTICES` changes.
+
+## 11-hardening — release readiness
+
+| Item | Implemented | Tested | Integrated |
+|---|---|---|---|
+| `access.list_files` base-relative `files[].path` (+ `absolute_path`) | yes | yes | yes — `{item[path]}` chain works |
+| Trigger nodes base-relative `files[].path` (+ `absolute_path`) | yes | yes | yes — `triggers/_base.display_path` |
+| Clear `source = None` diagnostics in fs_ops | yes | yes | yes — names the inbound edge |
+| `utils.path_template` actionable absolute-path error | yes | yes | yes |
+| Early real-run approval guardrail (`default_dry_run = false`) | yes | yes | yes — refuses before any node runs |
+| Local `trigger` command (`manual_run` / `webhook`) | yes | yes | yes — no network listener |
+| Zero-trigger handling for `serve` / `run --daemon` | yes | yes | yes — guidance / run-once |
+| Nested per-item dry-run preview (`{item[path]}`) | yes | yes | yes — planning vars seeded from `ctx.variables` |
+| CLI serve → watch → run end-to-end test | yes | yes | yes — `tests/test_cli_release_hardening.py` |
+| Cross-platform CI workflow | yes | prepared | yes — `.github/workflows/build.yml` |
+
+- New regression file: `tests/test_cli_release_hardening.py` (10 tests).
+- `access.list_files` and the trigger nodes share one relative-path contract:
+  `files[].path` is base-relative when possible and `absolute_path` is always
+  absolute.
+- LokDocSQR remains local-only: no HTTP listener. Webhook/manual triggers are
+  dispatched with `lokdocsqr trigger ...` (inline JSON, `@FILE` or stdin).
+- Documentation: `README.md` rewritten for release; `docs/PACKAGING.md` §7
+  documents the cross-platform CI matrix and §8 the release checklist.
