@@ -452,3 +452,65 @@ def test_parent_traversal_escape_rejected(tmp_path: Path) -> None:
         scope.check(
             root / "sub" / ".." / ".." / "outside", write=True
         )
+
+
+# ---------------------------------------------------------------------------
+# Item 10 — target_dir on fs.move / fs.copy
+# ---------------------------------------------------------------------------
+
+
+def test_move_target_dir(exec_ctx: Any, tmp_path: Path) -> None:
+    from lokdocsqr.nodes.fs_ops.move import MoveNode
+
+    (tmp_path / "archive").mkdir()
+    source = tmp_path / "source.txt"
+    source.write_text("data", encoding="utf-8")
+    result = MoveNode().run(
+        exec_ctx,
+        {
+            "source": str(source),
+            "template": "{name}{ext}",
+            "target_dir": "archive",
+        },
+    )
+    assert Path(result["file"]) == tmp_path / "archive" / "source.txt"
+    assert (tmp_path / "archive" / "source.txt").exists()
+    assert not source.exists()
+
+
+def test_copy_target_dir(exec_ctx: Any, tmp_path: Path) -> None:
+    from lokdocsqr.nodes.fs_ops.copy import CopyNode
+
+    (tmp_path / "archive").mkdir()
+    source = tmp_path / "source.txt"
+    source.write_text("data", encoding="utf-8")
+    result = CopyNode().run(
+        exec_ctx,
+        {
+            "source": str(source),
+            "template": "{name}{ext}",
+            "target_dir": "archive",
+        },
+    )
+    assert Path(result["file"]) == tmp_path / "archive" / "source.txt"
+    assert (tmp_path / "archive" / "source.txt").exists()
+    assert source.exists()
+
+
+def test_move_target_dir_outside_scope_rejected(
+    exec_ctx: Any, tmp_path: Path
+) -> None:
+    from lokdocsqr.nodes.fs_ops.move import MoveNode
+
+    exec_ctx.scope.allow_parent_traversal = True
+    source = tmp_path / "source.txt"
+    source.write_text("data", encoding="utf-8")
+    with pytest.raises(ScopeViolation, match="outside"):
+        MoveNode().run(
+            exec_ctx,
+            {
+                "source": str(source),
+                "template": "{name}{ext}",
+                "target_dir": "../escape",
+            },
+        )

@@ -173,30 +173,38 @@ class FsTemplateNode(FsNode):
         src: Path,
         variables: dict[str, Any],
         template: str | None = None,
+        *,
+        base_dir: Path | None = None,
     ) -> Path:
         """Render ``template`` (or ``self.template``) and return the destination.
 
-        Relative results resolve against ``src.parent``; absolute
-        results are returned as-is. ``..`` segments and empty renders
-        are rejected here, before any ``safe_fs.*`` call sees the path.
-        Callers may pass a payload-supplied template; ``None`` preserves
-        the instance-level default.
+        Relative results resolve against ``base_dir`` when supplied (the
+        rendered ``target_dir``), otherwise against ``src.parent``;
+        absolute results are returned as-is. ``..`` segments and empty
+        renders are rejected here unless parent traversal is enabled,
+        before any ``safe_fs.*`` call sees the path. Callers may pass a
+        payload-supplied template; ``None`` preserves the instance-level
+        default.
         """
         template = self.template if template is None else template
-        allow_parent = bool(
+        allow_parent = (
             getattr(
                 getattr(ctx, "scope", None),
                 "allow_parent_traversal",
                 False,
             )
+            is True
         )
-        rendered_str = str(
-            render_template(
-                template,
-                variables,
-                allow_parent_traversal=allow_parent,
+        if allow_parent:
+            rendered_str = str(
+                render_template(
+                    template,
+                    variables,
+                    allow_parent_traversal=True,
+                )
             )
-        )
+        else:
+            rendered_str = str(render_template(template, variables))
         if not rendered_str.strip():
             raise ValueError(
                 f"{self.id} template rendered to empty: "
@@ -212,6 +220,8 @@ class FsTemplateNode(FsNode):
             rendered = rendered.with_suffix(src.suffix)
         if rendered.is_absolute():
             return rendered
+        if base_dir is not None:
+            return base_dir / rendered
         return src.parent / rendered
 
     def _plan(
@@ -233,8 +243,32 @@ class FsTemplateNode(FsNode):
             payload, "conflict_policy", self.conflict_policy, self.id
         )
 
+        raw_target_dir = payload.get(
+            "target_dir", getattr(self, "target_dir", None)
+        )
+        target_base: Path | None = None
+        if raw_target_dir is not None:
+            if not isinstance(raw_target_dir, str):
+                raise ValueError(
+                    f"{self.id} payload key 'target_dir' must be a string, "
+                    f"got {type(raw_target_dir).__name__}"
+                )
+            if raw_target_dir.strip():
+                target_base = render_and_check(
+                    ctx,
+                    raw_target_dir,
+                    payload.get("variables") or {},
+                    write=True,
+                )
+
         variables = self._variables(src, payload.get("variables") or {})
-        dst = self._render_target(ctx, src, variables, template=template)
+        dst = self._render_target(
+            ctx,
+            src,
+            variables,
+            template=template,
+            base_dir=target_base,
+        )
         check_scope(ctx, dst, write=True)
 
         if dst == src:

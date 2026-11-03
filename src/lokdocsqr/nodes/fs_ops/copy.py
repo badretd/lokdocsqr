@@ -39,10 +39,12 @@ class CopyNode(FsTemplateNode):
         template: str = "{name}{ext}",
         conflict_policy: str = "skip",
         check_free_space: bool = True,
+        target_dir: str | None = None,
     ) -> None:
         self.template = template
         self.conflict_policy = conflict_policy
         self.check_free_space = check_free_space
+        self.target_dir = target_dir
 
     def _describe_payload(self) -> dict[str, Any]:
         return {
@@ -63,6 +65,14 @@ class CopyNode(FsTemplateNode):
                 "check_free_space": {
                     "type": "bool",
                     "default": self.check_free_space,
+                },
+                "target_dir": {
+                    "type": "string",
+                    "default": self.target_dir,
+                    "description": (
+                        "Optional base directory rendered against "
+                        "config.base_dir; template is then relative to it."
+                    ),
                 },
             },
         }

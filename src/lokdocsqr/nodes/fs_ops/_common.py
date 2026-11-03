@@ -184,16 +184,24 @@ def render_and_check(
 
     Returns the rendered ``Path`` after both checks pass.
     """
-    allow_parent = bool(
-        getattr(getattr(ctx, "scope", None), "allow_parent_traversal", False)
-    )
-    rendered = str(
-        render_template(
-            template,
-            variables,
-            allow_parent_traversal=allow_parent,
+    allow_parent = (
+        getattr(
+            getattr(ctx, "scope", None),
+            "allow_parent_traversal",
+            False,
         )
+        is True
     )
+    if allow_parent:
+        rendered = str(
+            render_template(
+                template,
+                variables,
+                allow_parent_traversal=True,
+            )
+        )
+    else:
+        rendered = str(render_template(template, variables))
 
     # Reject traversal escapes even if the scope check would pass, unless
     # the workflow explicitly opted into parent traversal. The scope check

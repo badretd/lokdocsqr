@@ -34,9 +34,11 @@ class MoveNode(FsTemplateNode):
         template: str = "{name}{ext}",
         conflict_policy: str = "skip",
         cross_volume: bool = True,
+        target_dir: str | None = None,
     ) -> None:
         self.template = template
         self.conflict_policy = conflict_policy
+        self.target_dir = target_dir
         # Reserved: safe_fs.safe_move already handles EXDEV transparently.
         # This flag is surfaced to describe() and will be wired through
         # once safe_fs exposes per-call control (phase 5c+).
@@ -64,6 +66,14 @@ class MoveNode(FsTemplateNode):
                     "description": (
                         "Reserved: cross-volume copy+fsync+replace "
                         "handling lives in safe_fs.safe_move."
+                    ),
+                },
+                "target_dir": {
+                    "type": "string",
+                    "default": self.target_dir,
+                    "description": (
+                        "Optional base directory rendered against "
+                        "config.base_dir; template is then relative to it."
                     ),
                 },
             },

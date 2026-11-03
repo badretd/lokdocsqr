@@ -972,7 +972,8 @@ Copies one source file to a rendered destination with conflict resolution and an
 | Name | Type | Default | Allowed values | Meaning |
 |---|---|---|---|---|
 | `source` | string | — (required) | path | Source file; resolved against `config.base_dir` and read-scope-checked |
-| `template` | string | `"{name}{ext}"` | template | Destination; relative results resolve against `source.parent` |
+| `template` | string | `"{name}{ext}"` | template | Destination; relative results resolve against `target_dir` when set, otherwise `source.parent` |
+| `target_dir` | string or null | `null` | relative template | Optional base directory rendered against `config.base_dir`; `template` then resolves against it |
 | `conflict_policy` | string | `"skip"` | `"skip"`, `"rename"`, `"overwrite"`, `"ask"` | What to do if destination exists |
 | `check_free_space` | bool | `true` | true/false | Probe target volume free space before copy |
 | `variables` | object | `{}` | any mapping | Extra template variables; override `name`/`ext`/`date`/`author`/`tags` |
@@ -988,6 +989,8 @@ Copies one source file to a rendered destination with conflict resolution and an
 | Name | Type | Meaning |
 |---|---|---|
 | `file` | string | Resolved destination path |
+
+**`target_dir`.** When set, `target_dir` is rendered against `config.base_dir` and scope-checked first; the `template` result is then resolved against that directory instead of `source.parent`. When `null` (default), behaviour is unchanged.
 
 **Side effects / audit.** Calls `safe_fs.copy_file`; `ActionLog(action_type="copy")`; risk `LOW` with no conflict, `MEDIUM` for skip/rename/overwrite, `HIGH` for pending verify. `ask` currently behaves as `skip` with reason `conflict_pending_verify`. Dry-run also performs the free-space probe and may fail with `SafeFsError("insufficient_space")`. `run` and `dry_run` return `{"action_log": log, "file": <destination>}`, so a downstream node wired to `file` receives the destination path.
 
@@ -1012,7 +1015,8 @@ Moves one source file to a rendered destination. Cross-volume handling is inside
 | Name | Type | Default | Allowed values | Meaning |
 |---|---|---|---|---|
 | `source` | string | — (required) | path | Source file; write-scope-checked |
-| `template` | string | `"{name}{ext}"` | template | Destination; relative to `source.parent` |
+| `template` | string | `"{name}{ext}"` | template | Destination; relative to `target_dir` when set, otherwise `source.parent` |
+| `target_dir` | string or null | `null` | relative template | Optional base directory rendered against `config.base_dir`; `template` then resolves against it |
 | `conflict_policy` | string | `"skip"` | `"skip"`, `"rename"`, `"overwrite"`, `"ask"` | Conflict handling |
 | `cross_volume` | bool | `true` | true/false | Reserved; `safe_fs.safe_move` already handles EXDEV |
 | `variables` | object | `{}` | any mapping | Template variables |
@@ -1028,6 +1032,8 @@ Moves one source file to a rendered destination. Cross-volume handling is inside
 | Name | Type | Meaning |
 |---|---|---|
 | `file` | string | Resolved destination path |
+
+**`target_dir`.** When set, `target_dir` is rendered against `config.base_dir` and scope-checked first; the `template` result is then resolved against that directory instead of `source.parent`. When `null` (default), behaviour is unchanged.
 
 **Side effects / audit.** Calls `safe_fs.safe_move` when the conflict decision is `proceed`. `ActionLog(action_type="move")`; rollback-eligible only when applied. Risk `LOW` for no conflict/no change, `MEDIUM` for policy-resolved conflicts, `HIGH` for `ask`. `run` and `dry_run` return `{"action_log": log, "file": <destination>}`, so the declared `file` port is populated.
 
@@ -2624,7 +2630,8 @@ Standard variables for source→target nodes (`FsNode._variables`):
 | `fs.write_file` `path_template` | `config.base_dir` |
 | `fs.archive` `target` / `target_dir` | `config.base_dir` |
 | `fs.convert` `target` | `config.base_dir` |
-| `fs.copy` / `fs.move` / `fs.rename` `template` | `source.parent` |
+| `fs.copy` / `fs.move` `target_dir` | `config.base_dir` (then scope-checked) |
+| `fs.copy` / `fs.move` / `fs.rename` `template` | `target_dir` when set, otherwise `source.parent` |
 | `source`/`path`/`paths` inputs | `config.base_dir` (then scope-checked) |
 
 `config.base_dir` comes from `AppConfig` (`core/config.py`). The CLI sets it from `--base-dir`, a config file, or the first `--scope` path; otherwise it uses the process CWD (`cli/main.py:_config_from_args`). Node implementations never resolve relative paths against the process CWD.
@@ -2735,7 +2742,31 @@ node "loop-path" {
 
 Inside `flow.loop_batch`, `item` is the current dict; this selects its `path` key when rendering with a populated context. The document passes `validate_graph` and `build_graph`, and the node renders the current item's path at runtime (for example `a/b.txt` for `{path = "a/b.txt"}`).
 
-A template `../archive/{name}{ext}` is rejected by `render_template`/`render_and_check`; relative destination templates cannot escape `source.parent` via `..`. To move to a sibling directory, choose a source whose parent makes the relative destination correct (for example source `invoice.txt` at `base_dir` with template `archive/{name}{ext}`).
+A template `../archive/{name}{ext}` is rejected by `render_template`/`render_and_check` by default; relative destination templates cannot escape `source.parent` via `..`. To move to a sibling directory without enabling traversal, choose a source whose parent makes the relative destination correct (for example source `invoice.txt` at `base_dir` with template `archive/{name}{ext}`), or use `target_dir` (§9.1).
+
+**Sibling folders with `target_dir`.** With a workspace `~/Documents` containing sibling folders `watch` and `tmp`, both listed as readable/writable roots, `target_dir` expresses the destination directly. Enable `allow_parent_traversal` only if the rendered path itself contains `..`; the resolved path must still be inside a writable root:
+
+```ldsq
+automation "watch-to-tmp"
+
+scope {
+  roots = ["watch", "tmp"]
+  writable = ["watch", "tmp"]
+  allow_parent_traversal = true
+}
+
+node "mv" {
+  type = "fs.move"
+  params {
+    source = "watch/report.pdf"
+    target_dir = "../tmp"
+    template = "{name}{ext}"
+    conflict_policy = "rename"
+  }
+}
+```
+
+The document renders `../tmp` against `config.base_dir` (`~/Documents`), then `report.pdf` against that directory, producing `~/Documents/tmp/report.pdf`. Without `target_dir`, the same destination would require a source at `~/Documents` or a template relative to `watch`.
 
 ---
 
