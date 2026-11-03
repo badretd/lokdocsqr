@@ -410,7 +410,18 @@ class _Parser:
     def _parse_variable(self) -> dict[str, Any]:
         if self._at("EQ"):
             self._advance()
-            return {"type": "string", "value": self._parse_value()}
+            value = self._parse_value()
+            if isinstance(value, bool):
+                inferred = "bool"
+            elif isinstance(value, int):
+                inferred = "int"
+            elif isinstance(value, float):
+                inferred = "float"
+            elif value is None:
+                inferred = "None"
+            else:
+                inferred = "string"
+            return {"type": inferred, "value": value}
         return self._parse_block()
 
     def _parse_trigger(self, label: str) -> dict[str, Any]:

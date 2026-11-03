@@ -893,3 +893,27 @@ def test_edge_condition_gates_and_cascades(tmp_path: Path) -> None:
     assert counters["c"].run_calls == 0
     assert result.node_results["b"].state == NodeState.SKIPPED
     assert result.node_results["c"].state == NodeState.SKIPPED
+
+
+# ---------------------------------------------------------------------------
+# Item 18 — shorthand variable type inference
+# ---------------------------------------------------------------------------
+
+
+def test_variable_shorthand_infers_types() -> None:
+    compiled = compile_dsl(
+        """\
+automation "variable-types"
+variable "i" = 5
+variable "f" = 1.5
+variable "b" = true
+variable "n" = null
+variable "s" = "text"
+"""
+    )
+    variables = compiled["variables"]
+    assert variables["i"] == {"type": "int", "value": 5}
+    assert variables["f"] == {"type": "float", "value": 1.5}
+    assert variables["b"] == {"type": "bool", "value": True}
+    assert variables["n"] == {"type": "None", "value": None}
+    assert variables["s"] == {"type": "string", "value": "text"}

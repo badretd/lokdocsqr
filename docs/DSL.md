@@ -471,7 +471,7 @@ variable "<name>" = <value>
 
 The block form is parsed as a raw map and handed to `parse_graph`, which reads only `type` (default `"string"`), `value` (default `null`), and `description` (default `""`). Unknown keys are silently ignored by `parse_graph`.
 
-The shorthand always emits `{"type": "string", "value": <value>}` (`parser.py:_parse_variable`). It does **not** infer the type from the value. `variable "n" = 5` produces a string-typed variable whose value is the integer 5.
+The shorthand infers a type from the literal value (`parser.py:_parse_variable`): `int` for integers, `float` for floats, `bool` for `true`/`false`, `None` for `null`, and `string` for everything else (including quoted strings, lists, and maps). `variable "n" = 5` therefore produces `{"type": "int", "value": 5}`. Use the block form to override the inferred type or add a description.
 
 Canonical emitter details (`serializer.py:dsl_from_dict`):
 
@@ -654,7 +654,7 @@ The parser accepts more forms than the emitter produces. These are **not canonic
 | Shorthand | Accepted by parser | Canonical emitter output |
 |---|---|---|
 | Node params written directly in the node block | yes (`path_template = "work"`) | always `params { ... }` |
-| `variable "x" = value` | yes, forces `type = "string"` | `variable "x" { type = ... value = ... }` |
+| `variable "x" = value` | yes, infers `int`/`float`/`bool`/`None`/`string` | `variable "x" { type = ... value = ... }` |
 | Bare string values | yes (`type = fs.make_dir`) | quoted strings (`type = "fs.make_dir"`) |
 | Bare string labels | yes (`node mk {`) | quoted labels (`node "mk" {`) |
 | Non-empty maps written as nested blocks inside any block entry | yes (`schema { ... }`) | maps in value position are inlined (`schema = {type = "object", ...}`) |
@@ -745,7 +745,7 @@ node "mk" {
 }
 ```
 
-Other normalizations: variables sorted by name; default-valued metadata/settings omitted; `variable "x" = 1` becomes a block with `type = "string"`; maps in value position are inlined; edges lose default ports.
+Other normalizations: variables sorted by name; default-valued metadata/settings omitted; `variable "x" = 1` becomes a block with the inferred `type = "int"`; maps in value position are inlined; edges lose default ports.
 
 `compile_dsl(text)` returns the raw dict without applying document defaults. `document_to_dict(parse_dsl(text))` is the normalized dict.
 
@@ -813,7 +813,7 @@ The emitter would drop `source_port = "out"` and `target_port = "in"` (they are 
 | `scope { ... }` | `settings.scope` | `roots`, `writable`, `allow_symlinks`, `policy_ref` |
 | `error_handling { ... }` | `settings.error_handling` | `strategy`, `max_retries`, `retry_delay_seconds`, `backoff`; `strict_retry_safe` maps to `settings.strict_retry_safe` |
 | `variable "<name>" { ... }` | `variables.<name>` | object `{type, value, description}` |
-| `variable "<name>" = value` | `variables.<name>` | shorthand forces `type = "string"` |
+| `variable "<name>" = value` | `variables.<name>` | shorthand infers `int`/`float`/`bool`/`None`, else `string` |
 | `trigger "<id>" { ... }` | `triggers[]` | entry `{id, type, title?, params?}` |
 | `node "<id>" { ... }` | `nodes[]` | entry `{id, type, title?, state?, description?, params?, inputs?, outputs?, position?}` |
 | Node inline `key = value` | `nodes[].params.<key>` | unless `key` is a reserved node key |
@@ -3844,7 +3844,7 @@ edge "classify-validate" {
 | `unknown top-level statement` | Custom top-level key | Put custom data under `extra_meta { ... }` |
 | A trigger/edge/variable custom key disappears | Parser drops unknown keys in those blocks | Put custom data under `params` (triggers/nodes) or `extra_meta` |
 | A node param became `params.<key>` unexpectedly | Any node key outside the reserved eight is routed to params | Use exact reserved key names or a `params` block |
-| `variable "n" = 5` has type `"string"` | Shorthand forces string type | Use the block form with `type = "integer"` |
+| `variable "n" = 5` has type `"int"` | The shorthand now infers from the literal value | Use the block form with `type = "integer"` if you need a different spelling |
 | A condition always errors on `true`/`false` | Condition constants are `True`/`False`/`None`; lowercase words are identifiers | Use capitalized constants or a variable |
 | `path == "/tmp"` is a condition error | Conditions reject `/` and `\` anywhere | Compare a path-free field, or compute the path in `utils.path_template` |
 | `in` condition errors | Right operand is not a string/list/tuple/set/dict | Use a supported container |
