@@ -33,7 +33,9 @@ The tree is the target layout. Current code differs in these known ways:
 - `core/preview.py`, `core/payload.py`, `core/catalog.py`, `core/clock.py`
   exist and are part of the current core surface.
 - `core/dsl/` implements the Phase 10.5 automation DSL (parser + serializer)
-  that compiles DSL text into the v1.0 JSON automation schema.
+  that compiles DSL text into the v1.0 JSON automation schema. DSL files use
+  the `.ldsq` extension (`DSL_EXTENSION`); only `.json` and `.ldsq` are
+  accepted automation extensions.
 - `nodes/triggers/*` implements `watch_folder`, `scheduled_scan`, `manual_run`
   and `webhook`; `nodes/planning/` remains an empty package.
   `nodes/llm/local_llm.py` and `nodes/utils/*` are implemented. The LLM node
@@ -46,8 +48,11 @@ The tree is the target layout. Current code differs in these known ways:
   `core.executor.engine.Executor`; `nodes/utils/*` imports
   `nodes.flow._base`. The “not imported outside their node family” rule is a
   target, not yet true.
-- `cli/main.py` exposes `--help` / `--version`; full commands arrive in Phase 11.
-  `gui/app.py` remains a stub.
+- `cli/main.py` implements Phase 11: `run`, `compile`, `validate`,
+  `list-nodes`, `serve`, `audit show` and `audit rollback`, with `--dry-run`, `--scope` and
+  `--config` (plus `--base-dir`, `--policy`, `--yes`, `--json`). It executes
+  through the real `Runtime`/`Executor` pipeline and never mutates the
+  filesystem directly. `gui/app.py` remains a stub.
 
 
 ---
@@ -360,11 +365,19 @@ Implementation notes (Phase 9):
 ## 6. CLI (`cli/`)
 
 - `cli/main.py` — argument parsing, subcommands:
-  - `run <automation.json> [--dry-run] [--scope …]`
-  - `validate <automation.json>`
-  - `list-nodes`
-  - `serve` — headless long-running mode using `core.runtime` (watchers + scheduler).
-  - `audit show <run-id>`, `audit rollback <run-id>`.
+  - `run <automation.json|.ldsq> [--dry-run|--no-dry-run] [--scope …] [--config FILE]`
+  - `compile <automation.json|.ldsq> [--output FILE]` — emit the canonical v1.0
+    JSON schema (DSL → JSON).
+  - `validate <automation.json|.ldsq>`
+  - `list-nodes [--json]`
+  - `serve <automation…>` — headless long-running mode using `core.runtime`
+    (watchers + scheduler).
+  - `audit show <run-id>`, `audit rollback <run-id> [--dry-run]`.
+- Common flags: `--config`, `--base-dir`, `--scope` (repeatable); `run`/`serve`
+  also accept `--policy FILE`, `--yes` and `--json`.
+- `--no-dry-run` / `--yes` are explicit human opt-ins that supply the verify
+  callback for the default fail-closed `PolicyEngine`; without them a real run
+  requiring verification fails closed.
 
 ---
 

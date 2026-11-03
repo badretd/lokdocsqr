@@ -1,0 +1,24 @@
+automation "vertical-slice-dsl"
+
+name = "Vertical slice (DSL)"
+default_dry_run = false
+
+node mk {
+  type = "fs.make_dir"
+  path_template = "demo-work"
+}
+
+node wr {
+  type = "fs.write_file"
+  path_template = "demo-work/hello.txt"
+  content = "hello from LokDocSQR DSL"
+  mode = "write"
+  create_parents = false
+}
+
+node mv {
+  type = "fs.move"
+  source = "demo-work/hello.txt"
+  template = "hello-moved.txt"
+  conflict_policy = "overwrite"
+}

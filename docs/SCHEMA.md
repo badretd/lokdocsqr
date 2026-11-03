@@ -264,10 +264,10 @@ single owner of appending those entries and finalizing their status
 
 ## 4. The DSL (Phase 10.5)
 
-The DSL (`core.dsl`) compiles into the JSON schema above. It is a
-brace-delimited configuration language: indentation is cosmetic, blocks are
-delimited by `{`/`}`, statements are separated by newlines, and `#` starts a
-comment.
+The DSL (`core.dsl`) compiles into the JSON schema above. DSL files use the
+`.ldsq` extension. It is a brace-delimited configuration language: indentation
+is cosmetic, blocks are delimited by `{`/`}`, statements are separated by
+newlines, and `#` starts a comment.
 
 Public API:
 

@@ -1,0 +1,37 @@
+{
+  "spec_version": "1.0",
+  "metadata": {
+    "id": "vertical-slice",
+    "name": "Vertical slice",
+    "description": "Params-only fs.make_dir + fs.write_file + fs.move demo"
+  },
+  "nodes": [
+    {
+      "id": "mk",
+      "type": "fs.make_dir",
+      "params": {
+        "path_template": "demo-work"
+      }
+    },
+    {
+      "id": "wr",
+      "type": "fs.write_file",
+      "params": {
+        "path_template": "demo-work/hello.txt",
+        "content": "hello from LokDocSQR",
+        "mode": "write",
+        "create_parents": false
+      }
+    },
+    {
+      "id": "mv",
+      "type": "fs.move",
+      "params": {
+        "source": "demo-work/hello.txt",
+        "template": "hello-moved.txt",
+        "conflict_policy": "overwrite"
+      }
+    }
+  ],
+  "edges": []
+}

@@ -32,28 +32,28 @@ Verify that LokDoc Core builds successfully with all declared dependencies and t
 
 ### 4.2 Procedure
 
-1. Build the distribution:
+1. Build the CLI distribution:
 
-       pyinstaller --onedir lokdoc.spec
+       pyinstaller packaging/lokdocsqr-cli.spec --noconfirm
 
 2. Measure the size of the produced distribution directory:
 
-       du -sh dist/LokDoc
+       du -sh dist/lokdocsqr
 
    On Windows (PowerShell):
 
-       "{0:N2} MB" -f ((Get-ChildItem -Recurse dist\LokDoc |
+       "{0:N2} MB" -f ((Get-ChildItem -Recurse dist\lokdocsqr |
            Measure-Object -Property Length -Sum).Sum / 1MB)
 
 3. Launch the built executable. On startup the binary performs an import check of all required dependencies and exits with code `0` if every import succeeds, or a non-zero code otherwise.
 
 ### 4.3 Results
 
-**Not reproducible.** No `lokdoc.spec` / `lokdocsqr.spec` is shipped in
-the repository, so the PyInstaller command above cannot be reproduced
-from a clean checkout. The historical size numbers in this section are
-therefore not a build gate and must not be reported as a PASS. Packaging
-gets a real spec file and a CI job in Phase 8.8.
+**Prepared, not measured here.** Phase 11 ships a reproducible CLI spec at
+`packaging/lokdocsqr-cli.spec` plus the entry script
+`packaging/pyinstaller_cli.py`; see `docs/PACKAGING.md`. The historical size
+numbers in this section are not a build gate and must not be reported as a
+PASS. A CI packaging job (and the GUI spec) still belongs to a later phase.
 
 ### 4.4 Size Budget
 

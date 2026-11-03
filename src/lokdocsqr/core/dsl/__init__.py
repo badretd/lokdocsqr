@@ -4,6 +4,8 @@ Phase 10.5. The DSL is a brace-delimited configuration language whose parser
 produces the same raw JSON automation-schema dictionary the rest of the
 pipeline consumes via :func:`lokdocsqr.core.graph.parser.parse_graph`.
 
+Canonical file extension: ``.ldsq``.
+
 Public surface::
 
     compile_dsl(text)      -> dict              # DSL -> JSON schema dict
@@ -25,7 +27,11 @@ from ..models import WorkflowDocument
 from .parser import dsl_to_dict
 from .serializer import document_to_dict, dsl_from_dict
 
+#: Canonical on-disk extension for LokDocSQR DSL automation files.
+DSL_EXTENSION = ".ldsq"
+
 __all__ = [
+    "DSL_EXTENSION",
     "compile_dsl",
     "document_to_dict",
     "dsl_from_dict",

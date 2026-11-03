@@ -55,8 +55,8 @@ Following the plan in [`modules.md`](./docs/modules.md), section 8. The order is
 - [x] `nodes/planning/*` (Build Action Plan → Policy Guard → Verify → Audit)
 - [x] `nodes/flow/*`, `nodes/utils/*`
 - [x] `nodes/llm/local_llm.py`
-- [ ] `nodes/triggers/*` + `core/runtime.py`
-- [ ] `cli/main.py`
+- [x] `nodes/triggers/*` + `core/runtime.py`
+- [x] `cli/main.py` (run, validate, list-nodes, serve, audit)
 - [ ] `gui/*`
 
 The checklist is updated as work progresses. See
@@ -78,13 +78,46 @@ the implemented / tested / integrated breakdown.
 
 ## How to Run
 
-Not yet. Once the minimal vertical slice exists
-(`safe_fs` + `fs_ops` + `executor` + `cli`), this section will include a
-Quickstart with an example JSON automation and:
+Install the project in editable mode (or use `uv run`):
 
 ```bash
-lokdocsqr run examples/move-by-author.json --dry-run
+uv pip install -e .
+lokdocsqr --version
 ```
+
+Validate and dry-run the bundled vertical slice:
+
+```bash
+lokdocsqr validate examples/vertical_slice.json
+lokdocsqr run examples/vertical_slice.json --dry-run
+lokdocsqr list-nodes
+```
+
+Compile the DSL example to canonical automation JSON:
+
+```bash
+lokdocsqr compile examples/vertical_slice.ldsq
+lokdocsqr compile examples/vertical_slice.ldsq --output /tmp/vertical_slice.json
+```
+
+A real run is an explicit opt-in. `--no-dry-run` (or `--yes`) supplies the
+human approval required by the default fail-closed policy engine:
+
+```bash
+lokdocsqr run examples/vertical_slice.json \
+  --base-dir /tmp/lokdocsqr-demo --no-dry-run
+
+lokdocsqr audit show <run-id> --base-dir /tmp/lokdocsqr-demo
+lokdocsqr audit rollback <run-id> --base-dir /tmp/lokdocsqr-demo
+```
+
+Use `--config FILE` to set `base_dir`, `trash_dir`, `logs_dir` and scope roots,
+and `--scope PATH` (repeatable) to override the writable workspace. A
+`--policy FILE` overrides the built-in fail-closed policy. Automations must use
+`.json` or `.ldsq`; other extensions are rejected.
+
+`lokdocsqr serve <automation...>` hosts watch/cron triggers until Ctrl+C.
+See [`docs/PACKAGING.md`](./docs/PACKAGING.md) for the PyInstaller CLI build.
 
 ---
 
