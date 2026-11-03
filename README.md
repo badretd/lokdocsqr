@@ -54,14 +54,14 @@ Following the plan in [`modules.md`](./docs/modules.md), section 8. The order is
 - [x] `nodes/fs_ops/*`, `nodes/access/*`
 - [x] `nodes/planning/*` (Build Action Plan → Policy Guard → Verify → Audit)
 - [x] `nodes/flow/*`, `nodes/utils/*`
-- [ ] `nodes/llm/local_llm.py`
+- [x] `nodes/llm/local_llm.py`
 - [ ] `nodes/triggers/*` + `core/runtime.py`
 - [ ] `cli/main.py`
 - [ ] `gui/*`
 
-The checklist will be updated as work progresses. **No item is complete yet**,
-so there is nothing to try — only source code to read and architecture to
-discuss in issues.
+The checklist is updated as work progresses. See
+[`docs/PHASE_STATE.md`](./docs/PHASE_STATE.md) for the current phase status and
+the implemented / tested / integrated breakdown.
 
 ---
 

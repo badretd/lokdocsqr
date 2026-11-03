@@ -10,8 +10,12 @@ Invariant 1: this module imports ``core.*`` only — never ``gui`` or
 here; it resolves nodes through ``NodeRegistry`` at runtime.
 """
 
-from . import fs_ops, access  # noqa: F401  (registers fs.make_dir, fs.write_file)
-from . import flow  # noqa: F401
-from . import utils  # noqa: F401  (register utils nodes)
+from . import (
+    access,
+    flow,
+    fs_ops,
+    llm,
+    utils,
+)
 
-__all__ = ["fs_ops", "access", "flow", "utils"]
+__all__ = ["access", "flow", "fs_ops", "llm", "utils"]

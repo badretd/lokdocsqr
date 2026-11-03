@@ -1,9 +1,5 @@
 """Registry classification (SPEC §6) + 7b freeze (SPEC §7)."""
-import subprocess
-import sys
 from pathlib import Path
-
-import pytest
 
 PROJ = Path(__file__).resolve().parent.parent
 
@@ -23,10 +19,10 @@ def test_11_new_keys_classified_read():
             f"{k} -> {DEFAULT_OPERATION_MAP[k]!r}, expected 'read'"
 
 
-def test_map_has_27_entries():
+def test_map_has_28_entries():
     from lokdocsqr.core.planning.registry import DEFAULT_OPERATION_MAP
-    assert len(DEFAULT_OPERATION_MAP) == 27, \
-        f"expected 27 (16 pre-8 + 11 new), got {len(DEFAULT_OPERATION_MAP)}"
+    assert len(DEFAULT_OPERATION_MAP) == 28, \
+        f"expected 28 (16 pre-8 + 11 new + llm), got {len(DEFAULT_OPERATION_MAP)}"
 
 
 def test_pre_8_16_entries_unchanged():

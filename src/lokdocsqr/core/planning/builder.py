@@ -47,7 +47,7 @@ from .validator import ProposalValidationError, validate_proposal
 __all__ = ["build_action_plan"]
 
 _DYNAMIC_PAYLOAD_NODE_TYPES: frozenset[str] = frozenset(
-    {"utils.path_template", "utils.set_variables"}
+    {"utils.path_template", "utils.set_variables", "llm.local_llm"}
 )
 
 

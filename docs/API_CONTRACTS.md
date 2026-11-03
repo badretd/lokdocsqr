@@ -106,3 +106,44 @@ executor consumes it.
 This split is intentional: policy answers "may this action happen?", retry
 answers "how many times may a failed attempt be repeated?". Neither layer
 overrides the other.
+
+## v1.4 (phase 9)
+
+### L1 — local LLM output contract
+`llm.local_llm` is classified as `read` and declares output ports `data`,
+`text`, `confidence`, `usage`. Every port is present in both `run` and
+`dry_run`. `data` is the parsed JSON document; `text` is the raw model output;
+`confidence` is read from the document's `confidence` (or `score`) field when
+present; `usage` always contains `model`, `prompt_tokens` and
+`completion_tokens` (plus `total_tokens` when both counts are available).
+
+Pinned by:
+- `tests/test_phase_9.py::test_local_llm_declares_structured_output_ports`
+- `tests/test_phase_9.py::test_task_modes_return_parsed_structured_json`
+- `tests/test_api_contracts_h6_preview.py` (dynamic non-fail-closed node sweep)
+
+### L2 — dry-run never constructs a client
+`dry_run` must not import `ollama`, construct `ollama.Client`, or call the
+model. It returns the declared output shape with `data=None` and
+`usage["dry_run"] is True`.
+
+Pinned by:
+- `tests/test_phase_9.py::test_dry_run_returns_all_ports_and_never_calls_the_client`
+- `tests/test_acceptance_vertical_slice.py::test_params_only_vertical_slice_dry_run_is_pure`
+
+### L3 — schema validation is delegated to `utils.json_validate`
+The LLM node sends the schema in the prompt and returns `data`; the graph
+connects `llm.data` to `utils.json_validate.data`. The validation node is the
+single owner of `valid` / `errors` / `error_count`.
+
+Pinned by:
+- `tests/test_phase_9.py::test_llm_output_validates_through_json_validate_node`
+- `tests/test_phase_9.py::test_llm_graph_plans_executes_and_validates`
+- `tests/test_acceptance_vertical_slice.py::test_params_only_vertical_slice_applies_audits_and_rolls_back`
+
+### L4 — optional dependency
+`ollama` is imported only inside `_get_client` (R7/R20). Importing
+`lokdocsqr.nodes.llm.local_llm` must succeed when `ollama` is unavailable.
+
+Pinned by:
+- `tests/test_phase_9.py::test_module_imports_without_ollama`

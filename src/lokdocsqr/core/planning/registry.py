@@ -6,6 +6,8 @@ Phase 7b adds :data:`PAYLOAD_PATH_KEYS` (concrete payload keys per node) and
 """
 from __future__ import annotations
 
+from typing import Any
+
 __all__ = [
     "DEFAULT_OPERATION_MAP",
     "DEFAULT_PATH_KEYS",
@@ -47,6 +49,8 @@ DEFAULT_OPERATION_MAP: dict[str, str] = {
     "utils.path_template": "read",
     "utils.json_validate": "read",
     "utils.notify": "read",
+    # 9: local LLM nodes are read-only (no filesystem mutations).
+    "llm.local_llm": "read",
 }
 
 
@@ -87,7 +91,7 @@ def classify_node(node_id: str) -> str:
     return DEFAULT_OPERATION_MAP.get(node_id, "unknown")
 
 
-def extract_paths(payload: dict, node_id: str) -> tuple[str, ...]:
+def extract_paths(payload: dict[str, Any], node_id: str) -> tuple[str, ...]:
     """Extract target paths from ``payload`` for ``node_id``.
 
     - Uses :data:`PAYLOAD_PATH_KEYS` when the node is listed, otherwise

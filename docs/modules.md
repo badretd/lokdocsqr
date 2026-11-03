@@ -31,8 +31,9 @@ The tree is the target layout. Current code differs in these known ways:
 - `core/runtime.py` does not exist yet (Phase 10).
 - `core/preview.py`, `core/payload.py`, `core/catalog.py`, `core/clock.py`
   exist and are part of the current core surface.
-- `nodes/llm/`, `nodes/triggers/`, and `nodes/planning/` are empty packages;
-  `nodes/utils/*` is implemented.
+- `nodes/triggers/` and `nodes/planning/` are empty packages;
+  `nodes/llm/local_llm.py` and `nodes/utils/*` are implemented. The LLM node
+  imports `ollama` lazily and never touches the filesystem.
 - `nodes/fs_ops/*` imports `core.safe_fs`, `core.models`, `core.errors`, and
   `core.paths` directly, not only `core.node_api`. This is real and accepted
   for the monolith; the one-way rule below is the constraint that is actually
@@ -289,6 +290,18 @@ All `fs_ops` nodes implement `dry_run()` and always emit `ActionLog` entries.
 | File | Node |
 |---|---|
 | `local_llm.py` | **Local LLM** — classification, field extraction, summarization, plan generation. Returns structured JSON per schema + confidence + usage. **Never touches files.** |
+
+Implementation notes (Phase 9):
+
+- Node id `llm.local_llm`; policy operation `read` (`classify_node`).
+- Output contract: `data` (parsed JSON), `text` (raw response), `confidence`,
+  `usage` (model + token counters). All four are present in dry-run too.
+- Schema is sent to the model in the prompt; validation is delegated to
+  `utils.json_validate` by connecting `data` to its `data` input port.
+- `ollama` is an optional dependency imported lazily inside `_get_client`;
+  `dry_run` never constructs a client and never performs a network call.
+- Tests inject or monkeypatch a fake client; the real `ollama.Client` is not
+  used in the suite.
 
 ### 4.7 `nodes/utils/`
 | File | Node |
