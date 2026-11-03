@@ -3,10 +3,9 @@
 Payload: ``{"seconds": float}``. Missing/None uses ``default_seconds``.
 Negative or non-numeric values raise ``NodeExecutionError`` (fail-closed).
 
-Both ``run`` and ``dry_run`` call ``ctx.clock.sleep``; the only difference
-is the echoed ``dry_run`` flag. This is D8d.1: dry-run really sleeps,
-confirmed by the operator. ``_preview`` is not overridden because the
-default ``_execute`` is the intended contract for both modes.
+``run`` calls ``ctx.clock.sleep``. ``dry_run`` is pure: it never sleeps
+and instead reports the duration it would have waited as ``would_sleep``
+(``slept`` is ``0.0``). Both modes accept and validate the same payload.
 """
 from __future__ import annotations
 
@@ -42,7 +41,7 @@ class WaitNode(_FlowBase):
     def dry_run(self, ctx: Any, payload: Any) -> Any:
         return self._dry_run_template(ctx, payload)
 
-    def _execute(self, ctx: Any, payload: Any) -> Any:
+    def _resolve_seconds(self, payload: Any) -> float:
         raw = payload.get("seconds") if isinstance(payload, dict) else None
 
         if raw is None:
@@ -60,10 +59,25 @@ class WaitNode(_FlowBase):
                 f"flow.wait: seconds must be >= 0, got {seconds}"
             )
 
+        return seconds
+
+    def _execute(self, ctx: Any, payload: Any) -> Any:
+        seconds = self._resolve_seconds(payload)
         ctx.clock.sleep(seconds)
 
         return {
             "slept": seconds,
             "seconds": seconds,
             "dry_run": bool(getattr(ctx, "dry_run", False)),
+        }
+
+    def _preview(self, ctx: Any, payload: Any) -> Any:
+        # Dry-run is side-effect free: validate the payload but never sleep.
+        seconds = self._resolve_seconds(payload)
+
+        return {
+            "slept": 0.0,
+            "seconds": seconds,
+            "would_sleep": seconds,
+            "dry_run": True,
         }

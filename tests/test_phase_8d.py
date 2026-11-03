@@ -3,7 +3,7 @@
 Gate 8d. Covers 46 tests across 10 groups (see report for mapping).
 
 D8d deviations (NOT bugs):
-  D8d.1  wait.dry_run really sleeps via ctx.clock.sleep
+  D8d.1  wait.dry_run never sleeps; it reports the duration as would_sleep
   D8d.2  last_wins filters None
   D8d.3  concat flattens one level
   D8d.4  dict_merge shallow, later-wins, non-dict -> errors
@@ -340,12 +340,15 @@ def test_34_wait_nonnumeric_raises():
 # ---------------------------------------------------------------------------
 
 
-def test_35_dry_run_sleeps():
+def test_35_dry_run_does_not_sleep():
     ctx = _wait_ctx(dry_run=True)
     before = ctx.clock.now()
     r = WaitNode().dry_run(ctx, {"seconds": 5})
     after = ctx.clock.now()
-    assert after - before == pytest.approx(5)
+    assert after == before
+    assert r["slept"] == 0
+    assert r["seconds"] == pytest.approx(5)
+    assert r["would_sleep"] == pytest.approx(5)
     assert r["dry_run"] is True
 
 
@@ -358,12 +361,21 @@ def test_36_run_with_dry_run_ctx():
     assert r["dry_run"] is True
 
 
-def test_37_dry_run_and_run_same_clock_delta():
+def test_37_dry_run_does_not_advance_clock():
     ctx_run = _wait_ctx()
     ctx_dry = _wait_ctx()
     WaitNode().run(ctx_run, {"seconds": 3})
     WaitNode().dry_run(ctx_dry, {"seconds": 3})
-    assert ctx_run.clock.now() == ctx_dry.clock.now()
+    assert ctx_run.clock.now() == pytest.approx(3)
+    assert ctx_dry.clock.now() == 0
+
+
+def test_37b_dry_run_validates_seconds():
+    ctx = _wait_ctx(dry_run=True)
+    with pytest.raises(NodeExecutionError):
+        WaitNode().dry_run(ctx, {"seconds": -1})
+    with pytest.raises(NodeExecutionError):
+        WaitNode().dry_run(ctx, {"seconds": "abc"})
 
 
 # ---------------------------------------------------------------------------

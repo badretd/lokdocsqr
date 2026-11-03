@@ -1703,7 +1703,7 @@ Sleeps for a deterministic duration. Source: `src/lokdocsqr/nodes/flow/wait.py`.
 | `seconds` | float |
 | `dry_run` | bool |
 
-**Behavior.** Both `run` and `dry_run` sleep; dry-run really waits (D8d.1). Non-numeric or negative values raise `NodeExecutionError`.
+**Behavior.** `run` sleeps on `ctx.clock`. `dry_run` never sleeps and is side-effect free; it returns `slept = 0.0`, `seconds`, and `would_sleep` with the duration it would have waited. Non-numeric or negative values raise `NodeExecutionError` in both modes.
 
 ```ldsq
 node "wt" {
@@ -3704,7 +3704,7 @@ edge "classify-validate" {
 | A required input port fails at execution even though the node class lists it | The document did not declare `inputs`; registry metadata is not injected | Declare `inputs` on the node, or provide `params`/edges/defaults |
 | Downstream receives `None` from an fs node | The upstream port name or the document edge does not match the produced key | Wire the declared `file`/`files` output; `fs.copy`, `fs.move`, `fs.rename`, `fs.archive`, `fs.convert`, and `fs.trash` now populate it |
 | `retry_policy` on an fs node fails before `run` | `retry_safe=False` | Remove the policy or use a retry-safe node |
-| `flow.wait` pauses during dry-run | Documented D8d.1 behavior | Account for it; it really sleeps on `ctx.clock` |
+| `flow.wait` does not pause during dry-run | Dry-run is side-effect free by design | Read `would_sleep` for the duration it would have waited |
 | A `flow.subflow`/`flow.loop_batch` plan errors | Nested previews fail closed | Set `recursive_preview=true` only when a planning callback is wired |
 | `subflow: graph_id not found` | Id is not in `ctx.automations` | Register the child automation with `Runtime`; use a catalog id, not a path |
 | `graph contains cycle(s)` even with disabled nodes | Cycle check covers all nodes | Remove the cycle; disabling does not excuse it |
@@ -3844,22 +3844,19 @@ These are real differences that remain between prose/documentation, declared met
 13. **`parse_dsl`/`validate_graph` do not validate node types or params.**
     `parse_dsl` only runs `parse_graph`. An unregistered type compiles and parses; `build_graph` raises later. Param semantics are validated inside node execution. This is intentional separation, but it means “parse succeeded” is not “the automation is runnable”.
 
-14. **`flow.wait` sleeps in dry-run.**
-    Documented in the node docstring as D8d.1 (“dry-run really sleeps, confirmed by the operator”). This violates the usual dry-run purity expectation.
-
-15. **`document.settings.default_dry_run = true` is not an absolute guard.**
+14. **`document.settings.default_dry_run = true` is not an absolute guard.**
     `Runtime._execute` falls through to `config.default_dry_run` when the document value is `true`; only `false` forces a real run. A host config with `default_dry_run=False` can make a document that says `true` run for real. Files: `core/runtime.py:_execute`, `core/config.py:AppConfig`.
 
-16. **`fs.tag` xattr persistence is best-effort.**
+15. **`fs.tag` xattr persistence is best-effort.**
     If `safe_fs.set_xattr` is unavailable, the node logs and continues with the sidecar only. The sidecar is the durable record.
 
-17. **`utils.notify` is not transactional.**
+16. **`utils.notify` is not transactional.**
     Delivery is fail-soft: partial SMTP/HTTP failures are reported as `sent=false` with an error, and there is no retry/rollback.
 
-18. **`access.list_files` returns keys beyond its declared port.**
+17. **`access.list_files` returns keys beyond its declared port.**
     `truncated` and `scanned` are in the result dict but not declared in `outputs`. The same pattern applies to other access nodes (`hash_dedupe`, `index_search`, etc.). Declared ports are a subset of runtime keys.
 
-19. **Port metadata is not injected from the registry.**
+18. **Port metadata is not injected from the registry.**
     `Node.inputs`/`outputs` in Python are GUI/documentation metadata. `parse_graph` never copies them into `NodeSpec`; required-port enforcement uses only document-declared `inputs`. This is why a graph can run with no declared ports even though the class declares required ones.
 
 ---
