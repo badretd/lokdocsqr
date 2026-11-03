@@ -35,6 +35,7 @@ datas = [
     (str(ROOT / "NOTICE"), "."),
     (str(ROOT / "THIRD-PARTY-NOTICES"), "."),
     (str(ROOT / "README.md"), "."),
+    (str(ROOT / "licenses"), "licenses"),
 ]
 
 a = Analysis(

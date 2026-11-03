@@ -4089,7 +4089,7 @@ PYTHONPATH=src .venv/bin/python -m pytest -q
 .venv/bin/python tools/verify_dsl_docs.py
 ```
 
-`tools/verify_dsl_docs.py` is also wired into the suite as `tests/test_dsl_docs.py::test_docs_examples`, so the same checks run in CI.
+`tools/verify_dsl_docs.py` is also wired into the suite as `tests/test_dsl_docs.py::test_docs_examples`, so the same checks run with the test suite.
 
 ### Automated checks
 

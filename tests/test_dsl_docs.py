@@ -1,4 +1,4 @@
-"""CI guard: docs/DSL.md examples must match executable behavior."""
+"""Docs guard: docs/DSL.md examples must match executable behavior."""
 from __future__ import annotations
 
 import importlib.util

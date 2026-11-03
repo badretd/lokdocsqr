@@ -789,13 +789,15 @@ dependencies = [
     { name = "pillow", version = "12.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "pillow", version = "13.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pypdfium2" },
-    { name = "pyside6" },
     { name = "pytesseract" },
     { name = "python-docx" },
     { name = "typer" },
 ]
 
 [package.optional-dependencies]
+gui = [
+    { name = "pyside6" },
+]
 xattr = [
     { name = "xattr" },
 ]
@@ -812,7 +814,6 @@ dev = [
     { name = "pytest" },
     { name = "pytest-httpserver" },
     { name = "pytest-mock" },
-    { name = "pytest-qt" },
     { name = "respx" },
     { name = "ruff" },
 ]
@@ -825,13 +826,13 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.3.3" },
     { name = "pillow", specifier = ">=12.3.0" },
     { name = "pypdfium2", specifier = ">=5.14.0" },
-    { name = "pyside6", specifier = ">=6.12.0" },
+    { name = "pyside6", marker = "extra == 'gui'", specifier = ">=6.12.0" },
     { name = "pytesseract", specifier = ">=0.3.13" },
     { name = "python-docx", specifier = ">=1.2.0" },
     { name = "typer", specifier = ">=0.27.3" },
     { name = "xattr", marker = "extra == 'xattr'", specifier = ">=1.1.0" },
 ]
-provides-extras = ["xattr"]
+provides-extras = ["gui", "xattr"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -843,7 +844,6 @@ dev = [
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-httpserver", specifier = ">=1.2.0" },
     { name = "pytest-mock", specifier = ">=3.17.0" },
-    { name = "pytest-qt", specifier = ">=4.5.0" },
     { name = "respx", specifier = ">=0.23.1" },
     { name = "ruff", specifier = ">=0.17.2" },
 ]
@@ -2400,20 +2400,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/97/c2/28b9f5b955ff2bcd4727a6f768e2ca9b586cd7c37b95ea5f7b9b873ac7b3/pytest_mock-3.17.0.tar.gz", hash = "sha256:e36576e0985e01027e999891e7a966c67822d40c89ef1b4c8b6e22737e3590b4", size = 43064, upload-time = "2026-10-17T16:21:42.435Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e8/ea/47fbdc8f37410956fd445720e927589b1e2a47772c5f28109f0ce2fa26d9/pytest_mock-3.17.0-py3-none-any.whl", hash = "sha256:1b82aa4b37137248bd687055e109723debeb07b489de1565297dc9589c5f2d6b", size = 11248, upload-time = "2026-10-17T16:21:41.265Z" },
-]
-
-[[package]]
-name = "pytest-qt"
-version = "4.5.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pluggy" },
-    { name = "pytest" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/d3/61/8bdec02663c18bf5016709b909411dce04a868710477dc9b9844ffcf8dd2/pytest_qt-4.5.0.tar.gz", hash = "sha256:51620e01c488f065d2036425cbc1cbcf8a6972295105fd285321eb47e66a319f", size = 128702, upload-time = "2025-07-01T17:24:39.889Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/cc/d0/8339b888ad64a3d4e508fed8245a402b503846e1972c10ad60955883dcbb/pytest_qt-4.5.0-py3-none-any.whl", hash = "sha256:ed21ea9b861247f7d18090a26bfbda8fb51d7a8a7b6f776157426ff2ccf26eff", size = 37214, upload-time = "2025-07-01T17:24:38.226Z" },
 ]
 
 [[package]]

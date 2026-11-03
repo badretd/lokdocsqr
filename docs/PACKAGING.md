@@ -58,25 +58,22 @@ distribution model.
   `lokdocsqr = "lokdocsqr.cli.main:main"` console script.
 * Every `lokdocsqr.*` submodule, including all built-in node families, via
   `collect_submodules("lokdocsqr")`.
-* `LICENSE`, `NOTICE`, `THIRD-PARTY-NOTICES`, and `README.md`.
-* Declared third-party dependencies that the CLI actually imports
-  (`pypdfium2`, `pytesseract`, `python-docx`, `ollama`, etc. are pulled in
-  lazily by their node modules).
+* `LICENSE`, `NOTICE`, `THIRD-PARTY-NOTICES`, `licenses/`, and `README.md`.
+* The CLI's node dependencies (`deskew`, `ollama`, `openpyxl`, `pandas`,
+  `pillow`, `pypdfium2`, `pytesseract`, `python-docx`). The optional `xattr`
+  extra adds extended attribute support.
 
 The spec **excludes** `PySide6` / `PyQt5` / `PyQt6` and `tkinter`. The CLI never
-imports `lokdocsqr.gui`, so the desktop stack is not part of this binary.
+imports `lokdocsqr.gui`, and PySide6 is only installed through the optional
+`gui` extra, so the desktop stack is not part of this binary.
 
-### Optional dependencies
+### Node dependencies and optional extras
 
-The OCR/PDF/DOCX/LLM nodes import their optional libraries lazily. If a library
-is installed in the build environment, PyInstaller includes it; if it is
-missing, the node reports a clear runtime error instead of breaking startup.
-To keep the CLI small, install only the extras you need before building, for
-example:
-
-```bash
-uv sync --group dev --extra xattr
-```
+The OCR/PDF/DOCX/LLM/table nodes import their libraries lazily, so a missing or
+broken installation reports a clear runtime error instead of breaking startup.
+Those libraries are part of the CLI package. `uv sync --group dev` installs the
+full CLI dependency set and the test tooling; add `--extra gui` only when you
+are building the GUI, and `--extra xattr` for extended attribute support.
 
 ---
 
@@ -137,6 +134,8 @@ default. The license notices are therefore at:
 dist/lokdocsqr/_internal/LICENSE
 dist/lokdocsqr/_internal/NOTICE
 dist/lokdocsqr/_internal/THIRD-PARTY-NOTICES
+dist/lokdocsqr/_internal/licenses/gpl-3.0.txt
+dist/lokdocsqr/_internal/licenses/lgpl-3.0.txt
 ```
 
 If you need them at the distribution root for a particular installer format,
@@ -169,7 +168,7 @@ The CLI never writes files directly. All mutations go through
 |---|---|---|
 | `Unknown node type` in the frozen binary | a node family was not collected | confirm `collect_submodules("lokdocsqr")` is present in the spec |
 | `ModuleNotFoundError: PySide6` at build time | an accidental GUI import from the CLI path | keep `lokdocsqr.gui` out of `cli/main.py`; verify with `tests/test_architecture.py` |
-| optional node reports `... not installed` | optional library absent at build time | install the extra before building, or accept the runtime error |
+| a node reports `... not installed` | library absent at build time | install the library before building, or accept the runtime error |
 | `PermissionError` writing the audit log | base directory is read-only | pass `--base-dir`/`--config` pointing at a writable workspace |
 | antivirus flags a fresh Windows build | unsigned PyInstaller bootloader | sign the executable with your normal release process |
 
@@ -191,115 +190,29 @@ The CLI never writes files directly. All mutations go through
 
 ---
 
-## 7. CI: cross-platform builds
+## 7. Cross-platform builds
 
-PyInstaller cannot cross-compile, so a release needs one job per target OS.
-The repository ships `.github/workflows/build.yml`, a ready-to-use GitHub
-Actions pipeline that:
+PyInstaller cannot cross-compile, so build and smoke-test the CLI on each
+target OS you ship. The build steps are the same as §2.
 
-1. runs the test suite and static checks on Linux, macOS and Windows;
-2. builds the one-dir CLI on each platform;
-3. smoke-tests the frozen executable;
-4. uploads a per-platform archive as a workflow artifact.
+### 7.1 Platform notes
 
-It triggers on `v*` tags and on manual dispatch. Adjust `on:` for your release
-process (for example, publish a GitHub Release from the uploaded artifacts).
-
-### 7.1 Workflow outline
-
-```yaml
-name: build-cli
-
-on:
-  push:
-    tags: ["v*"]
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
-jobs:
-  test:
-    name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-        with:
-          python-version: "3.10"
-      - run: uv sync --group dev
-      - run: uv run pytest -q
-      - run: uv run python tools/verify_dsl_docs.py
-      - run: uv run ruff check src tests
-      - run: uv run mypy src/lokdocsqr
-
-  package:
-    name: Package (${{ matrix.os }})
-    needs: test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            artifact: lokdocsqr-linux-x86_64
-          - os: macos-latest
-            artifact: lokdocsqr-macos
-          - os: windows-latest
-            artifact: lokdocsqr-windows-x86_64
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-        with:
-          python-version: "3.10"
-      - run: uv sync --group dev
-      - run: uv run pyinstaller packaging/lokdocsqr-cli.spec --noconfirm
-      - name: Smoke test
-        shell: bash
-        run: |
-          exe="./dist/lokdocsqr/lokdocsqr"
-          if [ "$RUNNER_OS" = "Windows" ]; then exe="$exe.exe"; fi
-          "$exe" --version
-          "$exe" list-nodes --json > /dev/null
-          "$exe" validate examples/vertical_slice.json
-      - name: Package archive
-        shell: bash
-        run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            7z a "${{ matrix.artifact }}.zip" ./dist/lokdocsqr/*
-          else
-            tar -czf "${{ matrix.artifact }}.tar.gz" -C dist lokdocsqr
-          fi
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-          path: |
-            ${{ matrix.artifact }}.zip
-            ${{ matrix.artifact }}.tar.gz
-          if-no-files-found: error
-```
-
-### 7.2 Platform notes
-
-* **Linux** runners produce glibc-based binaries. If you must support older
-  distributions, build in a container with the oldest glibc you target.
-* **macOS** `macos-latest` now maps to Apple silicon. Build on the
-  architecture you ship; for universal binaries you need an explicit
-  `target_arch` / `lipo` step, which is outside this spec.
-* **Windows** runners produce an `.exe` plus `_internal/`. Sign the executable
+* **Linux** builds link against the glibc of the build machine. If you must
+  support older distributions, build in a container with the oldest glibc you
+  target.
+* **macOS** builds are architecture-specific. Build on the architecture you
+  ship; for universal binaries you need an explicit `target_arch` / `lipo`
+  step, which is outside this spec.
+* **Windows** builds produce an `.exe` plus `_internal/`. Sign the executable
   in your release process if you distribute widely (see §5).
-* **Lean CLI builds:** `PySide6` is a main dependency but the CLI never uses it
-  (the GUI package is a stub and the spec filters `lokdocsqr.gui` out of the
-  hidden imports). To keep CI images small you may install without it:
-  `uv sync --group dev --no-install-package pyside6`.
-* **No network at runtime.** The CLI never opens a listener; the pipeline only
-  uses the network to fetch dependencies and upload artifacts.
+* **Lean CLI builds:** `PySide6` is an optional `gui` extra and is not part of
+  the `dev` group. The CLI never uses it (the GUI package is a stub and the
+  spec filters `lokdocsqr.gui` out of the hidden imports), so
+  `uv sync --group dev` builds a CLI without the GUI stack.
+* **No network at runtime.** The CLI never opens a listener; the build only
+  uses the network to fetch dependencies.
 
-### 7.3 Artifacts and checksums
+### 7.2 Artifacts and checksums
 
 Archive names encode the platform. Add a checksum step if you publish
 downloads:
@@ -317,12 +230,12 @@ reproducibility.
 
 Before tagging a release:
 
-- [ ] `uv run pytest -q` is green on all three OSes.
+- [ ] `uv run pytest -q` is green on the OS you are releasing for.
 - [ ] `uv run python tools/verify_dsl_docs.py` passes.
 - [ ] `uv run ruff check src tests` and `uv run mypy src/lokdocsqr` pass.
 - [ ] `uv run pyinstaller packaging/lokdocsqr-cli.spec --noconfirm` builds.
 - [ ] The smoke tests in §3 pass against the frozen binary.
-- [ ] `LICENSE`, `NOTICE`, `THIRD-PARTY-NOTICES` are present in `_internal/`.
+- [ ] `LICENSE`, `NOTICE`, `THIRD-PARTY-NOTICES`, and `licenses/` are present in `_internal/`.
 - [ ] The version in `pyproject.toml` / `lokdocsqr.__version__` is bumped.
 - [ ] Release notes list PyInstaller and Python versions.
 

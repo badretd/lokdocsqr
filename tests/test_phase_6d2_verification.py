@@ -322,7 +322,7 @@ def test_pdf_missing_pypdfium2_error(tmp_path, monkeypatch):
     _text, error = _norm_result(_call_handler("pdf", pdf))
     assert error is not None
     assert "pypdfium2 not installed" in error
-    assert "lokdocsqr[pdf]" in error
+    assert "reinstall lokdocsqr" in error
 
 
 # ===========================================================================
@@ -363,7 +363,7 @@ def test_docx_missing_python_docx_error(tmp_path, monkeypatch):
     _text, error = _norm_result(_call_handler("docx", docx_path))
     assert error is not None
     assert "python-docx not installed" in error
-    assert "lokdocsqr[docx]" in error
+    assert "reinstall lokdocsqr" in error
 
 
 # ===========================================================================

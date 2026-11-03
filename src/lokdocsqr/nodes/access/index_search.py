@@ -30,7 +30,8 @@ R18: Determinism: ``matches`` sorted by ``(path, line, col)``;
      ``files_skipped`` and ``errors`` sorted by path. ``files_scanned`` counts
      only files whose handler completed without a per-item error.
 R19: No module-level optional-dependency imports (no pytesseract/PIL/pypdfium2
-     here). ``extract_text`` itself is safe to import without ``[ocr]``.
+     here). ``extract_text`` itself is safe to import without
+     ``pytesseract``/``Pillow``.
 """
 from __future__ import annotations
 

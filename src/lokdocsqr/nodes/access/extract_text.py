@@ -369,7 +369,7 @@ __all__ = ["HANDLERS", "ExtractTextNode", "register_handler"]
 # ── 6c: image format handlers (OCR) ────────────────────────────────
 # Registered under canonical extension names (matching "txt"/"html"/"csv").
 # The handler lazily imports pytesseract/PIL so importing extract_text
-# never requires the optional [ocr] extra (R7). On any failure it returns
+# never requires pytesseract/Pillow at import time (R7). On any failure it returns
 # {"text": None, "error": "..."} and the dispatch loop propagates that
 # error through _run_item's "error" propagation.
 
@@ -385,7 +385,7 @@ def _ocr_handler(data: bytes, params: dict[str, Any]) -> dict[str, Any]:
         return {
             "text": None,
             "error": (
-                "pytesseract/Pillow not installed — install lokdocsqr[ocr]"
+                "pytesseract/Pillow not installed — reinstall lokdocsqr"
             ),
         }
 
@@ -397,7 +397,7 @@ def _ocr_handler(data: bytes, params: dict[str, Any]) -> dict[str, Any]:
         return {
             "text": None,
             "error": (
-                "pytesseract/Pillow not installed — install lokdocsqr[ocr]"
+                "pytesseract/Pillow not installed — reinstall lokdocsqr"
             ),
         }
 
@@ -435,7 +435,7 @@ for _ext in (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"):
 # ── 6d2: pdf/docx/eml handlers ──────────────────────────────────────
 # Registered under canonical extension names. Handlers lazily import
 # optional third-party libraries so importing extract_text never
-# requires [pdf]/[docx] extras (R20). Per-item errors are returned as
+# requires the PDF/DOCX libraries (R20). Per-item errors are returned as
 # {"text": None, "error": "..."} and propagated by _run_item.
 
 def _pdf_handler(data: bytes, opts: dict[str, Any]) -> dict[str, Any]:
@@ -445,7 +445,7 @@ def _pdf_handler(data: bytes, opts: dict[str, Any]) -> dict[str, Any]:
     except ImportError:
         return {
             "text": None,
-            "error": "pypdfium2 not installed — install lokdocsqr[pdf]",
+            "error": "pypdfium2 not installed — reinstall lokdocsqr",
         }
     pdf = None
     try:
@@ -478,7 +478,7 @@ def _docx_handler(data: bytes, opts: dict[str, Any]) -> dict[str, Any]:
     except ImportError:
         return {
             "text": None,
-            "error": "python-docx not installed — install lokdocsqr[docx]",
+            "error": "python-docx not installed — reinstall lokdocsqr",
         }
     try:
         from io import BytesIO

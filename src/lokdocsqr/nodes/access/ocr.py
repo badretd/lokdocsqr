@@ -3,12 +3,12 @@
 Node id: ``access.ocr``. Extracts text from image files using
 Tesseract OCR via ``pytesseract``.
 
-pip deps: lokdocsqr[ocr] (pytesseract, Pillow) — lazy, optional
+pip deps: pytesseract, Pillow (lazy imports)
 
 Lazy import policy (R7)
 -----------------------
 Neither this module nor :mod:`nodes.access.extract_text` may fail to
-import when the optional ``[ocr]`` extra is missing. Module level only
+import when ``pytesseract``/``Pillow`` is missing. Module level only
 computes an availability flag via ``importlib.util.find_spec``; the
 actual ``import pytesseract`` / ``from PIL import Image`` happens inside
 the execution body (``_execute`` → ``_run_item``), never inside
@@ -63,7 +63,7 @@ except (ImportError, ValueError):  # pragma: no cover — hostile envs
 
 _IMAGE_EXTENSIONS = frozenset({"png", "jpg", "jpeg", "tif", "tiff", "bmp"})
 _PREPROCESSING_CHOICES = ("none", "grayscale", "grayscale+threshold")
-_INSTALL_HINT = "pytesseract/Pillow not installed — install lokdocsqr[ocr]"
+_INSTALL_HINT = "pytesseract/Pillow not installed — reinstall lokdocsqr"
 _TESSERACT_MISSING = "tesseract binary not found — see docs/ocr-setup.md"
 
 

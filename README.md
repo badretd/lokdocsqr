@@ -8,8 +8,9 @@ A **local-first** automation engine for files: graph-based workflows with
 dry-run, append-only audit and rollback, scope-enforced filesystem operations,
 and optional local LLM support.
 
-LokDocSQR runs entirely on your machine. It opens no network listener and
-never uploads data: every automation, trigger and audit record stays local.
+LokDocSQR runs locally by default. It opens no network listener, and every
+automation, trigger and audit record stays on your machine. The optional LLM
+node talks to the Ollama endpoint you configure (localhost by default).
 
 ---
 
@@ -35,8 +36,8 @@ Two binaries are planned from one codebase:
 
 - Python 3.10+ (the project targets 3.10).
 - A writable workspace directory for the files you automate.
-- Optional: OCR/PDF/DOCX/LLM extras for the corresponding nodes. Missing
-  optional libraries are reported at node runtime, not at startup.
+- Optional: the GUI extra (PySide6, LGPLv3) and `xattr` support. The CLI
+  includes the OCR, PDF, DOCX, table and local LLM libraries.
 
 ---
 
@@ -49,11 +50,18 @@ uv sync --group dev
 uv run lokdocsqr --version
 ```
 
-Or install the package into an existing environment:
+The core install is the full CLI:
 
 ```bash
 uv pip install -e .
 lokdocsqr --version
+```
+
+Optional additions:
+
+```bash
+uv pip install -e '.[gui]'    # PySide6 desktop GUI (LGPLv3)
+uv pip install -e '.[xattr]'  # extended attribute support for fs.tag
 ```
 
 `python -m lokdocsqr` is equivalent to the installed `lokdocsqr` entry point.
@@ -285,7 +293,7 @@ triggers and the CLI:
 uv run pytest -q
 ```
 
-Documentation examples are executable and checked by CI:
+Documentation examples are executable and can be checked locally:
 
 ```bash
 uv run python tools/verify_dsl_docs.py   # docs/DSL.md examples compile/round-trip
@@ -315,10 +323,10 @@ uv run pyinstaller packaging/lokdocsqr-cli.spec --noconfirm
 ./dist/lokdocsqr/lokdocsqr --version
 ```
 
-Cross-platform builds (Linux, macOS, Windows) are produced by a CI matrix; a
-ready-to-use GitHub Actions workflow is documented in
-[`docs/PACKAGING.md`](./docs/PACKAGING.md#7-ci-cross-platform-builds) and
-provided at `.github/workflows/build.yml`.
+Cross-platform builds (Linux, macOS, Windows) must be produced on each target
+OS; PyInstaller is not a cross-compiler. See
+[`docs/PACKAGING.md`](./docs/PACKAGING.md#7-cross-platform-builds) for the
+platform-specific build notes.
 
 ---
 

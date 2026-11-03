@@ -13,13 +13,13 @@ LokDoc Core is released under the **Apache License 2.0**. The choice is driven b
 
 - **Permissive model.** Apache 2.0 does not require derivative works to be open-sourced. This allows LokDoc to be embedded into proprietary automation pipelines and internal corporate tooling without forcing disclosure of the surrounding code.
 - **Explicit patent grant.** Unlike MIT or BSD, Apache 2.0 includes an express patent license from contributors. This reduces legal risk for adopters — a relevant factor for an automation tool that may be deployed inside organizations.
-- **No copyleft.** Apache 2.0 does not "infect" code that LokDoc interacts with, which keeps integration with third-party file processing tools and proprietary formats unconstrained.
+- **No copyleft in the core.** Apache 2.0 does not "infect" code that LokDoc interacts with, which keeps integration with third-party file processing tools and proprietary formats unconstrained. The optional GUI extra uses PySide6 under LGPLv3; it is dynamically linked and excluded from the CLI build.
 - **Industry acceptance.** Apache 2.0 is a de-facto standard for infrastructure and developer tooling, which lowers friction for both adoption and external contribution.
 
 ## 3. Build Configuration
 
 - **Language / runtime:** Python
-- **GUI framework (planned):** PySide
+- **GUI framework (planned):** PySide6, installed through the optional `gui` extra (LGPLv3)
 - **Packaging:** PyInstaller, **one-dir** mode (`--onedir`)
 
 One-dir mode was chosen over one-file because it keeps the Python runtime and shared libraries as discrete files. This makes the size of the distribution directly measurable, speeds up application startup, and avoids the per-launch unpacking overhead of one-file builds.
@@ -53,7 +53,7 @@ Verify that LokDoc Core builds successfully with all declared dependencies and t
 `packaging/lokdocsqr-cli.spec` plus the entry script
 `packaging/pyinstaller_cli.py`; see `docs/PACKAGING.md`. The historical size
 numbers in this section are not a build gate and must not be reported as a
-PASS. A CI packaging job (and the GUI spec) still belongs to a later phase.
+PASS. A packaging job (and the GUI spec) still belongs to a later phase.
 
 ### 4.4 Size Budget
 
@@ -62,9 +62,9 @@ a planning target only until a reproducible spec file exists.
 
 ### 4.5 Expected Size Impact of the GUI Layer
 
-The planned GUI is built on PySide and includes a **node-based editor** for composing file-processing pipelines. Compared to a conventional forms-and-widgets interface, a node editor pulls in additional Qt modules and runtime resources that must be bundled by PyInstaller:
+The planned GUI is built on PySide6 and includes a **node-based editor** for composing file-processing pipelines. Compared to a conventional forms-and-widgets interface, a node editor pulls in additional Qt modules and runtime resources that must be bundled by PyInstaller:
 
-- **QtWidgets and QtGui** — the base widget and painting stack required by any PySide application. This is a fixed cost for the GUI regardless of its layout.
+- **QtWidgets and QtGui** — the base widget and painting stack required by any PySide6 application. This is a fixed cost for the GUI regardless of its layout.
 - **QtGraphicsView framework** — the node editor is built on `QGraphicsScene`, `QGraphicsView` and `QGraphicsItem`. These classes live in QtWidgets, but the editor relies on the full graphics-view pipeline, including item rendering, transformations, and scene event handling.
 - **QSS / stylesheets and icons.** A node editor typically ships with a theme (node styles, port icons, connection graphics). Stylesheet parsing and image format plugins (PNG, SVG) must be collected explicitly.
 - **Qt plugins.** PyInstaller only bundles plugins it detects; for a node editor the relevant set includes platform plugins (`platforms/`), image formats (`imageformats/`), SVG support (`iconengines/` and `imageformats/qsvg`), and — if a dark/modern theme is used — the `styles/` plugin. Bundling the full plugin set via `--collect-all PySide6` is the safest option, but it is also the heaviest.

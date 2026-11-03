@@ -6,6 +6,9 @@
 **Scope:** Whole repository, read-only, with emphasis on the core execution contract.  
 **Report:** New file only. No source, test, configuration, or documentation file was modified.
 
+> **Historical note:** This report is pinned to commit `41c9ffe`. Some findings
+> below have since been addressed; it is kept as a point-in-time record.
+
 ---
 
 ## 0. Executive summary
@@ -194,7 +197,7 @@ The following are absent or stubs:
 | `cli/main.py` | Raises `NotImplementedError` |
 | `gui/app.py` | Raises `NotImplementedError` |
 | PyInstaller spec | Referenced as `lokkdoc.spec`; absent |
-| CI | No `.github/` or equivalent |
+| Automated gate | None |
 | Concurrency | `max_concurrency` is parsed and validated but never used |
 
 This is the missing “20%” — and it is the part that turns a library into a product.
@@ -397,11 +400,11 @@ Against the six principles in `README.md`:
 - `pandas`, `openpyxl`, `deskew`, `typer`, and `PySide6` are declared but not imported anywhere in `src/` (some are clearly future GUI/OCR work; currently they inflate install size).
 - `py7zr` and `xattr` are imported but undeclared.
 - Several OCR error hints tell users to install `lokdocsqr[ocr]`, but `pyproject.toml` has no `[ocr]` extra.
-- `docs/devstart.md` reports a successful PyInstaller one-dir build (`PASS`, 260 MB), but there is no `lokkdoc.spec` in the repository and no CI workflow. The claim is not reproducible.
+- `docs/devstart.md` reports a successful PyInstaller one-dir build (`PASS`, 260 MB), but there is no `lokkdoc.spec` in the repository and no committed build workflow. The claim is not reproducible.
 
 **Impact:** `pip install lokdocsqr` yields a broken console script. A clean environment will fail on `fs.archive` 7z and `fs.tag` xattr. The build documentation cannot be trusted as evidence.
 
-**Remediation:** Add a real `main` or change the script target to `lokdocsqr.cli.main:main`; implement at least `--help`/`--version`. Move future dependencies behind extras. Declare `py7zr`/`xattr`. Add a `.spec` file or remove the build claim. Add a minimal CI job that installs, runs tests, and builds.
+**Remediation:** Add a real `main` or change the script target to `lokdocsqr.cli.main:main`; implement at least `--help`/`--version`. Move future dependencies behind extras. Declare `py7zr`/`xattr`. Add a `.spec` file or remove the build claim. Keep the install, test and build checks manual.
 
 ---
 
@@ -416,7 +419,7 @@ Against the six principles in `README.md`:
 - `nodes/planning/*` empty (planning is in core, not nodes).
 - CLI/GUI stubs.
 - `max_concurrency` parsed and validated but never used; the executor is single-threaded.
-- No packaging spec or CI.
+- No packaging spec or automated gate.
 
 **Impact:** The repository is a capable core library plus node implementations, not a usable automation product. The phase state (“Done 0–8, Current 8.5”) measures core module delivery, not end-to-end capability. This mismatch is the main source of the “80%” impression.
 
@@ -507,7 +510,7 @@ Examples:
 - `docs/modules.md` lists `core/runtime.py`; it is absent.
 - `docs/modules.md` lists `core/policy.py`; the code has a `core/policy/` package.
 - `README.md` says “nothing works end-to-end”; `PHASE_STATE.md` says phases 0–8 are done. Both can be true only if “done” means “module exists”, which should be stated.
-- `docs/devstart.md` reports a build result without a reproducible spec/CI.
+- `docs/devstart.md` reports a build result without a reproducible spec or automated gate.
 
 **Impact:** New contributors and auditors cannot use the docs as a reliable map. The phase state overstates readiness.
 
@@ -542,7 +545,7 @@ Examples:
 
 **Impact:** The static checks are not a usable gate. Real defects (the missing base-class attributes) are buried in noise.
 
-**Remediation:** Fix the `src` list, run `ruff --fix` in a dedicated commit, then burn down `mypy` starting with `_base.py` and the executor. Make both clean before adding CI enforcement.
+**Remediation:** Fix the `src` list, run `ruff --fix` in a dedicated commit, then burn down `mypy` starting with `_base.py` and the executor. Make both clean before enforcing them in the release checklist.
 
 #### F-18 — Dependency and optional-feature declarations are inconsistent
 
@@ -559,19 +562,19 @@ Examples:
 
 **Remediation:** Define extras (`[ocr]`, `[archive]`, `[gui]`, `[dev]`), keep the base runtime minimal, and declare every lazy import in the appropriate extra. Document the extras in `README.md`.
 
-#### F-19 — No CI, no reproducible build, no release gate
+#### F-19 — No automated gate, no reproducible build, no release gate
 
 **Severity:** Medium  
 **Evidence:** `verified by inspection`
 
-- No `.github/`, no other CI configuration.
+- No repository automation configuration.
 - No `.spec` file despite `devstart.md` claiming a build.
 - No coverage configuration or threshold.
 - No pre-commit configuration.
 
 **Impact:** The 440 lint errors, 153 mypy errors, and the real integration gaps can accumulate unnoticed. The build claim cannot be verified.
 
-**Remediation:** Add CI for install, `pytest`, `ruff`, `mypy`, and a smoke import. Add a packaging job once a spec exists. Keep the gate honest: if mypy is not clean, either fix it or set a documented baseline.
+**Remediation:** Keep the install, `pytest`, `ruff`, `mypy`, and smoke-import checks in the release checklist. Add a packaging step once a spec exists. Keep the gate honest: if mypy is not clean, either fix it or set a documented baseline.
 
 ---
 
@@ -622,7 +625,7 @@ The executor builds a rollback plan at the end of a run; it never calls `apply_r
 7. **No CLI/GUI/runtime tests**, because those layers are stubs.
 8. **No Windows tests** for the Windows-specific retry logic.
 9. **No performance/large-file tests.**
-10. **No coverage threshold or CI gate.**
+10. **No coverage threshold or automated gate.**
 
 ### 5.3 Recommended test additions (highest value first)
 
@@ -648,10 +651,10 @@ The executor builds a rollback plan at the end of a run; it never calls `apply_r
 | `mypy src` | 153 errors in 26 files | Strict config is aspirational, not enforced |
 | Entry point | `lokdocsqr:main` missing | Broken install |
 | PyInstaller | `lokkdoc.spec` absent | Build claim unverifiable |
-| CI | None | No automated gate |
+| Automated gate | None | Checks run manually |
 | `[tool.ruff] src` | `core`, `nodes`, `gui`, `cli` | Wrong for `src/lokdocsqr` layout |
 
-The tooling situation is recoverable quickly: fix the ruff `src` list, auto-fix formatting/imports, then address mypy starting with the executor and `fs_ops/_base.py`. Do not enable a hard CI gate until the baseline is clean, or the team will learn to ignore it.
+The tooling situation is recoverable quickly: fix the ruff `src` list, auto-fix formatting/imports, then address mypy starting with the executor and `fs_ops/_base.py`. Do not make these checks a hard gate until the baseline is clean, or the team will learn to ignore it.
 
 ---
 
@@ -722,7 +725,7 @@ Once that slice is green, the remaining 20% is mostly product shell work (runtim
 14. **F-11/F-12** audit serialization and fail-closed parsing.
 15. **F-14** uniform node port metadata.
 16. **F-16** replace doc-presence/self-referential tests with behavioural tests; expand AST scans.
-17. **F-17/F-18/F-19** lint/type baseline, extras, CI.
+17. **F-17/F-18/F-19** lint/type baseline, extras, release checks.
 
 ---
 
@@ -759,7 +762,7 @@ Observed results:
 1. **`fs.make_dir` with `params={"path_template": "work"}`**
    - The executor did not see the param.
    - It used a port default instead.
-   - In one variant, the default was the relative string `DEFAULT_DIR`; it resolved against the process CWD (`/home/logka/Projects/lokdocsqr/DEFAULT_DIR`) and raised a `ScopeViolation` because that path was outside the temporary workspace.
+   - In one variant, the default was the relative string `DEFAULT_DIR`; it resolved against the process CWD (`<cwd>/DEFAULT_DIR`) and raised a `ScopeViolation` because that path was outside the temporary workspace.
    - In another variant, the default was an absolute path, which `render_template` rejects with `ScopeViolation: Rendered template is absolute`.
    - In both variants, the configured `work` directory was not created.
 

@@ -1,13 +1,13 @@
 [project]
 name = "lokdocsqr"
 version = "0.1.0"
-description = "Local-first visual pipeline builder for file and table processing"
+description = "Local-first automation engine for file and table processing"
 readme = "README.md"
 authors = [
     { name = "Imran Badretdinov", email = "log8ka@proton.me" }
 ]
 license = "Apache-2.0"
-license-files = ["LICENSE", "NOTICE", "THIRD-PARTY-NOTICES"]
+license-files = ["LICENSE", "NOTICE", "THIRD-PARTY-NOTICES", "licenses/*.txt"]
 requires-python = ">=3.10"
 dependencies = [
     "deskew>=1.5.3",
@@ -16,17 +16,17 @@ dependencies = [
     "pandas>=2.3.3",
     "pillow>=12.3.0",
     "pypdfium2>=5.14.0",
-    "pyside6>=6.12.0",
     "pytesseract>=0.3.13",
     "python-docx>=1.2.0",
     "typer>=0.27.3",
+    "xattr>=1.1.0",
 ]
 
 [project.scripts]
 lokdocsqr = "lokdocsqr.cli.main:main"
 
 [project.optional-dependencies]
-xattr = ["xattr>=1.1.0"]
+gui = ["pyside6>=6.12.0"]
 
 [build-system]
 requires = ["uv_build>=0.13.5,<0.14.0"]
@@ -42,7 +42,6 @@ dev = [
     "pytest>=9.1.1",
     "pytest-httpserver>=1.2.0",
     "pytest-mock>=3.17.0",
-    "pytest-qt>=4.5.0",
     "respx>=0.23.1",
     "ruff>=0.17.2",
 ]
@@ -98,7 +97,5 @@ exclude = ["packaging/", "dist/", "build/"]
 module = [
     "pytesseract.*",
     "pypdfium2.*",
-    "deskew.*",
-    "pytestqt.*",
 ]
 ignore_missing_imports = true

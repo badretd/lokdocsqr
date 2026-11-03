@@ -194,7 +194,6 @@ were created for 8.6 or 8.7.
 | CLI serve → watch → run end-to-end test | yes | yes | yes — `tests/test_cli_release_hardening.py` |
 | Audit history views (`audit runs`, filtered `audit show`, `--path`) | yes | yes | yes — `tests/test_audit_cli.py` |
 | Retention/cleanup (`trash sweep`, `audit prune`, `Runtime.sweep_trash`) | yes | yes | yes — `tests/test_cleanup.py` |
-| Cross-platform CI workflow | yes | prepared | yes — `.github/workflows/build.yml` |
 
 - New regression file: `tests/test_cli_release_hardening.py` (10 tests).
 - `access.list_files` and the trigger nodes share one relative-path contract:
@@ -203,4 +202,4 @@ were created for 8.6 or 8.7.
 - LokDocSQR remains local-only: no HTTP listener. Webhook/manual triggers are
   dispatched with `lokdocsqr trigger ...` (inline JSON, `@FILE` or stdin).
 - Documentation: `README.md` rewritten for release; `docs/PACKAGING.md` §7
-  documents the cross-platform CI matrix and §8 the release checklist.
+  documents cross-platform builds and §8 the release checklist.

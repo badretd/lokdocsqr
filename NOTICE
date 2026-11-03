@@ -1,9 +1,10 @@
 LokDocSQR
 Copyright 2026 Imran Badretdinov
 
-This product includes software developed by Imran Badretdinov.
+The CLI does not include PySide6. The optional GUI extra uses PySide6
+(https://www.qt.io/qt-for-python), which is licensed under the GNU Lesser
+General Public License version 3 (LGPLv3).
 
-This product includes PySide6 (https://www.qt.io/qt-for-python), which is
-licensed under the GNU Lesser General Public License v3 (LGPLv3). A copy of
-the LGPLv3 license text is provided in the THIRD-PARTY-NOTICE file and in the
-installed application directory.
+The full LGPLv3 text is included with this distribution in
+licenses/lgpl-3.0.txt; the GPLv3 text it incorporates is included in
+licenses/gpl-3.0.txt.
