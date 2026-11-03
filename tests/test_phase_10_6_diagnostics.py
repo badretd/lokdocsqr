@@ -179,3 +179,50 @@ def test_run_explain_prints_outputs(
     assert "node wr" in out
     assert "outputs:" in out
     assert "path" in out
+
+
+# ---------------------------------------------------------------------------
+# Item 4 — scanned count
+# ---------------------------------------------------------------------------
+
+
+def test_run_explain_prints_scanned_count(
+    tmp_path: Path, capsys: Any
+) -> None:
+    base = tmp_path / "ws"
+    (base / "inbox").mkdir(parents=True)
+    automation = tmp_path / "scanned.json"
+    automation.write_text(
+        json.dumps(
+            {
+                "spec_version": "1.0",
+                "metadata": {"id": "scanned"},
+                "nodes": [
+                    {
+                        "id": "ls",
+                        "type": "access.list_files",
+                        "params": {"path": "inbox"},
+                    }
+                ],
+                "edges": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        main(
+            [
+                "run",
+                str(automation),
+                "--base-dir",
+                str(base),
+                "--scope",
+                str(base),
+                "--dry-run",
+                "--explain",
+            ]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "ls: scanned 0 file(s)" in out

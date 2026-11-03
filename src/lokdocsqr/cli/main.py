@@ -663,6 +663,11 @@ def _print_run_result(
                         f"      {key} ({type(value).__name__}): "
                         f"{_truncate(value)}"
                     )
+            if "scanned" in node_result.outputs:
+                print(
+                    f"    {node_id}: scanned "
+                    f"{node_result.outputs['scanned']} file(s)"
+                )
             for log in node_result.action_logs:
                 print(f"    action {_format_log(log)}")
                 print(f"      reason: {log.reason or '-'}")

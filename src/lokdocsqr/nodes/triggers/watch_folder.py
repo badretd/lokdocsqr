@@ -19,7 +19,7 @@ from ._base import (
     event_payload,
     files_from_event,
     normalise_files,
-    scan_files,
+    scan_files_counted,
     trigger_event,
 )
 
@@ -72,6 +72,7 @@ class WatchFolderNode(Node):
         )
 
         files = files_from_event(ctx)
+        scanned = len(files)
         if not files and changes:
             files = normalise_files(
                 [
@@ -81,8 +82,9 @@ class WatchFolderNode(Node):
                     and isinstance(change.get("path"), (str, Path))
                 ]
             )
+            scanned = len(files)
         if not files and isinstance(raw_path, (str, Path)) and str(raw_path):
-            files = scan_files(
+            files, scanned = scan_files_counted(
                 ctx,
                 raw_path,
                 patterns=patterns,
@@ -95,4 +97,5 @@ class WatchFolderNode(Node):
             "changes": changes,
             "event": event or {"type": "watch_folder"},
             "payload": dict(injected),
+            "scanned": scanned,
         }

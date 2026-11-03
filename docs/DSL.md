@@ -1254,7 +1254,7 @@ Lists files/directories under scoped roots with glob and metadata filters. Sourc
 |---|---|
 | `files` | FileRef[] |
 
-**Runtime result keys.** `files` (list of `{path, size, is_dir}`), `truncated` (bool), `scanned` (int). `truncated` is true only when a matching entry exists beyond `limit`.
+**Runtime result keys.** `files` (list of `{path, size, is_dir}`), `truncated` (bool), `scanned` (int). `truncated` is true only when a matching entry exists beyond `limit`. `scanned` is always present, including `0` for an empty folder; `--explain` prints it as `<node_id>: scanned N file(s)`.
 
 ```ldsq
 node "ls" {
@@ -2062,8 +2062,9 @@ Reports files observed by a folder watcher or a fresh scan. Source: `src/lokdocs
 | `changes` | object[] |
 | `event` | object |
 | `payload` | object |
+| `scanned` | integer |
 
-**Behavior.** Reads the injected event from `ctx.variables["trigger"]`; prefers event `files`/`paths`, then non-deleted changes, then a read-only scan of `path`. No audit entry. Event files are normalized without a scope check; downstream access/fs nodes check them.
+**Behavior.** Reads the injected event from `ctx.variables["trigger"]`; prefers event `files`/`paths`, then non-deleted changes, then a read-only scan of `path`. The result always includes `scanned` (number of files examined by the scan fallback, or the number of event files when no scan ran), so an empty folder is distinguishable from a broken graph. No audit entry. Event files are normalized without a scope check; downstream access/fs nodes check them.
 
 ```ldsq
 node "w" {

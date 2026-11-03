@@ -92,27 +92,33 @@ def _file_entry(entry: Path) -> dict[str, Any]:
     }
 
 
-def scan_files(
+def scan_files_counted(
     ctx: Any,
     raw_path: str | Path | None,
     *,
     patterns: Sequence[str] = ("*",),
     recursive: bool = True,
     limit: int = 10_000,
-) -> list[dict[str, Any]]:
-    """Return matching regular files below ``raw_path`` (read-only)."""
+) -> tuple[list[dict[str, Any]], int]:
+    """Return matching files below ``raw_path`` and the number examined."""
     if raw_path is None or not str(raw_path):
-        return []
+        return [], 0
     root = resolve_read_path(ctx, raw_path)
     try:
         if root.is_file():
-            return [_file_entry(root)] if _matches(root, root.parent, patterns) else []
+            matched = (
+                [_file_entry(root)]
+                if _matches(root, root.parent, patterns)
+                else []
+            )
+            return matched, 1
         if not root.is_dir():
-            return []
+            return [], 0
     except OSError:
-        return []
+        return [], 0
 
     result: list[dict[str, Any]] = []
+    scanned = 0
     stack: list[Path] = [root]
     while stack and len(result) < limit:
         current = stack.pop()
@@ -130,12 +136,32 @@ def scan_files(
                     continue
             except OSError:
                 continue
+            scanned += 1
             if not _matches(entry, root, patterns):
                 continue
             result.append(_file_entry(entry))
             if len(result) >= limit:
                 break
-    return result
+    return result, scanned
+
+
+def scan_files(
+    ctx: Any,
+    raw_path: str | Path | None,
+    *,
+    patterns: Sequence[str] = ("*",),
+    recursive: bool = True,
+    limit: int = 10_000,
+) -> list[dict[str, Any]]:
+    """Return matching regular files below ``raw_path`` (read-only)."""
+    files, _scanned = scan_files_counted(
+        ctx,
+        raw_path,
+        patterns=patterns,
+        recursive=recursive,
+        limit=limit,
+    )
+    return files
 
 
 def normalise_files(value: Any) -> list[dict[str, Any]]:
@@ -209,5 +235,6 @@ __all__ = [
     "normalise_files",
     "resolve_read_path",
     "scan_files",
+    "scan_files_counted",
     "trigger_event",
 ]
