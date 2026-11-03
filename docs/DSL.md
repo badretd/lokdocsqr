@@ -850,6 +850,8 @@ There are **32** built-in registered node types:
 
 **Two different port concepts.** A node class exposes metadata through `.inputs` / `.outputs` for the GUI and documentation, but `parse_graph` does **not** copy that metadata into `NodeSpec`. Required-port enforcement and edge-port validation use only the `inputs`/`outputs` written in the document. If a document omits `inputs`, no input port is required even if the class declares one. This is why many examples work with only `params`.
 
+**Registry-port warning.** When an edge names a port that is not declared in the document but *is* declared on the registered node class, `validate_graph` emits a warning instead of an error. The CLI prints it to stderr and does not fail. The warning recommends adding the declaration explicitly (for example ``outputs = [{name = "path"}]``). Registry ports are never injected into `NodeSpec`, so round-tripping is unaffected. Callers collect warnings through the keyword out-parameter: ``validate_graph(document, warnings=warnings)``.
+
 **Audit convention.** Nodes construct `ActionLog` objects; the executor owns appending and finalizing (`core/executor/engine.py:_logs_from_return`, `Executor.execute`). Accepted return shapes are `ActionLog`, a non-empty list/tuple of `ActionLog`, or a dict with `"action_log"` containing one of those. In the dict case the `action_log` key is removed from `NodeResult.outputs`; in the direct case outputs are empty. `status == "planned"` is finalized to `dry_run` in dry-run, `applied` for an enabled result, or `failed` for a failed result. Run/automation ids are filled if missing.
 
 ### 9.1 `fs_ops` family
@@ -3877,6 +3879,9 @@ These are real differences that remain between prose/documentation, declared met
 
 18. **Port metadata is not injected from the registry.**
     `Node.inputs`/`outputs` in Python are GUI/documentation metadata. `parse_graph` never copies them into `NodeSpec`; required-port enforcement uses only document-declared `inputs`. This is why a graph can run with no declared ports even though the class declares required ones.
+
+19. **Registry-declared but undeclared document ports are warnings.**
+    When an edge references a port that exists on the registered node class but is absent from the document's `inputs`/`outputs`, `validate_graph` returns no error but appends a warning (via its `warnings=` out-parameter). The document is still the only source of ports; adding the declaration silences the warning. This is intentional: auto-injecting registry ports would break `parse_graph(document_to_dict(doc)) == doc`.
 
 ---
 

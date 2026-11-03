@@ -436,6 +436,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
     document = _load_document(Path(args.automation))
     _apply_scope_override(document, args, config.base_dir)
 
+    warnings: list[str] = []
+    validate_graph(document, warnings=warnings)
+    for warning in warnings:
+        print(f"warning: {warning}", file=sys.stderr)
+
     runtime = _make_runtime(args, config)
     try:
         automation_id = runtime.register(
@@ -474,7 +479,11 @@ def _cmd_compile(args: argparse.Namespace) -> int:
 
 def _cmd_validate(args: argparse.Namespace) -> int:
     document = _load_document(Path(args.automation))
-    errors = list(validate_graph(document))
+    warnings: list[str] = []
+    errors = list(validate_graph(document, warnings=warnings))
+
+    for warning in warnings:
+        print(f"warning: {warning}", file=sys.stderr)
 
     if not errors:
         try:

@@ -226,3 +226,38 @@ def test_run_explain_prints_scanned_count(
     )
     out = capsys.readouterr().out
     assert "ls: scanned 0 file(s)" in out
+
+
+# ---------------------------------------------------------------------------
+# Item 5 — registry-declared ports are warnings, not errors
+# ---------------------------------------------------------------------------
+
+
+def test_validate_warns_on_registry_port_not_in_document() -> None:
+    raw = {
+        "spec_version": "1.0",
+        "metadata": {"id": "registry-port"},
+        "nodes": [
+            {
+                "id": "src",
+                "type": "utils.path_template",
+                "params": {"template": "a.txt"},
+            },
+            {"id": "dst", "type": "fs.make_dir", "params": {"path_template": "b"}},
+        ],
+        "edges": [
+            {
+                "id": "src-dst",
+                "source": "src",
+                "target": "dst",
+                "source_port": "path",
+            }
+        ],
+    }
+    warnings: list[str] = []
+    errors = validate_graph(parse_graph(raw), warnings=warnings)
+    assert errors == []
+    assert len(warnings) == 1
+    assert "path" in warnings[0]
+    assert "utils.path_template" in warnings[0]
+    assert "outputs" in warnings[0]

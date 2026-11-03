@@ -194,8 +194,10 @@ class SubflowNode(_FlowBase):
                 warnings.append(self._warning(ctx, exc))
             result = None
         else:
-            if not result.success:
-                detail = "; ".join(result.errors) or "child run failed"
+            child_success = getattr(result, "success", True)
+            if not child_success:
+                child_errors = getattr(result, "errors", None) or []
+                detail = "; ".join(child_errors) or "child run failed"
                 errors.append(
                     {
                         "error": detail,

@@ -88,9 +88,60 @@ def _validate_path_value(
     return errors
 
 
-def validate_graph(document: WorkflowDocument) -> list[str]:
-    """Validate a WorkflowDocument and return all discovered errors."""
+def _node_class_port_names(node_type: str, direction: str) -> set[str]:
+    """Return port names declared by the registered node class, if any."""
+    try:
+        from ..node_api.registry import registry
+
+        node_cls = registry.get(node_type)
+    except (KeyError, ImportError):
+        return set()
+    try:
+        source = node_cls()
+    except Exception:  # noqa: BLE001 - metadata lookup must stay best-effort
+        source = node_cls
+    ports = getattr(source, direction, None)
+    if isinstance(ports, dict):
+        return {str(name) for name in ports}
+    if isinstance(ports, (list, tuple)):
+        names: set[str] = set()
+        for item in ports:
+            if isinstance(item, str):
+                names.add(item)
+            elif isinstance(item, dict) and item.get("name"):
+                names.add(str(item["name"]))
+        return names
+    return set()
+
+
+def _port_warning(
+    *,
+    node_id: str,
+    node_type: str,
+    port: str,
+    direction: str,
+) -> str:
+    return (
+        f"node {node_id!r}: port {port!r} is declared on node type "
+        f"{node_type!r} but not in the document; add "
+        f"`{direction} = [{{name = \"{port}\"}}]` to silence"
+    )
+
+
+def validate_graph(
+    document: WorkflowDocument, *, warnings: list[str] | None = None
+) -> list[str]:
+    """Validate a WorkflowDocument and return all discovered errors.
+
+    ``warnings`` is an optional out-parameter. When supplied, non-fatal
+    diagnostics are appended to it (for example a port that exists on the
+    registered node class but is missing from the document). Warnings never
+    cause validation to fail and are intentionally not copied into
+    ``NodeSpec``, preserving the round-trip guarantee.
+    """
     errors: list[str] = []
+    if warnings is None:
+        warnings = []
 
     if document.spec_version != "1.0":
         errors.append(
@@ -159,12 +210,39 @@ def validate_graph(document: WorkflowDocument) -> list[str]:
                         f"{source_node.id!r}"
                     )
                 elif edge.source_port not in output_names:
-                    errors.append(
-                        f"edges[{index}] references unknown output port "
-                        f"{edge.source_port!r} on node {source_node.id!r}"
+                    class_ports = _node_class_port_names(
+                        source_node.type, "outputs"
+                    )
+                    if edge.source_port in class_ports:
+                        warnings.append(
+                            _port_warning(
+                                node_id=source_node.id,
+                                node_type=source_node.type,
+                                port=edge.source_port,
+                                direction="outputs",
+                            )
+                        )
+                    else:
+                        errors.append(
+                            f"edges[{index}] references unknown output port "
+                            f"{edge.source_port!r} on node "
+                            f"{source_node.id!r}"
+                        )
+            elif edge.source_port:
+                class_ports = _node_class_port_names(
+                    source_node.type, "outputs"
+                )
+                if edge.source_port in class_ports:
+                    warnings.append(
+                        _port_warning(
+                            node_id=source_node.id,
+                            node_type=source_node.type,
+                            port=edge.source_port,
+                            direction="outputs",
+                        )
                     )
 
-        if target_node is not None:
+        if target_node is not None and getattr(edge, "kind", "data") != "order":
             input_names = {port.name for port in target_node.inputs}
             if input_names:
                 if not edge.target_port:
@@ -173,9 +251,36 @@ def validate_graph(document: WorkflowDocument) -> list[str]:
                         f"{target_node.id!r}"
                     )
                 elif edge.target_port not in input_names:
-                    errors.append(
-                        f"edges[{index}] references unknown input port "
-                        f"{edge.target_port!r} on node {target_node.id!r}"
+                    class_ports = _node_class_port_names(
+                        target_node.type, "inputs"
+                    )
+                    if edge.target_port in class_ports:
+                        warnings.append(
+                            _port_warning(
+                                node_id=target_node.id,
+                                node_type=target_node.type,
+                                port=edge.target_port,
+                                direction="inputs",
+                            )
+                        )
+                    else:
+                        errors.append(
+                            f"edges[{index}] references unknown input port "
+                            f"{edge.target_port!r} on node "
+                            f"{target_node.id!r}"
+                        )
+            elif edge.target_port:
+                class_ports = _node_class_port_names(
+                    target_node.type, "inputs"
+                )
+                if edge.target_port in class_ports:
+                    warnings.append(
+                        _port_warning(
+                            node_id=target_node.id,
+                            node_type=target_node.type,
+                            port=edge.target_port,
+                            direction="inputs",
+                        )
                     )
 
     for node in nodes:
