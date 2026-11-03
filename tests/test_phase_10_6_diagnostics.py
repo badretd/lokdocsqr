@@ -917,3 +917,25 @@ variable "s" = "text"
     assert variables["b"] == {"type": "bool", "value": True}
     assert variables["n"] == {"type": "None", "value": None}
     assert variables["s"] == {"type": "string", "value": "text"}
+
+
+# ---------------------------------------------------------------------------
+# Item 19 — item.<key> in conditions
+# ---------------------------------------------------------------------------
+
+
+def test_condition_item_attribute_lookup() -> None:
+    from lokdocsqr.core.conditions import _CondError, _evaluate
+
+    assert _evaluate(
+        "item.path == 'a.txt'", {"item": {"path": "a.txt"}}
+    )
+    assert not _evaluate(
+        "item.path == 'b.txt'", {"item": {"path": "a.txt"}}
+    )
+    with pytest.raises(_CondError):
+        _evaluate("item.path == 'a.txt'", {"item": "a.txt"})
+    with pytest.raises(_CondError):
+        _evaluate("item.missing == 1", {"item": {"path": "a.txt"}})
+    with pytest.raises(_CondError):
+        _evaluate("other.path == 1", {"other": {"path": 1}})

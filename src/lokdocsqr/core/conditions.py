@@ -86,6 +86,19 @@ def _tokenize(expr: str) -> list[tuple[str, str]]:
             while i < n and expr[i] in _IDENT_CONT:
                 i += 1
             word = expr[start:i]
+            # Only ``item.<key>`` is dotted; general attribute access stays
+            # unsupported (and therefore a parse error).
+            if (
+                word == "item"
+                and i + 1 < n
+                and expr[i] == "."
+                and expr[i + 1] in _IDENT_START
+            ):
+                key_start = i + 1
+                i = key_start + 1
+                while i < n and expr[i] in _IDENT_CONT:
+                    i += 1
+                word = expr[start:i]
             if word in ("and", "or", "not", "in"):
                 tokens.append(("OP", word))
             elif word in ("True", "False", "None"):
@@ -130,9 +143,16 @@ def _tokenize(expr: str) -> list[tuple[str, str]]:
 
 
 def _lookup(name: str, mapping: dict[str, Any]) -> Any:
-    if name not in mapping:
-        raise _CondError("unknown name")
-    value = mapping[name]
+    if name.startswith("item."):
+        item = mapping.get("item")
+        key = name[len("item.") :]
+        if not isinstance(item, dict) or key not in item:
+            raise _CondError("unknown item field")
+        value = item[key]
+    else:
+        if name not in mapping:
+            raise _CondError("unknown name")
+        value = mapping[name]
     if isinstance(value, (types.ModuleType, type)) or callable(value):
         raise _CondError("unsafe value")
     return value

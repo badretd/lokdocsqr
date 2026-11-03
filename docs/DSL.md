@@ -2472,7 +2472,7 @@ There is exactly one optional comparison per `comparison`; chained comparisons (
 | Whitespace | any `str.isspace()` |
 | Strings | single or double quoted; escapes `\n`, `\r`, `\t`, `\\`, `\'`, `\"`; other escapes are taken literally |
 | Numbers | optional `-`, digits, optional `.` and digits; no exponent form in conditions |
-| Identifiers | ASCII letter or `_`, then ASCII letters/digits/`_`; dots are **not** part of identifiers |
+| Identifiers | ASCII letter or `_`, then ASCII letters/digits/`_`; the single form `item.<key>` is also recognized |
 | Constants | `True`, `False`, `None` (capitalized only) |
 | Operators | `==`, `!=`, `<`, `<=`, `>`, `>=`, `and`, `or`, `not`, `in` |
 | Punctuation | `(`, `)`, `[`, `]`, `,` |
@@ -2508,7 +2508,7 @@ Upstream outputs are visible only when an edge delivers them into a payload key;
 
 `flow.if_branch` in scalar mode uses the payload dict (minus `condition`) as the per-item mapping. `flow.filter` keeps `condition` out of the base mapping.
 
-There is no nested field access in the language. A dotted expression such as `item.path` is not an identifier and is a parse error. Because item dicts are merged into the top-level mapping, use `path` rather than `item.path` for dict items. For non-dict items, `item` is the whole value.
+The only dotted form is `item.<key>`: when `item` is a dict, `item.path` reads its `path` key. This is not general attribute access; `other.path`, nested paths such as `item.a.b`, and reflection are not supported and are condition errors. Because item dicts are also merged into the top-level mapping, `path` remains available as a shorthand. For non-dict items, `item` is the whole value and `item.<key>` is a condition error.
 
 `_lookup` rejects unknown names and unsafe values: modules, classes, and callables are rejected with a condition error. There is no `eval`, `exec`, `compile`, `ast`, `getattr`, or filesystem access in the evaluator.
 
@@ -3848,7 +3848,7 @@ edge "classify-validate" {
 | A condition always errors on `true`/`false` | Condition constants are `True`/`False`/`None`; lowercase words are identifiers | Use capitalized constants or a variable |
 | `path == "/tmp"` is a condition error | Conditions reject `/` and `\` anywhere | Compare a path-free field, or compute the path in `utils.path_template` |
 | `in` condition errors | Right operand is not a string/list/tuple/set/dict | Use a supported container |
-| `item.path` is a condition parse error | Dotted names are not identifiers | Use `path` after dict-item merging, or `item` for a scalar |
+| `item.path` errors | `item` is not a dict, or the key is absent | `item.<key>` only works for dict items and one level deep; use `path` for merged dict items |
 | `edge.condition` does not skip the target | Another inbound data edge is ungated/truthy, or the condition evaluated falsy/errored | Every inbound data edge must have a falsy condition to skip; check §11 constants and names |
 | `fs.make_dir`/`fs.write_file` leaves `{name}` literal | These nodes do not inject file-derived variables | Pass `variables = {name = ...}` or use a source→target node |
 | `absolute paths are not allowed` during validation | A path-like param starts with `/`, `~`, or a drive letter | Use a relative path; absolute **sources** are resolved by the node, but templates are rejected |
