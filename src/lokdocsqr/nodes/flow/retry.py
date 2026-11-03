@@ -46,8 +46,8 @@ class FlowRetry(_FlowBase):
         on_error = bool(payload.get("on_error", False))
         retry_policy = payload.get("retry_policy")
         return {
-            "retry": True if on_error else None,
-            "pass": True if not on_error else None,
+            "retry": on_error,
+            "pass": not on_error,
             "retry_policy": retry_policy,
             "on_error": on_error,
         }

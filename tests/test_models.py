@@ -412,14 +412,20 @@ def test_actionlog_roundtrip_to_from_dict() -> None:
     assert restored.extra == {"k": "v", "nested": {"ok": True}}
 
 
-def test_actionlog_from_dict_tolerates_bad_input() -> None:
-    """from_dict should coerce unknown risk/confidence safely."""
-    log = ActionLog.from_dict(
-        {"action_type": "move", "risk": "NOPE", "confidence": "not-a-number"}
-    )
-    assert log.risk is Risk.LOW
-    assert log.confidence == 0.0
-    assert log.status == "planned"
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"action_type": "move", "risk": "NOPE"},
+        {"action_type": "move", "confidence": "not-a-number"},
+        {"action_type": "move", "dry_run": "not-a-bool"},
+        {"action_type": "move", "rollback_eligible": "not-a-bool"},
+        {"action_type": "move", "extra": ["not", "a", "mapping"]},
+    ],
+)
+def test_actionlog_from_dict_rejects_corrupt_fields(payload) -> None:
+    """Audit fields fail closed instead of being silently defaulted."""
+    with pytest.raises(ValueError):
+        ActionLog.from_dict(payload)
 
 
 def test_fileref_and_runresult_defaults_isolated() -> None:

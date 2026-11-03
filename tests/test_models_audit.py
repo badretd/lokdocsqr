@@ -84,6 +84,36 @@ def test_actionlog_from_dict_missing_key_raises_keyerror() -> None:
         ActionLog.from_dict({})
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"action_type": "move", "risk": "NOPE"},
+        {"action_type": "move", "confidence": "not-a-number"},
+        {"action_type": "move", "dry_run": "not-a-bool"},
+        {"action_type": "move", "rollback_eligible": "not-a-bool"},
+        {"action_type": "move", "extra": ["not", "a", "mapping"]},
+    ],
+)
+def test_actionlog_from_dict_rejects_corrupt_fields(payload) -> None:
+    """Corrupt audit fields fail closed instead of being silently defaulted."""
+    with pytest.raises(ValueError):
+        ActionLog.from_dict(payload)
+
+
+def test_audit_iter_all_skips_corrupt_risk(tmp_path, caplog) -> None:
+    """A corrupt risk must not be turned into a plausible LOW-risk entry."""
+    path = tmp_path / "audit.jsonl"
+    path.write_text(
+        json.dumps({"action_type": "move", "risk": "NOPE"}) + "\n"
+        + json.dumps({"action_type": "copy", "risk": "low"}) + "\n",
+        encoding="utf-8",
+    )
+    with caplog.at_level(logging.WARNING):
+        entries = list(AuditLog(path).iter_all())
+    assert [entry.action_type for entry in entries] == ["copy"]
+    assert any("invalid risk" in record.getMessage() for record in caplog.records)
+
+
 def test_fileref_defaults() -> None:
     ref = FileRef(id="f1", path=Path("/tmp/a.txt"))
     assert ref.hash == ""

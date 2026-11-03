@@ -226,6 +226,31 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
+def _optional_str(value: Any) -> str | None:
+    """Return ``None`` unchanged, otherwise coerce to ``str``."""
+    return None if value is None else str(value)
+
+
+def _strict_bool(value: Any, *, field: str) -> bool:
+    """Parse a JSON boolean without treating arbitrary strings as truthy.
+
+    ``bool("false")`` is ``True``, which is unsafe for audit flags such
+    as ``rollback_eligible``. Accept real booleans, 0/1, and the literal
+    strings ``"true"`` / ``"false"``; reject everything else.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered == "true":
+            return True
+        if lowered == "false":
+            return False
+    raise ValueError(f"invalid {field}: {value!r}")
+
+
 @dataclass
 class FileRef:
     """Reference to a file known to a workflow."""
@@ -319,6 +344,13 @@ class ActionLog:
             KeyError: if the required identity key ``action_type``
                 is absent. Silent defaulting would mask corrupted
                 audit lines and hide serialization bugs.
+            ValueError: if a present field has an invalid value (risk,
+                confidence, boolean flags, extra). ``AuditLog.iter_all``
+                treats such lines as malformed and skips them rather
+                than manufacturing a plausible-looking record.
+
+        Absent optional fields keep their model defaults for backward
+        compatibility with older audit lines.
         """
         if "action_type" not in data:
             raise KeyError("action_type")
@@ -328,32 +360,44 @@ class ActionLog:
         else:
             try:
                 risk = Risk(str(risk_raw).lower())
-            except ValueError:
-                risk = Risk.LOW
+            except ValueError as exc:
+                raise ValueError(f"invalid risk: {risk_raw!r}") from exc
 
         source = data.get("source")
         target = data.get("target")
         confidence_raw = data.get("confidence", 0.0)
         try:
             confidence = float(confidence_raw)
-        except (TypeError, ValueError):
-            confidence = 0.0
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"invalid confidence: {confidence_raw!r}"
+            ) from exc
+
+        extra_raw = data.get("extra") or {}
+        if not isinstance(extra_raw, dict):
+            raise ValueError(
+                "invalid extra: expected mapping, "
+                f"got {type(extra_raw).__name__}"
+            )
 
         return cls(
             run_id=str(data.get("run_id") or ""),
             node_id=str(data.get("node_id") or ""),
             automation_id=str(data.get("automation_id") or ""),
             action_type=str(data.get("action_type") or ""),
-            source=None if source is None else str(source),
-            target=None if target is None else str(target),
+            source=_optional_str(source),
+            target=_optional_str(target),
             status=str(data.get("status") or "planned"),
-            dry_run=bool(data.get("dry_run", False)),
+            dry_run=_strict_bool(data.get("dry_run", False), field="dry_run"),
             reason=str(data.get("reason") or ""),
             confidence=confidence,
             risk=risk,
             timestamp=str(data.get("timestamp") or _utc_now_iso()),
-            rollback_eligible=bool(data.get("rollback_eligible", False)),
-            extra=dict(data.get("extra") or {}),
+            rollback_eligible=_strict_bool(
+                data.get("rollback_eligible", False),
+                field="rollback_eligible",
+            ),
+            extra=dict(extra_raw),
         )
 
 

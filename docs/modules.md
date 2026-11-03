@@ -190,8 +190,9 @@ nodes, not part of the plugin API, and not imported outside their node family:
 
 - `nodes/fs_ops/_common.py` — shared helpers: `build_action_log`,
   `render_and_check`, `resolve_conflict_policy`, `build_trash_sidecar`.
-- `nodes/fs_ops/_base.py` — `FsOpsBase(Node)`: `_run_template(ctx, payload)`
-  scaffolding so concrete nodes declare only `run`/`dry_run` as thin wrappers.
+- `nodes/fs_ops/_base.py` — `FsNode` / `FsTemplateNode`: `describe`,
+  template rendering, and `_run_template(ctx, payload)` scaffolding so
+  concrete nodes declare only `run`/`dry_run` as thin wrappers.
 
 **Rules:**
 

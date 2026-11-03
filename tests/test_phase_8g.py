@@ -238,20 +238,24 @@ def test_retry_describe() -> None:
 def test_retry_on_error_true() -> None:
     out = FlowRetry()._execute(None, {"on_error": True})
     assert out["retry"] is True
-    assert out["pass"] is None
+    assert out["pass"] is False
+    assert isinstance(out["retry"], bool)
+    assert isinstance(out["pass"], bool)
     assert out["on_error"] is True
 
 
 def test_retry_on_error_false() -> None:
     out = FlowRetry()._execute(None, {"on_error": False})
-    assert out["retry"] is None
+    assert out["retry"] is False
     assert out["pass"] is True
+    assert isinstance(out["retry"], bool)
+    assert isinstance(out["pass"], bool)
     assert out["on_error"] is False
 
 
 def test_retry_on_error_missing() -> None:
     out = FlowRetry()._execute(None, {})
-    assert out["retry"] is None
+    assert out["retry"] is False
     assert out["pass"] is True
     assert out["on_error"] is False
 
