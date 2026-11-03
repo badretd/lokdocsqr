@@ -445,10 +445,11 @@ error_handling {
   max_retries = <int>
   retry_delay_seconds = <number>
   backoff = <"none"|"linear"|"exponential">
+  strict_retry_safe = <bool>
 }
 ```
 
-Maps to `settings.error_handling`. `parse_graph` accepts any string for `strategy` and `backoff`; the executor clamps unknown strategies to `fail` (`executor/engine.py:Executor.execute`), and `_retry_delay` treats unknown backoff as `none`.
+Maps to `settings.error_handling` (and `strict_retry_safe` to `settings.strict_retry_safe`). `parse_graph` accepts any string for `strategy` and `backoff`; the executor clamps unknown strategies to `fail` (`executor/engine.py:Executor.execute`), and `_retry_delay` treats unknown backoff as `none`. `strict_retry_safe` defaults to `false`: a `retry_policy` on a non-retry-safe node warns and runs; setting it to `true` restores the pre-10.6 fail-before-run behavior (§14.5).
 
 ### 5.7 Variables
 
@@ -800,7 +801,7 @@ The emitter would drop `source_port = "out"` and `target_port = "in"` (they are 
 | `default_dry_run = v` | `settings.default_dry_run` | bool default `true` |
 | `max_concurrency = v` | `settings.max_concurrency` | int default `1`, must be `>= 1` |
 | `scope { ... }` | `settings.scope` | `roots`, `writable`, `allow_symlinks`, `policy_ref` |
-| `error_handling { ... }` | `settings.error_handling` | `strategy`, `max_retries`, `retry_delay_seconds`, `backoff` |
+| `error_handling { ... }` | `settings.error_handling` | `strategy`, `max_retries`, `retry_delay_seconds`, `backoff`; `strict_retry_safe` maps to `settings.strict_retry_safe` |
 | `variable "<name>" { ... }` | `variables.<name>` | object `{type, value, description}` |
 | `variable "<name>" = value` | `variables.<name>` | shorthand forces `type = "string"` |
 | `trigger "<id>" { ... }` | `triggers[]` | entry `{id, type, title?, params?}` |
@@ -2915,7 +2916,7 @@ Any node payload may include `retry_policy` (`core/executor/engine.py:_read_node
 Semantics:
 
 * The policy is rejected (`NodeExecutionError`) if malformed, if `attempts < 1`, if `backoff < 0`, or if `retry_on` contains a non-string.
-* A per-node policy is allowed only when the node class has `retry_safe=True`; otherwise the node fails **before** `run` is called (`retry_policy on non-retry-safe node ...`). This is why all fs_ops nodes (which default `retry_safe=False`) cannot use `retry_policy`.
+* A per-node policy on a node whose class has `retry_safe=False` emits a warning and still runs by default (`RunResult.warnings`: `node '<id>': retry_policy on non-retry-safe type '<type>'; retry may duplicate side effects`). Set `error_handling.strict_retry_safe = true` (or `settings.strict_retry_safe` in JSON) to restore the old fail-before-`run` behavior (`retry_policy on non-retry-safe node ...`). All fs_ops nodes default `retry_safe=False`.
 * If a per-node policy is present, it takes precedence over `settings.error_handling`; the graph-level strategy is not used for that node, even if the policy does not match the exception.
 * Retry occurs only when `type(exc).__name__` is in `retry_on` and `attempts < attempts_limit`. Non-`NodeExecutionError` exceptions are wrapped as `NodeExecutionError` first, so `retry_on` usually names `"NodeExecutionError"` or the original class is preserved in the message, not the type. (The wrapper always changes the type; match on `"NodeExecutionError"` for ordinary failures.)
 * Per-node retry delay is `backoff * 2**(attempts-1)` and sleeps via `ctx.clock.sleep`, not the executor's `sleep` argument.
@@ -3828,7 +3829,7 @@ edge "classify-validate" {
 | `outside scope` / `no writable roots` | Path is outside `roots`/`writable`, or no roots configured | Add the path to `scope.writable` and `scope.roots`; configure `base_dir` |
 | A required input port fails at execution even though the node class lists it | The document did not declare `inputs`; registry metadata is not injected | Declare `inputs` on the node, or provide `params`/edges/defaults |
 | Downstream receives `None` from an fs node | The upstream port name or the document edge does not match the produced key | Wire the declared `file`/`files` output; `fs.copy`, `fs.move`, `fs.rename`, `fs.archive`, `fs.convert`, and `fs.trash` now populate it |
-| `retry_policy` on an fs node fails before `run` | `retry_safe=False` | Remove the policy or use a retry-safe node |
+| `retry_policy` on an fs node warns about side effects | `retry_safe=False` | Remove the policy, use a retry-safe node, or set `error_handling.strict_retry_safe = true` to reject it |
 | `flow.wait` does not pause during dry-run | Dry-run is side-effect free by design | Read `would_sleep` for the duration it would have waited |
 | A `flow.subflow`/`flow.loop_batch` plan errors | Nested previews fail closed | Set `recursive_preview=true` only when a planning callback is wired |
 | `subflow: graph_id not found` | Id is not in `ctx.automations` | Register the child automation with `Runtime`; use a catalog id, not a path |

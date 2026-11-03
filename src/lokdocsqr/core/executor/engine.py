@@ -554,6 +554,7 @@ class Executor:
 
             retry_policy: dict[str, Any] | None = None
             retry_policy_error: NodeExecutionError | None = None
+            node_warnings: list[str] = []
             if not self.ctx.dry_run:
                 try:
                     retry_policy = _read_node_retry_policy(
@@ -565,10 +566,22 @@ class Executor:
                     if retry_policy is not None and not getattr(
                         node, "retry_safe", False
                     ):
-                        retry_policy_error = NodeExecutionError(
-                            f"retry_policy on non-retry-safe node "
-                            f"{node_id!r} (retry_safe=False)"
-                        )
+                        if getattr(
+                            document.settings,
+                            "strict_retry_safe",
+                            False,
+                        ):
+                            retry_policy_error = NodeExecutionError(
+                                f"retry_policy on non-retry-safe node "
+                                f"{node_id!r} (retry_safe=False)"
+                            )
+                        else:
+                            node_warnings.append(
+                                f"node {node_id!r}: retry_policy on "
+                                f"non-retry-safe type "
+                                f"{getattr(node_spec, 'type', '')!r}; "
+                                f"retry may duplicate side effects"
+                            )
 
             attempts = 0
             result: NodeResult | None = None
@@ -650,6 +663,8 @@ class Executor:
                     break
 
             assert result is not None
+            if node_warnings:
+                result.warnings.extend(node_warnings)
             node_results[node_id] = result
             warnings.extend(result.warnings)
 

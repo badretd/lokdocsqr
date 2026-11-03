@@ -23,7 +23,18 @@ from lokdocsqr.core.graph import (
     resolve_states,
     validate_graph,
 )
-from lokdocsqr.core.models import EdgeSpec, NodeSpec, PortSpec, WorkspaceScope
+from lokdocsqr.core.models import (
+    EdgeSpec,
+    NodeSpec,
+    NodeState,
+    PortSpec,
+    ResolvedGraph,
+    WorkflowDocument,
+    WorkflowMetadata,
+    WorkflowSettings,
+    WorkspaceScope,
+)
+from lokdocsqr.core.node_api.base import Node
 from lokdocsqr.core.scope import ScopeManager
 from lokdocsqr.core.node_api.registry import registry
 from lokdocsqr.core.payload import build_node_payload
@@ -632,3 +643,83 @@ def test_cli_dry_run_with_loop_batch_succeeds(
     )
     capsys.readouterr()
     assert not (workspace / "child-out").exists()
+
+
+# ---------------------------------------------------------------------------
+# Item 13 — retry_safe is a warning by default
+# ---------------------------------------------------------------------------
+
+
+class _NonSafeNode(Node):
+    id = "test.non-safe"
+
+    def __init__(self) -> None:
+        self.run_calls = 0
+
+    @property
+    def title(self) -> str:
+        return "Non safe"
+
+    def run(self, ctx: Any, payload: Any) -> Any:
+        self.run_calls += 1
+        return {}
+
+    def dry_run(self, ctx: Any, payload: Any) -> Any:
+        return self.run(ctx, payload)
+
+
+def _retry_document(*, strict: bool) -> WorkflowDocument:
+    return WorkflowDocument(
+        spec_version="1.0",
+        metadata=WorkflowMetadata(id="retry-safe"),
+        settings=WorkflowSettings(strict_retry_safe=strict),
+        nodes=[
+            NodeSpec(
+                id="n",
+                type="test.non-safe",
+                params={
+                    "retry_policy": {
+                        "attempts": 2,
+                        "retry_on": ["NodeExecutionError"],
+                    }
+                },
+            )
+        ],
+        edges=[],
+    )
+
+
+def _retry_graph(document: WorkflowDocument, node: Any) -> ResolvedGraph:
+    return ResolvedGraph(
+        document=document,
+        ordered_node_ids=["n"],
+        handlers={"n": node},
+        states={"n": NodeState.ENABLED},
+    )
+
+
+def test_retry_policy_on_non_safe_warns_and_runs(
+    tmp_path: Path,
+) -> None:
+    document = _retry_document(strict=False)
+    node = _NonSafeNode()
+    result = Executor(make_ctx(tmp_path)).execute(
+        _retry_graph(document, node)
+    )
+    assert result.success is True
+    assert node.run_calls == 1
+    assert any(
+        "retry_policy on non-retry-safe" in warning
+        for warning in result.warnings
+    )
+
+
+def test_strict_retry_safe_rejects(tmp_path: Path) -> None:
+    document = _retry_document(strict=True)
+    node = _NonSafeNode()
+    result = Executor(make_ctx(tmp_path)).execute(
+        _retry_graph(document, node)
+    )
+    assert result.success is False
+    assert node.run_calls == 0
+    assert any("retry_safe=False" in error for error in result.errors)

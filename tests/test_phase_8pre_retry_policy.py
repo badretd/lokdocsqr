@@ -104,6 +104,7 @@ def test_retry_safe_false_blocks_retry_and_run_not_called(exec_ctx):
                         params={"retry_policy": {"attempts": 3,
                                                  "retry_on": ["NodeExecutionError"],
                                                  "backoff": 0}})
+    graph.document.settings.strict_retry_safe = True
     result = Executor(exec_ctx).execute(graph)
     assert node.run_calls == 0, "node.run must not be called when retry_safe=False"
     assert result.node_results["n1"].state == NodeState.FAILED

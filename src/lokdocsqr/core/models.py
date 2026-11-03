@@ -97,6 +97,7 @@ class WorkflowSettings:
     scope: WorkflowScopeSettings = field(default_factory=WorkflowScopeSettings)
     error_handling: WorkflowErrorHandling = field(default_factory=WorkflowErrorHandling)
     max_concurrency: int = 1
+    strict_retry_safe: bool = False
 
 
 @dataclass

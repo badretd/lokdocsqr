@@ -174,6 +174,16 @@ def _parse_error_handling(
 def _parse_settings(raw: dict[str, Any], context: str) -> WorkflowSettings:
     scope_raw = _optional_dict(raw, "scope", context)
     error_raw = _optional_dict(raw, "error_handling", context)
+    strict_retry_safe = _optional_bool(
+        raw, "strict_retry_safe", context, False
+    )
+    if error_raw.get("strict_retry_safe") is not None:
+        strict_retry_safe = _optional_bool(
+            error_raw,
+            "strict_retry_safe",
+            f"{context}.error_handling",
+            False,
+        )
     return WorkflowSettings(
         default_dry_run=_optional_bool(raw, "default_dry_run", context, True),
         scope=_parse_scope_settings(scope_raw, f"{context}.scope"),
@@ -181,6 +191,7 @@ def _parse_settings(raw: dict[str, Any], context: str) -> WorkflowSettings:
             error_raw, f"{context}.error_handling"
         ),
         max_concurrency=_optional_int(raw, "max_concurrency", context, 1),
+        strict_retry_safe=strict_retry_safe,
     )
 
 

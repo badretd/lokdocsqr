@@ -211,6 +211,8 @@ def _settings_to_dict(settings: Any) -> dict[str, Any] | None:
         handling["retry_delay_seconds"] = settings.error_handling.retry_delay_seconds
     if settings.error_handling.backoff != "none":
         handling["backoff"] = settings.error_handling.backoff
+    if getattr(settings, "strict_retry_safe", False):
+        handling["strict_retry_safe"] = True
 
     if settings.default_dry_run is False:
         entry["default_dry_run"] = False
