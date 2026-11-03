@@ -2403,6 +2403,22 @@ node "wh" {
 
 An explicit document setting is absolute: a document that says `default_dry_run = true` stays a dry-run even when `config.default_dry_run = false`. The explicit-argument path is still the way to force either mode. A watch/cron binding's `params.dry_run` is passed as the explicit argument for that binding. Manual/webhook declarations do not carry a binding; use the call argument.
 
+### 10.7 `serve`
+
+`lokdocsqr serve` hosts watch/cron triggers until interrupted:
+
+```bash
+lokdocsqr serve <file-or-dir> [<file-or-dir> ...] [--base-dir DIR] [--include PATH] [--dry-run|--no-dry-run]
+```
+
+* Each positional argument is a `.ldsq` or `.json` automation file, or a directory containing them.
+* `--base-dir` sets the workspace used to resolve relative paths and the default scope.
+* `--include PATH` (repeatable; file or directory) registers additional automations, which is useful when one serving document references another by `graph_id`.
+* `--dry-run` / `--no-dry-run` become the Runtime default for bindings that do not set `params.dry_run`.
+* Registration prints `registered <automation_id>` for every document, then `serving; press Ctrl+C to stop`. Ctrl+C stops the runtime cleanly.
+
+The command performs no immediate run; trigger bindings execute through the same pipeline as `run`.
+
 ---
 
 ## 11. Condition expression language

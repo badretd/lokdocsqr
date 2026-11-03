@@ -241,6 +241,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser = subparsers.add_parser("serve", help="run watch/cron triggers until interrupted")
     _add_automation_argument(serve_parser, many=True)
     _add_run_flags(serve_parser)
+    _add_include_flags(serve_parser)
     serve_parser.set_defaults(handler=_cmd_serve)
 
     audit_parser = subparsers.add_parser("audit", help="inspect or roll back the audit log")
@@ -681,7 +682,14 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         documents.append(document)
 
     runtime = _make_runtime(args, config, default_dry_run=args.dry_run)
-    for document in documents:
+    seen: set[str] = set()
+    for document in [
+        *documents,
+        *_load_included_documents(getattr(args, "include", [])),
+    ]:
+        if document.metadata.id in seen:
+            continue
+        seen.add(document.metadata.id)
         automation_id = runtime.register(document)
         print(f"registered {automation_id}", flush=True)
 

@@ -812,3 +812,18 @@ def test_document_default_dry_run_wins_over_config(
     assert result.dry_run is True
     assert result.success is True
     assert not (tmp_path / "created").exists()
+
+
+# ---------------------------------------------------------------------------
+# Item 16 — serve help documents file/dir, base-dir and include
+# ---------------------------------------------------------------------------
+
+
+def test_serve_help_mentions_flags(capsys: Any) -> None:
+    with pytest.raises(SystemExit) as exc:
+        main(["serve", "--help"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "--base-dir" in out
+    assert "--include" in out
+    assert "AUTOMATION" in out
