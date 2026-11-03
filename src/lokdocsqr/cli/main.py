@@ -138,6 +138,19 @@ def _add_run_flags(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_include_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--include",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help=(
+            "register an additional automation file or directory of "
+            ".ldsq/.json files before running (repeatable)"
+        ),
+    )
+
+
 def _add_automation_argument(parser: argparse.ArgumentParser, *, many: bool = False) -> None:
     parser.add_argument(
         "automation",
@@ -167,6 +180,15 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser = subparsers.add_parser("run", help="execute an automation once")
     _add_automation_argument(run_parser)
     _add_run_flags(run_parser)
+    _add_include_flags(run_parser)
+    run_parser.add_argument(
+        "--catalog-fallback",
+        action="store_true",
+        help=(
+            "when a graph_id is missing from the catalog, try "
+            "<base_dir>/<graph_id>.ldsq then .json"
+        ),
+    )
     run_parser.add_argument(
         "--automation-id",
         metavar="ID",
@@ -203,6 +225,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_automation_argument(validate_parser)
     _add_config_flags(validate_parser)
+    _add_include_flags(validate_parser)
     validate_parser.add_argument("--json", action="store_true", help="print the result as JSON")
     validate_parser.add_argument(
         "--first-error",
@@ -325,6 +348,67 @@ def _load_document(path: Path) -> WorkflowDocument:
     return parse_graph(raw)
 
 
+def _iter_automation_paths(raw: str | Path) -> list[Path]:
+    """Expand an ``--include`` file or directory into automation files."""
+    path = Path(raw)
+    if path.is_dir():
+        return sorted(
+            item
+            for item in path.iterdir()
+            if item.is_file()
+            and item.suffix.lower() in (_JSON_SUFFIX, DSL_EXTENSION)
+        )
+    return [path]
+
+
+def _load_included_documents(paths: list[str] | None) -> list[WorkflowDocument]:
+    documents: list[WorkflowDocument] = []
+    for raw in paths or []:
+        for path in _iter_automation_paths(raw):
+            documents.append(_load_document(path))
+    return documents
+
+
+def _register_catalog_fallback(
+    runtime: Runtime,
+    documents: list[WorkflowDocument],
+    config: AppConfig,
+) -> None:
+    """CLI-only convenience: load ``<base_dir>/<graph_id>.ldsq|json``."""
+    existing = set(runtime.automation_ids)
+    wanted: set[str] = set()
+    for document in documents:
+        for node in document.nodes:
+            graph_id = node.params.get("graph_id")
+            if (
+                isinstance(graph_id, str)
+                and graph_id
+                and graph_id not in existing
+            ):
+                wanted.add(graph_id)
+    for graph_id in sorted(wanted):
+        for suffix in (DSL_EXTENSION, _JSON_SUFFIX):
+            candidate = Path(config.base_dir) / f"{graph_id}{suffix}"
+            if not candidate.exists():
+                continue
+            try:
+                document = _load_document(candidate)
+                runtime.register(document, automation_id=graph_id)
+            except Exception as exc:  # noqa: BLE001 - report and keep going
+                print(
+                    f"warning: catalog fallback for {graph_id!r} failed "
+                    f"({candidate}): {exc}",
+                    file=sys.stderr,
+                )
+                continue
+            print(
+                f"warning: graph_id {graph_id!r} was not in the catalog; "
+                f"loaded {candidate}",
+                file=sys.stderr,
+            )
+            break
+
+
 def _compile_payload(path: Path) -> dict[str, Any]:
     """Return the canonical JSON automation schema for a ``.json``/``.ldsq`` file."""
     suffix, text = _read_automation(path)
@@ -444,7 +528,15 @@ def _cmd_run(args: argparse.Namespace) -> int:
     for warning in warnings:
         print(f"warning: {warning}", file=sys.stderr)
 
+    included = _load_included_documents(getattr(args, "include", []))
     runtime = _make_runtime(args, config)
+    for included_document in included:
+        if included_document.metadata.id == document.metadata.id:
+            continue
+        try:
+            runtime.register(included_document)
+        except ValueError as exc:
+            print(f"warning: {exc}", file=sys.stderr)
     try:
         automation_id = runtime.register(
             document,
@@ -455,6 +547,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
             first = str(exc).split("; ", 1)[0]
             raise GraphValidationError(first) from exc
         raise
+    if getattr(args, "catalog_fallback", False):
+        _register_catalog_fallback(
+            runtime, [document, *included], config
+        )
     result = runtime.run_once(automation_id, dry_run=args.dry_run)
 
     output_format = _output_format(args)
@@ -487,6 +583,20 @@ def _cmd_validate(args: argparse.Namespace) -> int:
 
     for warning in warnings:
         print(f"warning: {warning}", file=sys.stderr)
+
+    for included_document in _load_included_documents(
+        getattr(args, "include", [])
+    ):
+        if included_document.metadata.id == document.metadata.id:
+            continue
+        included_warnings: list[str] = []
+        included_errors = validate_graph(
+            included_document, warnings=included_warnings
+        )
+        for warning in included_warnings:
+            print(f"warning: {warning}", file=sys.stderr)
+        prefix = f"{included_document.metadata.id}: "
+        errors.extend(prefix + error for error in included_errors)
 
     if not errors:
         try:

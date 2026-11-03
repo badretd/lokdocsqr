@@ -514,3 +514,60 @@ def test_move_target_dir_outside_scope_rejected(
                 "target_dir": "../escape",
             },
         )
+
+
+# ---------------------------------------------------------------------------
+# Item 11 — CLI --include for catalogs
+# ---------------------------------------------------------------------------
+
+
+def test_cli_run_include_two_files(
+    tmp_path: Path, capsys: Any
+) -> None:
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    child = tmp_path / "child.ldsq"
+    child.write_text(
+        """\
+automation "child"
+node "mk" {
+  type = "fs.make_dir"
+  params {
+    path_template = "child-out"
+  }
+}
+""",
+        encoding="utf-8",
+    )
+    parent = tmp_path / "parent.ldsq"
+    parent.write_text(
+        """\
+automation "parent"
+node "loop" {
+  type = "flow.loop_batch"
+  params {
+    items = []
+    graph_id = "child"
+  }
+}
+""",
+        encoding="utf-8",
+    )
+    assert (
+        main(
+            [
+                "run",
+                str(parent),
+                "--include",
+                str(tmp_path),
+                "--base-dir",
+                str(workspace),
+                "--scope",
+                str(workspace),
+                "--no-dry-run",
+            ]
+        )
+        == 0
+    )
+    result = capsys.readouterr()
+    assert "parent" in result.out

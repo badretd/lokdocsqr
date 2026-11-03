@@ -157,9 +157,11 @@ lokdocsqr compile automation.ldsq
 lokdocsqr validate automation.ldsq
 lokdocsqr run automation.ldsq --dry-run
 lokdocsqr run automation.ldsq --no-dry-run   # explicit real-run opt-in
+lokdocsqr run parent.ldsq --include .         # register sibling child automations
+lokdocsqr run parent.ldsq --catalog-fallback # opt-in <base_dir>/<graph_id>.ldsq lookup
 ```
 
-The CLI accepts only `.json` and `.ldsq` (`src/lokdocsqr/cli/main.py:_read_automation`).
+The CLI accepts only `.json` and `.ldsq` (`src/lokdocsqr/cli/main.py:_read_automation`). `--include` is repeatable, accepts a file or a directory of automation files, and registers every document before the main run; the main document is skipped if a directory includes it. `--catalog-fallback` is an opt-in CLI convenience that loads `<base_dir>/<graph_id>.ldsq` then `.json` when a `graph_id` is missing from the catalog, printing a warning.
 
 ---
 
@@ -2962,7 +2964,9 @@ Payload requirements:
 
 `Runtime._catalog()` builds a fresh `AutomationCatalog` from all currently registered automations, calling `_build` for each; failures are logged and the automation is omitted. The catalog is a read-only-by-convention `{graph_id: ResolvedGraph}` map (`core/catalog.py`).
 
-There is no filesystem subflow addressing. `graph_id="other.json"`, `"a/b"`, or `"a\\b"` is rejected with a message telling you to use an `AutomationCatalog` graph id.
+There is no filesystem subflow addressing inside a document. `graph_id="other.json"`, `"a/b"`, or `"a\\b"` is rejected with a message telling you to use an `AutomationCatalog` graph id.
+
+The CLI is the exception: `--include <path>` (repeatable; file or directory of `.ldsq`/`.json`) registers extra documents in the runtime catalog before execution. With `--catalog-fallback`, a missing `graph_id` is looked up on disk as `<base_dir>/<graph_id>.ldsq` then `<base_dir>/<graph_id>.json`, with a warning. This is CLI-only sugar; the library still requires an explicitly registered catalog.
 
 ### 15.3 Scope inheritance
 
@@ -2972,7 +2976,7 @@ The child context is created with `dataclasses.replace(ctx, variables=..., flow_
 * variables are `{**ctx.variables, "flow.run_id": ..., "flow.automation_id": graph_id, "flow.depth": ctx.flow_depth+1, "flow.parent_run_id": ctx.run_id}`;
 * the child document's `settings.scope` is **not** applied; the parent's `ScopeManager` is reused.
 
-For inline graphs the same inheritance applies; `graph_id` is `None` and no stack entry is pushed.
+For inline graphs the same inheritance applies; `graph_id` is `None` and no stack entry is pushed. Documents registered through `run --include` (or the opt-in `--catalog-fallback`) participate in the same catalog and therefore the same scope inheritance as any other registered automation.
 
 ### 15.4 Cycle detection and depth
 
