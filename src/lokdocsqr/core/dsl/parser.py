@@ -481,6 +481,8 @@ class _Parser:
                 edge[key] = body[key]
         if body.get("label"):
             edge["label"] = body["label"]
+        if body.get("kind"):
+            edge["kind"] = body["kind"]
         return edge
 
 

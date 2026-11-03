@@ -153,6 +153,7 @@ class EdgeSpec:
     source_port: str = "out"
     target_port: str = "in"
     label: str = ""
+    kind: str = "data"
 
 
 @dataclass

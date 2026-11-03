@@ -270,11 +270,16 @@ def _parse_edge(raw: Any, index: int) -> EdgeSpec:
         if not isinstance(raw_id, str) or not raw_id:
             _fail(f"{context}.id must be a non-empty string")
         edge_id = raw_id
+    kind = _optional_str(obj, "kind", context, "data")
+    if kind not in ("data", "order"):
+        _fail(
+            f"{context}.kind must be 'data' or 'order', got {kind!r}"
+        )
     source_port = _optional_str(obj, "source_port", context, "out")
     target_port = _optional_str(obj, "target_port", context, "in")
     if not source_port:
         _fail(f"{context}.source_port must be non-empty")
-    if not target_port:
+    if kind != "order" and not target_port:
         _fail(f"{context}.target_port must be non-empty")
     return EdgeSpec(
         id=edge_id,
@@ -283,6 +288,7 @@ def _parse_edge(raw: Any, index: int) -> EdgeSpec:
         source_port=source_port,
         target_port=target_port,
         label=_optional_str(obj, "label", context, ""),
+        kind=kind,
     )
 
 

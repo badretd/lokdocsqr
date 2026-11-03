@@ -62,6 +62,8 @@ def build_node_payload(
     port_values: dict[str, list[Any]] = {}
     outputs = outputs_by_node or {}
     for edge in inbound_edges or []:
+        if getattr(edge, "kind", "data") == "order":
+            continue
         source = getattr(edge, "source", None)
         source_port = getattr(edge, "source_port", None)
         target_port = getattr(edge, "target_port", None)

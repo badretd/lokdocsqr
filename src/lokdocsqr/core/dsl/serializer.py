@@ -144,6 +144,8 @@ def _edge_to_dict(edge: EdgeSpec) -> dict[str, Any]:
         entry["target_port"] = edge.target_port
     if edge.label:
         entry["label"] = edge.label
+    if edge.kind != "data":
+        entry["kind"] = edge.kind
     return entry
 
 
@@ -348,6 +350,8 @@ def _emit_edge(lines: list[str], edge: dict[str, Any]) -> None:
         lines.append(f"  source_port = {_fmt_value(edge['source_port'])}")
     if edge.get("target_port", "in") != "in":
         lines.append(f"  target_port = {_fmt_value(edge['target_port'])}")
+    if edge.get("kind", "data") != "data":
+        lines.append(f"  kind = {_fmt_value(edge['kind'])}")
     if edge.get("label"):
         lines.append(f"  label = {_fmt_value(edge['label'])}")
     lines.append("}")

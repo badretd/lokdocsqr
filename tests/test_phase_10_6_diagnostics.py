@@ -18,7 +18,9 @@ from lokdocsqr.core.graph import (
     resolve_states,
     validate_graph,
 )
+from lokdocsqr.core.models import EdgeSpec, NodeSpec, PortSpec
 from lokdocsqr.core.node_api.registry import registry
+from lokdocsqr.core.payload import build_node_payload
 
 
 def _run_document(tmp_path: Path, raw: dict[str, Any]) -> Any:
@@ -261,3 +263,60 @@ def test_validate_warns_on_registry_port_not_in_document() -> None:
     assert "path" in warnings[0]
     assert "utils.path_template" in warnings[0]
     assert "outputs" in warnings[0]
+
+
+# ---------------------------------------------------------------------------
+# Item 6 — edge.kind = "order"
+# ---------------------------------------------------------------------------
+
+
+def test_order_edge_does_not_require_target_port() -> None:
+    raw = {
+        "spec_version": "1.0",
+        "metadata": {"id": "order-edge"},
+        "nodes": [
+            {
+                "id": "a",
+                "type": "fs.make_dir",
+                "params": {"path_template": "a"},
+                "outputs": [{"name": "path"}],
+            },
+            {
+                "id": "b",
+                "type": "fs.make_dir",
+                "params": {"path_template": "b"},
+                "inputs": [{"name": "in"}],
+            },
+        ],
+        "edges": [
+            {
+                "id": "a-b",
+                "source": "a",
+                "target": "b",
+                "kind": "order",
+            }
+        ],
+    }
+    document = parse_graph(raw)
+    assert document.edges[0].kind == "order"
+    assert validate_graph(document) == []
+
+
+def test_order_edge_is_ignored_in_payload() -> None:
+    node = NodeSpec(
+        id="target",
+        type="fs.make_dir",
+        inputs=[PortSpec(name="value", required=False)],
+    )
+    edge = EdgeSpec(
+        id="order",
+        source="source",
+        target="target",
+        kind="order",
+    )
+    payload = build_node_payload(
+        node,
+        inbound_edges=[edge],
+        outputs_by_node={"source": {"path": "should-not-appear"}},
+    )
+    assert "value" not in payload

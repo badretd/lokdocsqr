@@ -545,10 +545,13 @@ edge "<id>" {
   source_port = <string>
   target_port = <string>
   label = <string>
+  kind = <"data"|"order">
 }
 ```
 
-`source` and `target` are required by `parse_graph`; empty values fail. `source_port` defaults to `"out"`, `target_port` defaults to `"in"`, `label` defaults to `""` (`graph/parser.py:_parse_edge`). Unknown keys in a JSON edge object are silently dropped by `parser.py:_parse_edge`.
+`source` and `target` are required by `parse_graph`; empty values fail. `source_port` defaults to `"out"`, `target_port` defaults to `"in"`, `label` defaults to `""`, and `kind` defaults to `"data"` (`graph/parser.py:_parse_edge`). Unknown keys in a JSON edge object are silently dropped by `parser.py:_parse_edge`.
+
+`kind = "order"` makes the edge an ordering-only dependency: it constrains topological order but contributes nothing to the payload and needs no `target_port`. `kind = "data"` (the default) behaves exactly as before.
 
 **DSL edge ids:** the DSL grammar requires a label after `edge`; `edge { ... }` is a parse error. There is no implicit-id shorthand in the DSL. The JSON parser, by contrast, derives `"{source}->{target}"` when `id` is absent (`graph/parser.py:_parse_edge`).
 
@@ -665,7 +668,7 @@ Node order inside the block: `type`, `title`, `state`, `description`, `params`, 
 
 Trigger order: `type`, `title`, `params`.
 
-Edge order: `source`, `target`, `source_port` (if not `"out"`), `target_port` (if not `"in"`), `label` (if non-empty).
+Edge order: `source`, `target`, `source_port` (if not `"out"`), `target_port` (if not `"in"`), `kind` (if not `"data"`), `label` (if non-empty).
 
 Metadata omission rules (`serializer.py:_metadata_to_dict`):
 
@@ -786,7 +789,7 @@ The emitter would drop `source_port = "out"` and `target_port = "in"` (they are 
 | `node ... inputs = ...` | `nodes[].inputs` | string, port object, or list |
 | `node ... outputs = ...` | `nodes[].outputs` | string, port object, or list |
 | `node ... position = {...}` | `nodes[].position` | numbers converted to float |
-| `edge "<id>" { ... }` | `edges[]` | entry `{id, source, target, source_port?, target_port?, label?}`; `condition` is not part of the schema |
+| `edge "<id>" { ... }` | `edges[]` | entry `{id, source, target, source_port?, target_port?, label?, kind?}`; `kind` defaults to `"data"`; `condition` is not part of the schema |
 | `extra_meta { ... }` | `extra_meta` | arbitrary custom data |
 | JSON-only: missing `edges[].id` | `edges[].id = "{source}->{target}"` | no DSL equivalent |
 | JSON-only: unknown top-level key | `extra_meta.<key>` | folded by `parse_graph`; no DSL equivalent |
@@ -851,6 +854,8 @@ There are **32** built-in registered node types:
 **Two different port concepts.** A node class exposes metadata through `.inputs` / `.outputs` for the GUI and documentation, but `parse_graph` does **not** copy that metadata into `NodeSpec`. Required-port enforcement and edge-port validation use only the `inputs`/`outputs` written in the document. If a document omits `inputs`, no input port is required even if the class declares one. This is why many examples work with only `params`.
 
 **Registry-port warning.** When an edge names a port that is not declared in the document but *is* declared on the registered node class, `validate_graph` emits a warning instead of an error. The CLI prints it to stderr and does not fail. The warning recommends adding the declaration explicitly (for example ``outputs = [{name = "path"}]``). Registry ports are never injected into `NodeSpec`, so round-tripping is unaffected. Callers collect warnings through the keyword out-parameter: ``validate_graph(document, warnings=warnings)``.
+
+**Ordering-only edges.** An edge with `kind = "order"` is a dependency without data. Ports are neither required nor validated, and payload resolution skips it. Use it to sequence two nodes that have no meaningful value to pass.
 
 **Audit convention.** Nodes construct `ActionLog` objects; the executor owns appending and finalizing (`core/executor/engine.py:_logs_from_return`, `Executor.execute`). Accepted return shapes are `ActionLog`, a non-empty list/tuple of `ActionLog`, or a dict with `"action_log"` containing one of those. In the dict case the `action_log` key is removed from `NodeResult.outputs`; in the direct case outputs are empty. `status == "planned"` is finalized to `dry_run` in dry-run, `applied` for an enabled result, or `failed` for a failed result. Run/automation ids are filled if missing.
 
@@ -2726,6 +2731,7 @@ The executor raises `GraphValidationError` for step 4; the planner keeps `ValueE
 
 For each inbound edge of the target node:
 
+* An edge with `kind = "order"` contributes nothing to the payload; it only constrains topological order.
 * If the edge source has no output entry (the source did not run in the ENABLED state, or its result is absent), the edge contributes nothing.
 * If the source exists and its output dict lacks `source_port`, the value appended is `None`.
 * If the source output port exists, its value is appended.
@@ -3093,6 +3099,34 @@ edge "mk-wr" {
   ]
 }
 ```
+
+**Ordering-only variant.** When two nodes must run in a fixed order but do not exchange data, use `kind = "order"` instead of inventing a fake port:
+
+```ldsq
+automation "order-two-steps"
+
+node "first" {
+  type = "fs.make_dir"
+  params {
+    path_template = "work"
+  }
+}
+
+node "second" {
+  type = "fs.make_dir"
+  params {
+    path_template = "work/done"
+  }
+}
+
+edge "first-second" {
+  source = "first"
+  target = "second"
+  kind = "order"
+}
+```
+
+The edge forces `first` before `second`; it requires no `target_port`, injects no payload, and passes `validate_graph` even though the two nodes declare no matching ports.
 
 ### 16.2 (b) Conditional evaluation with `flow.if_branch`
 

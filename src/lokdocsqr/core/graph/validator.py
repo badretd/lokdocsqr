@@ -198,6 +198,11 @@ def validate_graph(
             )
 
     for index, edge in enumerate(edges):
+        if getattr(edge, "kind", "data") == "order":
+            # Ordering-only edges never carry payload; their ports are
+            # irrelevant and must not require document declarations.
+            continue
+
         source_node = node_by_id.get(edge.source)
         target_node = node_by_id.get(edge.target)
 
