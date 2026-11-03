@@ -94,6 +94,9 @@ class WorkflowSettings:
     """Top-level workflow settings."""
 
     default_dry_run: bool = True
+    default_dry_run_explicit: bool = field(
+        default=False, compare=False, repr=False
+    )
     scope: WorkflowScopeSettings = field(default_factory=WorkflowScopeSettings)
     error_handling: WorkflowErrorHandling = field(default_factory=WorkflowErrorHandling)
     max_concurrency: int = 1

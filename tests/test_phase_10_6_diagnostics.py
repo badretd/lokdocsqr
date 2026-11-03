@@ -13,8 +13,10 @@ import pytest
 import lokdocsqr.nodes  # noqa: F401  (register built-in node families)
 from tests.helpers import make_ctx
 from lokdocsqr.cli.main import main
+from lokdocsqr.core.config import AppConfig
 from lokdocsqr.core.dsl import compile_dsl
 from lokdocsqr.core.errors import NodeExecutionError, ScopeViolation
+from lokdocsqr.core.runtime import Runtime
 from lokdocsqr.core.paths import render_template
 from lokdocsqr.core.executor.engine import Executor
 from lokdocsqr.core.graph import (
@@ -777,3 +779,36 @@ def test_retry_on_matches_cause_chain(tmp_path: Path) -> None:
     )
     assert node.run_calls == 2
     assert result.success is False
+
+
+# ---------------------------------------------------------------------------
+# Item 15 — explicit document default_dry_run wins over config
+# ---------------------------------------------------------------------------
+
+
+def test_document_default_dry_run_wins_over_config(
+    tmp_path: Path,
+) -> None:
+    raw = {
+        "spec_version": "1.0",
+        "metadata": {"id": "doc-dry-run"},
+        "settings": {"default_dry_run": True},
+        "nodes": [
+            {
+                "id": "mk",
+                "type": "fs.make_dir",
+                "params": {"path_template": "created"},
+            }
+        ],
+        "edges": [],
+    }
+    runtime = Runtime(
+        AppConfig(base_dir=tmp_path, default_dry_run=False),
+        policy=None,
+        lock_path=tmp_path / "runtime.lock",
+    )
+    runtime.register(raw)
+    result = runtime.run_once("doc-dry-run")
+    assert result.dry_run is True
+    assert result.success is True
+    assert not (tmp_path / "created").exists()

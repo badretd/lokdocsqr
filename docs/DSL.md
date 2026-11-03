@@ -2397,11 +2397,11 @@ node "wh" {
 `Runtime._execute` resolves the run mode in this order (`core/runtime.py:_execute`):
 
 1. explicit `dry_run` argument to `run_once`/`trigger`;
-2. `Runtime(default_dry_run=...)`;
-3. `document.settings.default_dry_run is False` → real run;
+2. an explicitly set `document.settings.default_dry_run` (DSL/JSON key present, or a programmatic `false`);
+3. `Runtime(default_dry_run=...)`;
 4. `config.default_dry_run` (default `true`).
 
-A watch/cron binding's `params.dry_run` is passed as the explicit argument for that binding. Manual/webhook declarations do not carry a binding; use the call argument.
+An explicit document setting is absolute: a document that says `default_dry_run = true` stays a dry-run even when `config.default_dry_run = false`. The explicit-argument path is still the way to force either mode. A watch/cron binding's `params.dry_run` is passed as the explicit argument for that binding. Manual/webhook declarations do not carry a binding; use the call argument.
 
 ---
 
@@ -3971,10 +3971,7 @@ These are real differences that remain between prose/documentation, declared met
 13. **`parse_dsl`/`validate_graph` do not validate node types or params.**
     `parse_dsl` only runs `parse_graph`. An unregistered type compiles and parses; `build_graph` raises later. Param semantics are validated inside node execution. This is intentional separation, but it means “parse succeeded” is not “the automation is runnable”.
 
-14. **`document.settings.default_dry_run = true` is not an absolute guard.**
-    `Runtime._execute` falls through to `config.default_dry_run` when the document value is `true`; only `false` forces a real run. A host config with `default_dry_run=False` can make a document that says `true` run for real. Files: `core/runtime.py:_execute`, `core/config.py:AppConfig`.
-
-15. **`fs.tag` xattr persistence is best-effort.**
+14. **`fs.tag` xattr persistence is best-effort.**
     If `safe_fs.set_xattr` is unavailable, the node logs and continues with the sidecar only. The sidecar is the durable record.
 
 16. **`utils.notify` is not transactional.**

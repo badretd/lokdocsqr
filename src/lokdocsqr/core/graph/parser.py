@@ -186,6 +186,7 @@ def _parse_settings(raw: dict[str, Any], context: str) -> WorkflowSettings:
         )
     return WorkflowSettings(
         default_dry_run=_optional_bool(raw, "default_dry_run", context, True),
+        default_dry_run_explicit="default_dry_run" in raw,
         scope=_parse_scope_settings(scope_raw, f"{context}.scope"),
         error_handling=_parse_error_handling(
             error_raw, f"{context}.error_handling"

@@ -1432,13 +1432,24 @@ class Runtime:
     ) -> RunResult:
         if dry_run is not None:
             resolved_dry_run = bool(dry_run)
+        elif (
+            getattr(
+                automation.document.settings,
+                "default_dry_run_explicit",
+                False,
+            )
+            or automation.document.settings.default_dry_run is False
+        ):
+            # An explicit document setting is absolute: it wins over both the
+            # Runtime default and the host config.
+            resolved_dry_run = bool(
+                automation.document.settings.default_dry_run
+            )
         elif self._default_dry_run is not None:
             resolved_dry_run = bool(self._default_dry_run)
-        elif automation.document.settings.default_dry_run is False:
-            resolved_dry_run = False
         else:
-            # The workflow default is still ``True`` (the safe model default).
-            # The runtime config can opt into real runs for unattended hosts.
+            # The document kept the model default (not explicitly set), so
+            # the runtime host may choose.
             resolved_dry_run = bool(
                 getattr(self.config, "default_dry_run", True)
             )
