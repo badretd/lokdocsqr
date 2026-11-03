@@ -115,12 +115,14 @@ __all__ = [
     "make_dir",
     "quarantine",
     "read_bytes",
+    "release_lock_file",
     "safe_move",
     "safe_rename",
     "set_xattr",
     "stat",
     "trash",
     "trash_target",
+    "try_create_lock",
 ]
 
 
@@ -337,6 +339,47 @@ def atomic_append(path: Path, data: str | bytes, encoding: str = "utf-8") -> Non
             os.fsync(handle.fileno())
     except OSError as exc:
         raise SafeFsError(f"atomic_append failed for {path}: {exc}") from exc
+
+
+def try_create_lock(path: Path, data: str | bytes) -> bool:
+    """Create ``path`` exclusively, returning ``False`` if it already exists.
+
+    Used by :mod:`lokdocsqr.core.runtime` for the single-instance lock. The
+    implementation lives here so the O_EXCL creation and the fsync of the
+    lock payload go through the single filesystem-mutation layer.
+    """
+    path = Path(path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise SafeFsError(f"try_create_lock: cannot create parent of {path}: {exc}") from exc
+
+    payload = data.encode("utf-8") if isinstance(data, str) else data
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        return False
+    except OSError as exc:
+        raise SafeFsError(f"try_create_lock failed for {path}: {exc}") from exc
+
+    try:
+        os.write(fd, payload)
+        os.fsync(fd)
+    except OSError as exc:
+        raise SafeFsError(f"try_create_lock write failed for {path}: {exc}") from exc
+    finally:
+        os.close(fd)
+    return True
+
+
+def release_lock_file(path: Path) -> None:
+    """Remove a runtime lock file (idempotent).
+
+    This is deliberately narrow: it is *not* a general deletion API. It only
+    exists so the runtime can release the lock it created; callers must verify
+    ownership before calling it.
+    """
+    _safe_unlink(Path(path), context="release_lock_file")
 
 
 # ---------------------------------------------------------------------------

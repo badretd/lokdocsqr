@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import pytest
-
 from lokdocsqr.core import errors
 
 # Phase 7a added the PolicyError family. All of them are children of LokError
@@ -22,6 +21,7 @@ EXPECTED_ALL = {
     "PolicyTimeoutError",
     "PolicyViolation",
     "ProposalValidationError",
+    "RuntimeLockError",
     "SafeFsError",
     "ScopeViolation",
 }

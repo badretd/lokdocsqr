@@ -28,10 +28,12 @@ It is the authoritative roadmap: file paths, responsibilities, dependency rules.
 The tree is the target layout. Current code differs in these known ways:
 
 - `core/policy.py` is a package: `core/policy/{config,decision,engine}.py`.
-- `core/runtime.py` does not exist yet (Phase 10).
+- `core/runtime.py` implements the Phase 10 watcher/cron host, single-instance
+  lock, graceful shutdown, per-run error isolation and bounded concurrency.
 - `core/preview.py`, `core/payload.py`, `core/catalog.py`, `core/clock.py`
   exist and are part of the current core surface.
-- `nodes/triggers/` and `nodes/planning/` are empty packages;
+- `nodes/triggers/*` implements `watch_folder`, `scheduled_scan`, `manual_run`
+  and `webhook`; `nodes/planning/` remains an empty package.
   `nodes/llm/local_llm.py` and `nodes/utils/*` are implemented. The LLM node
   imports `ollama` lazily and never touches the filesystem.
 - `nodes/fs_ops/*` imports `core.safe_fs`, `core.models`, `core.errors`, and
@@ -156,9 +158,13 @@ Node discovery mechanism:
 
 ### 3.11 `core/runtime.py`
 Headless service host for long-running triggers (watchers, cron):
-- starts `Watch Folder` and `Scheduled Scan` backends;
-- dispatches automation runs through `executor.engine`;
-- graceful shutdown, single-instance lock, error isolation per run.
+- starts `Watch Folder` and `Scheduled Scan` backends (polling watcher and a
+  5/6-field cron parser; no optional dependency);
+- dispatches automation runs through the real `executor.engine` pipeline;
+- graceful shutdown, single-instance lock (stale-lock recovery), error
+  isolation per run, and bounded `max_concurrency` via a thread pool;
+- runs for one automation are serialised so overlapping ticks cannot corrupt
+  its output or duplicate its audit entries.
 
 ### 3.12 `core/safe_fs.py`
 The single module interacting with the filesystem. Must be the most carefully written module in the project.
@@ -233,12 +239,17 @@ internal helper modules only; it is not a mechanism for concrete nodes to skip
 the contract. `CONTRACT.md` §Notes records this explicitly.
 
 ### 4.1 `nodes/triggers/`
+Implemented in Phase 10. All four nodes are read-only; the watcher/cron loops
+live in `core/runtime.py`, and the nodes only normalise the event into output
+ports (`files`, `paths`, `event`, `payload`, plus `changes`/`due_at` where
+relevant).
+
 | File | Node |
 |---|---|
-| `watch_folder.py` | **Watch Folder** — create/modify/delete/rename events, glob/size/mime filters, debounce. |
-| `scheduled_scan.py` | **Scheduled Scan** — cron-based filesystem scanning. |
+| `watch_folder.py` | **Watch Folder** — create/modify/delete events, glob filters, debounce. |
+| `scheduled_scan.py` | **Scheduled Scan** — cron/interval filesystem scanning. |
 | `manual_run.py` | **Manual Run** — launch with user-selected files/folders. |
-| `webhook.py` | **Webhook / External Trigger** — optional external entry point. |
+| `webhook.py` | **Webhook / External Trigger** — external JSON payload entry point. |
 
 ### 4.2 `nodes/access/`
 | File | Node |

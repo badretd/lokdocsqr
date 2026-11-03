@@ -51,6 +51,12 @@ DEFAULT_OPERATION_MAP: dict[str, str] = {
     "utils.notify": "read",
     # 9: local LLM nodes are read-only (no filesystem mutations).
     "llm.local_llm": "read",
+    # 10: trigger nodes report/scan; the runtime watcher/cron host does the
+    # scheduling. They never mutate the filesystem.
+    "triggers.watch_folder": "read",
+    "triggers.scheduled_scan": "read",
+    "triggers.manual_run": "read",
+    "triggers.webhook": "read",
 }
 
 

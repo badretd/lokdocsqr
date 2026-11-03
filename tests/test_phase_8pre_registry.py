@@ -19,10 +19,21 @@ def test_11_new_keys_classified_read():
             f"{k} -> {DEFAULT_OPERATION_MAP[k]!r}, expected 'read'"
 
 
-def test_map_has_28_entries():
+def test_map_has_32_entries():
     from lokdocsqr.core.planning.registry import DEFAULT_OPERATION_MAP
-    assert len(DEFAULT_OPERATION_MAP) == 28, \
-        f"expected 28 (16 pre-8 + 11 new + llm), got {len(DEFAULT_OPERATION_MAP)}"
+    assert len(DEFAULT_OPERATION_MAP) == 32, \
+        f"expected 32 (16 pre-8 + 11 new + llm + 4 triggers), got {len(DEFAULT_OPERATION_MAP)}"
+
+
+def test_trigger_keys_classified_read():
+    from lokdocsqr.core.planning.registry import DEFAULT_OPERATION_MAP
+    for key in (
+        "triggers.watch_folder",
+        "triggers.scheduled_scan",
+        "triggers.manual_run",
+        "triggers.webhook",
+    ):
+        assert DEFAULT_OPERATION_MAP.get(key) == "read", key
 
 
 def test_pre_8_16_entries_unchanged():

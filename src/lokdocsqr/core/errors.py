@@ -1,7 +1,7 @@
 """Exception hierarchy for LokDocSQR."""
 from __future__ import annotations
 
-__all__ = [
+__all__ = [  # noqa: RUF022 - public order is part of the contract
     "ConfigError",
     "DryRunInterrupt",
     "GraphParseError",
@@ -16,6 +16,7 @@ __all__ = [
     "PolicyBlockedError",
     "PolicyTimeoutError",
     "ProposalValidationError",
+    "RuntimeLockError",
 ]
 
 
@@ -35,11 +36,11 @@ class GraphValidationError(LokError):
     """Raised when an automation graph fails semantic validation."""
 
 
-class ScopeViolation(LokError):
+class ScopeViolation(LokError):  # noqa: N818 - public contract name
     """Raised when a path escapes the resolved workspace scope."""
 
 
-class PolicyViolation(LokError):
+class PolicyViolation(LokError):  # noqa: N818 - public contract name
     """Raised when an action is blocked by policy."""
 
 
@@ -51,7 +52,7 @@ class SafeFsError(LokError):
     """Raised when a safe filesystem operation fails."""
 
 
-class DryRunInterrupt(LokError):
+class DryRunInterrupt(LokError):  # noqa: N818 - public contract name
     """Raised when dry-run mode intentionally interrupts a real operation."""
 
 
@@ -77,4 +78,11 @@ class PolicyTimeoutError(PolicyError):
 
 class ProposalValidationError(PolicyError):
     """Raised when an ActionSummary is structurally invalid."""
+
+
+# ── 10: runtime errors ───────────────────────────────────────────
+
+
+class RuntimeLockError(LokError):
+    """Raised when another runtime instance already holds the lock."""
 

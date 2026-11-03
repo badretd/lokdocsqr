@@ -1,7 +1,7 @@
 # Phase State
 
-Done: 0-8, 8.6-pre, 8.6, 8.7, 9
-Current: 8.8 (background tooling) / 10 unblocked
+Done: 0-8, 8.6-pre, 8.6, 8.7, 9, 10
+Current: 8.8 (background tooling) / 10.5 unblocked
 
 ## 8.6-pre — ticket closeout
 
@@ -65,3 +65,29 @@ were created for 8.6 or 8.7.
   (`core.planning.builder._DYNAMIC_PAYLOAD_NODE_TYPES`).
 - Per operator instruction, no Git tag was created for Phase 9; `pyproject.toml`
   was not changed (the optional client is still lazily imported).
+
+## 10 — Triggers + runtime
+
+| Item | Implemented | Tested | Integrated |
+|---|---|---|---|
+| `core/runtime.py` watcher + cron host | yes | yes | yes — dispatches real `Executor.execute` |
+| Single-instance lock (stale-lock recovery) | yes | yes | yes — acquired by `Runtime.start()` |
+| Graceful shutdown | yes | yes | yes — `stop()` joins watcher/scheduler/pool |
+| Per-run error isolation | yes | yes | yes — failed run does not stop the host |
+| `max_concurrency` (F-13) | yes | yes | yes — bounded `ThreadPoolExecutor`; per-automation serialisation |
+| `triggers.watch_folder` | yes | yes | yes — registered, read-only |
+| `triggers.scheduled_scan` | yes | yes | yes — registered, read-only |
+| `triggers.manual_run` | yes | yes | yes — registered, read-only |
+| `triggers.webhook` | yes | yes | yes — registered, read-only |
+
+- Acceptance: `tests/test_phase_10.py` — cron fires an automation twice with
+  distinct run ids, intact output and exactly one audit entry per run; the
+  folder watcher sees a created file, runs the executor, and leaves an applied
+  audit entry.
+- Runtime tests also cover deterministic `tick()` scheduling, stale/held
+  locks, idempotent shutdown, per-run error isolation, bounded concurrency and
+  registration-time trigger binding.
+- Vertical slice (`tests/test_acceptance_vertical_slice.py`) remains green.
+- No `pyproject.toml` / `THIRD-PARTY-NOTICES` changes: the watcher and cron
+  parser are stdlib-only.
+- Per operator instruction, no Git tag was created for Phase 10.
