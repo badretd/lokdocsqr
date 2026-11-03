@@ -302,7 +302,7 @@ All `fs_ops` nodes implement `dry_run()` and always emit `ActionLog` entries.
 | `move.py` | **Move File(s)** — template paths, conflict policy `skip / rename / overwrite / ask`. |
 | `rename.py` | **Rename File(s)** — templates with date/author/tags/LLM output. |
 | `copy.py` | **Copy File(s)** — free-space check, conflict policy. |
-| `trash.py` | **Delete to Trash / Quarantine** — never deletes; TTL and rollback. |
+| `trash.py` | **Delete to Trash / Quarantine** — never deletes on its own; sidecar TTL is enforced by the explicit `trash sweep` maintenance command; rollback. |
 | `make_dir.py` | **Create Folder** — templated. |
 | `write_file.py` | **Write / Append File** — reports, sidecars, logs. |
 | `archive.py` | **Archive / Extract** — zip. |

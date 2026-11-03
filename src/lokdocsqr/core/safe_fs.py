@@ -39,9 +39,13 @@ Known read-only callers (this list is enforced by
 Invariants (enforced by tests/test_architecture.py):
     * All mutations go through this module. No public deletion API is
       exported (no delete/remove/unlink/rmtree names).
-      ``cleanup_stale_temp_files`` is the only public function that removes
-      files, and it is strictly bounded to the orphaned-temp pattern produced
-      by ``atomic_write`` and to files older than ``max_age_seconds``.
+      ``cleanup_stale_temp_files`` and ``purge_expired_trash`` are the only
+      public functions that remove files. The first is strictly bounded to
+      the orphaned-temp pattern produced by ``atomic_write`` and to files
+      older than ``max_age_seconds``; the second only removes regular files
+      inside ``trash_dir`` whose ``*.sidecar.json`` records a past
+      ``ttl_expires_at`` (expired quarantine data). Neither touches unknown
+      files or symlinks.
     * File writes are atomic: temp file -> write -> flush -> fsync ->
       ``_safe_replace`` (which wraps ``os.replace`` with Windows-aware
       transient-lock retries bounded by a monotonic-time deadline).
@@ -110,9 +114,11 @@ __all__ = [
     "atomic_write",
     "cleanup_stale_temp_files",
     "copy_file",
+    "expired_trash_entries",
     "hash_file",
     "list_dir",
     "make_dir",
+    "purge_expired_trash",
     "quarantine",
     "read_bytes",
     "release_lock_file",
@@ -678,4 +684,119 @@ def cleanup_stale_temp_files(
             _log.warning(
                 "cleanup_stale_temp_files: cannot remove %s: %s", entry, exc
             )
+    return removed
+
+
+# ---------------------------------------------------------------------------
+# Quarantine expiry
+#
+# ``fs.trash`` records a TTL in ``<file>.sidecar.json``. Nothing deletes
+# quarantined data automatically: enforcement is an explicit maintenance
+# action (``lokdocsqr trash sweep`` or ``Runtime.sweep_trash()``) so an
+# operator can preview the result first. These helpers are the narrow,
+# documented exception to the no-delete invariant; see the module docstring.
+# ---------------------------------------------------------------------------
+
+_TRASH_SIDECAR_SUFFIX = ".sidecar.json"
+_TRASH_META_SUFFIX = ".meta.json"
+
+
+def _parse_ttl_expiry(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def expired_trash_entries(
+    trash_dir: Path, *, now: float | None = None
+) -> list[Path]:
+    """Return trashed files whose sidecar TTL has already expired.
+
+    Read-only. A candidate must have a parseable ``*.sidecar.json`` with a
+    past ``ttl_expires_at``, resolve to a regular non-symlink file directly
+    inside ``trash_dir``, and not escape it. Anything else is ignored.
+    """
+    trash_dir = Path(trash_dir)
+    if not trash_dir.is_dir():
+        return []
+
+    when = (
+        datetime.now(timezone.utc)
+        if now is None
+        else datetime.fromtimestamp(float(now), tz=timezone.utc)
+    )
+    try:
+        trash_root = trash_dir.resolve(strict=False)
+        sidecars = sorted(trash_dir.glob("*" + _TRASH_SIDECAR_SUFFIX))
+    except OSError as exc:
+        _log.warning("expired_trash_entries: cannot inspect %s: %s", trash_dir, exc)
+        return []
+
+    expired: list[Path] = []
+    for sidecar in sidecars:
+        try:
+            payload = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        expires = _parse_ttl_expiry(payload.get("ttl_expires_at"))
+        if expires is None or expires > when:
+            continue
+
+        raw_path = payload.get("trash_path")
+        if isinstance(raw_path, str) and raw_path:
+            candidate = Path(raw_path)
+        else:
+            candidate = sidecar.with_name(
+                sidecar.name[: -len(_TRASH_SIDECAR_SUFFIX)]
+            )
+        try:
+            candidate.resolve(strict=False).relative_to(trash_root)
+        except (OSError, ValueError):
+            continue
+        try:
+            if candidate.is_symlink() or not candidate.is_file():
+                continue
+        except OSError:
+            continue
+        expired.append(candidate)
+    return expired
+
+
+def purge_expired_trash(
+    trash_dir: Path, *, now: float | None = None
+) -> list[Path]:
+    """Remove expired quarantine entries (file plus sidecars).
+
+    Only entries returned by :func:`expired_trash_entries` are touched.
+    Returns the removed file paths in stable order. Per-entry failures are
+    logged and skipped so one locked file cannot abort the sweep.
+    """
+    removed: list[Path] = []
+    for entry in expired_trash_entries(trash_dir, now=now):
+        try:
+            _safe_unlink(entry, context="purge_expired_trash")
+        except SafeFsError as exc:
+            _log.warning("purge_expired_trash: cannot remove %s: %s", entry, exc)
+            continue
+        for companion in (
+            entry.parent / (entry.name + _TRASH_SIDECAR_SUFFIX),
+            entry.parent / (entry.name + _TRASH_META_SUFFIX),
+        ):
+            try:
+                _safe_unlink(companion, context="purge_expired_trash")
+            except SafeFsError as exc:
+                _log.warning(
+                    "purge_expired_trash: cannot remove sidecar %s: %s",
+                    companion,
+                    exc,
+                )
+        removed.append(entry)
     return removed

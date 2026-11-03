@@ -383,11 +383,78 @@ def build_parser() -> argparse.ArgumentParser:
     audit_sub = audit_parser.add_subparsers(dest="audit_command", metavar="SUBCOMMAND")
     audit_parser.set_defaults(handler=_cmd_audit_help)
 
-    show_parser = audit_sub.add_parser("show", help="show every audit entry for a run id")
-    show_parser.add_argument("run_id", metavar="RUN_ID")
+    show_parser = audit_sub.add_parser(
+        "show",
+        help="show audit entries for a run (or filter the full log)",
+    )
+    show_parser.add_argument(
+        "run_id",
+        nargs="?",
+        metavar="RUN_ID",
+        help="run id to show; omit to show entries across all runs",
+    )
     _add_config_flags(show_parser)
+    show_parser.add_argument(
+        "--automation",
+        metavar="ID",
+        help="only show entries for this automation id",
+    )
+    show_parser.add_argument(
+        "--path",
+        metavar="PATH",
+        help="only show entries where PATH is the source or target (resolved against base-dir)",
+    )
+    show_parser.add_argument(
+        "--last",
+        type=int,
+        metavar="N",
+        help="show only the last N matching entries",
+    )
     show_parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
     show_parser.set_defaults(handler=_cmd_audit_show)
+
+    runs_parser = audit_sub.add_parser(
+        "runs", help="list the runs present in the audit log"
+    )
+    _add_config_flags(runs_parser)
+    runs_parser.add_argument(
+        "--automation",
+        metavar="ID",
+        help="only show runs for this automation id",
+    )
+    runs_parser.add_argument(
+        "--last",
+        type=int,
+        metavar="N",
+        help="show only the last N runs",
+    )
+    runs_parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    runs_parser.set_defaults(handler=_cmd_audit_runs)
+
+    prune_parser = audit_sub.add_parser(
+        "prune",
+        help="drop old runs from the audit log according to a retention policy",
+    )
+    _add_config_flags(prune_parser)
+    prune_parser.add_argument(
+        "--older-than",
+        type=float,
+        metavar="DAYS",
+        help="drop runs whose last entry is older than DAYS",
+    )
+    prune_parser.add_argument(
+        "--keep-runs",
+        type=int,
+        metavar="N",
+        help="keep only the newest N runs",
+    )
+    prune_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="report what would be dropped without rewriting the log",
+    )
+    prune_parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    prune_parser.set_defaults(handler=_cmd_audit_prune)
 
     rollback_parser = audit_sub.add_parser(
         "rollback", help="reverse the rollback-eligible actions of a run"
@@ -401,6 +468,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     rollback_parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
     rollback_parser.set_defaults(handler=_cmd_audit_rollback)
+
+    trash_parser = subparsers.add_parser(
+        "trash", help="maintain the quarantine/trash directory"
+    )
+    trash_sub = trash_parser.add_subparsers(
+        dest="trash_command", metavar="SUBCOMMAND"
+    )
+    trash_parser.set_defaults(handler=_cmd_trash_help)
+
+    sweep_parser = trash_sub.add_parser(
+        "sweep", help="remove quarantine entries whose TTL has expired"
+    )
+    _add_config_flags(sweep_parser)
+    sweep_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="list expired entries without removing them",
+    )
+    sweep_parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    sweep_parser.set_defaults(handler=_cmd_trash_sweep)
 
     return parser
 
@@ -637,6 +724,25 @@ def _apply_scope_override(
     roots = [str(_resolve_path(base_dir, item)) for item in raw_scope]
     document.settings.scope.roots = roots
     document.settings.scope.writable = list(roots)
+
+
+def _apply_trigger_mode(
+    document: WorkflowDocument, dry_run: bool | None
+) -> None:
+    """Propagate an explicit CLI dry-run choice to trigger bindings.
+
+    ``Runtime._execute`` treats an explicit document ``default_dry_run`` as
+    absolute, so a trigger without its own ``params.dry_run`` keeps the
+    document's mode even when the operator passes ``--no-dry-run``. In
+    ``serve`` / ``--daemon`` that made the initial run real while every
+    trigger-driven run stayed a dry-run. Setting the binding mode from an
+    explicit CLI flag keeps the whole session consistent; a trigger's own
+    ``params.dry_run`` still applies when no CLI flag was given.
+    """
+    if dry_run is None:
+        return
+    for trigger in document.triggers:
+        trigger.params["dry_run"] = dry_run
 
 
 def _policy_from_args(args: argparse.Namespace) -> PolicyEngine:
@@ -980,6 +1086,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     config = _config_from_args(args)
     document = _load_document(Path(args.automation))
     _apply_scope_override(document, args, config.base_dir)
+    _apply_trigger_mode(document, args.dry_run)
 
     warnings: list[str] = []
     errors = list(validate_graph(document, warnings=warnings))
@@ -993,6 +1100,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     included = _load_included_documents(getattr(args, "include", []))
     for included_document in included:
         _apply_scope_override(included_document, args, config.base_dir)
+        _apply_trigger_mode(included_document, args.dry_run)
     for included_document in included:
         included_warnings: list[str] = []
         included_errors = list(
@@ -1258,6 +1366,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     included = _load_included_documents(getattr(args, "include", []))
     for document in [*documents, *included]:
         _apply_scope_override(document, args, config.base_dir)
+        _apply_trigger_mode(document, args.dry_run)
 
     seen: set[str] = set()
     unique: list[WorkflowDocument] = []
@@ -1374,14 +1483,80 @@ def _cmd_serve(args: argparse.Namespace) -> int:
 
 def _cmd_audit_help(args: argparse.Namespace) -> int:
     del args
-    print("usage: lokdocsqr audit {show,rollback} ...", file=sys.stderr)
+    print(
+        "usage: lokdocsqr audit {show,runs,prune,rollback} ...",
+        file=sys.stderr,
+    )
     return 2
+
+
+def _cmd_trash_help(args: argparse.Namespace) -> int:
+    del args
+    print("usage: lokdocsqr trash {sweep} ...", file=sys.stderr)
+    return 2
+
+
+def _cmd_trash_sweep(args: argparse.Namespace) -> int:
+    config = _config_from_args(args)
+    trash_dir = expand_user_path(config.trash_dir or config.base_dir / ".trash")
+    dry_run = bool(getattr(args, "dry_run", False))
+
+    if dry_run:
+        expired = safe_fs.expired_trash_entries(trash_dir)
+        removed: list[Path] = []
+    else:
+        removed = safe_fs.purge_expired_trash(trash_dir)
+        expired = removed
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "trash_dir": str(trash_dir),
+                    "dry_run": dry_run,
+                    "expired": [str(path) for path in expired],
+                    "removed": [str(path) for path in removed],
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 0
+
+    if not expired:
+        print(f"no expired trash entries in {trash_dir}")
+    elif dry_run:
+        for path in expired:
+            print(f"would remove\t{path}")
+        print(f"dry-run: {len(expired)} expired entrie(s) not removed")
+    else:
+        for path in removed:
+            print(f"removed\t{path}")
+        print(f"removed {len(removed)} expired entrie(s)")
+    return 0
 
 
 def _cmd_audit_show(args: argparse.Namespace) -> int:
     config = _config_from_args(args)
     audit = _audit_log(config)
-    logs = audit.lookup_by_run(args.run_id)
+
+    run_id = getattr(args, "run_id", None)
+    automation = getattr(args, "automation", None)
+    raw_path = getattr(args, "path", None)
+    last = getattr(args, "last", None)
+
+    logs = list(audit.iter_all())
+    if run_id is not None:
+        logs = [log for log in logs if log.run_id == run_id]
+    if automation:
+        logs = [log for log in logs if log.automation_id == automation]
+    if raw_path is not None:
+        query = str(_resolve_path(config.base_dir, raw_path))
+        logs = [log for log in logs if _log_touches_path(log, query)]
+    if last is not None:
+        if last < 0:
+            raise ValueError("--last must be >= 0")
+        logs = logs[-last:] if last else []
 
     if args.json:
         print(
@@ -1391,12 +1566,106 @@ def _cmd_audit_show(args: argparse.Namespace) -> int:
                 ensure_ascii=False,
             )
         )
-    elif not logs:
-        print(f"no audit entries for run {args.run_id!r}", file=sys.stderr)
-    else:
-        for log in logs:
-            print(_format_log(log))
-    return 0 if logs else 1
+        return 0 if logs else 1
+
+    if not logs:
+        if run_id is not None:
+            print(f"no audit entries for run {run_id!r}", file=sys.stderr)
+        else:
+            print("no audit entries matched", file=sys.stderr)
+        return 1
+
+    for log in logs:
+        print(_format_audit_entry(log))
+    return 0
+
+
+def _cmd_audit_runs(args: argparse.Namespace) -> int:
+    config = _config_from_args(args)
+    audit = _audit_log(config)
+
+    runs = audit.summarize_runs()
+    automation = getattr(args, "automation", None)
+    if automation:
+        runs = [run for run in runs if run["automation_id"] == automation]
+    last = getattr(args, "last", None)
+    if last is not None:
+        if last < 0:
+            raise ValueError("--last must be >= 0")
+        runs = runs[-last:] if last else []
+
+    if args.json:
+        print(json.dumps(runs, indent=2, ensure_ascii=False))
+        return 0 if runs else 1
+
+    if not runs:
+        print("no audit runs found", file=sys.stderr)
+        return 1
+
+    for run in runs:
+        print(
+            f"{run['run_id']}  {run['automation_id']}  "
+            f"entries={run['entries']} applied={run['applied']} "
+            f"rollbacks={run['rollbacks']}  {run['first']} .. {run['last']}"
+        )
+    return 0
+
+
+def _cmd_audit_prune(args: argparse.Namespace) -> int:
+    config = _config_from_args(args)
+    audit = _audit_log(config)
+
+    older_days = getattr(args, "older_than", None)
+    keep_runs = getattr(args, "keep_runs", None)
+    if older_days is None and keep_runs is None:
+        print(
+            "lokdocsqr: audit prune requires --older-than DAYS and/or "
+            "--keep-runs N",
+            file=sys.stderr,
+        )
+        return 2
+
+    summary = audit.prune(
+        older_than_seconds=(
+            None if older_days is None else float(older_days) * 86400
+        ),
+        keep_runs=keep_runs,
+        dry_run=bool(getattr(args, "dry_run", False)),
+    )
+
+    if args.json:
+        print(json.dumps(summary, indent=2, ensure_ascii=False))
+        return 0
+
+    verb = "would drop" if summary["dry_run"] else "dropped"
+    print(
+        f"{verb} {summary['dropped_runs']} run(s) / "
+        f"{summary['dropped_entries']} entrie(s); "
+        f"kept {summary['kept_runs']} run(s) / "
+        f"{summary['kept_entries']} entrie(s)"
+    )
+    if summary["dropped_rollbackable"]:
+        print(
+            f"warning: {summary['dropped_rollbackable']} applied, "
+            "rollback-eligible action(s) are no longer reversible",
+            file=sys.stderr,
+        )
+    return 0
+
+
+def _log_touches_path(log: ActionLog, query: str) -> bool:
+    """True when ``query`` is the source or target of ``log``."""
+    for value in (log.source, log.target):
+        if not value:
+            continue
+        if value == query:
+            return True
+        try:
+            if str(Path(value).resolve(strict=False)) == query:
+                return True
+        except OSError:
+            continue
+    return False
 
 
 def _cmd_audit_rollback(args: argparse.Namespace) -> int:
@@ -1404,7 +1673,11 @@ def _cmd_audit_rollback(args: argparse.Namespace) -> int:
     audit = _audit_log(config)
     entries = audit.lookup_by_run(args.run_id)
     if not entries:
-        print(f"no audit entries for run {args.run_id!r}", file=sys.stderr)
+        print(
+            f"no audit entries for run {args.run_id!r}; "
+            "use `lokdocsqr audit runs` to list run ids",
+            file=sys.stderr,
+        )
         return 1
 
     plan = audit.build_rollback_plan(args.run_id)
@@ -1419,7 +1692,10 @@ def _cmd_audit_rollback(args: argparse.Namespace) -> int:
         return 0
 
     if not plan:
-        print("nothing to roll back")
+        print(
+            f"nothing to roll back for run {args.run_id!r} "
+            "(no applied, rollback-eligible actions)"
+        )
         return 0
 
     scope = _scope_manager(config)
@@ -1522,6 +1798,18 @@ def _format_log(log: ActionLog) -> str:
     source = log.source or "-"
     target = log.target or "-"
     return f"{log.node_id} {log.action_type} [{log.status}] {source} -> {target}"
+
+
+def _format_audit_entry(log: ActionLog) -> str:
+    """One-line audit history entry, including run id and timestamp."""
+    source = log.source or "-"
+    target = log.target or "-"
+    reason = f" ({log.reason})" if log.reason else ""
+    return (
+        f"{log.timestamp or '-'} {log.run_id or '-'} "
+        f"{log.node_id} {log.action_type} [{log.status}] "
+        f"{source} -> {target}{reason}"
+    )
 
 
 def _format_rollback_op(op: RollbackOp) -> str:

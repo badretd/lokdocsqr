@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -35,11 +36,39 @@ def _json_default(obj: Any) -> Any:
     )
 
 
+def _try_json_object(line: str) -> dict[str, Any] | None:
+    try:
+        parsed = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _is_after(timestamp: str, cutoff: float) -> bool:
+    """True when ``timestamp`` parses and is at/after ``cutoff``.
+
+    Empty or malformed timestamps are treated as "keep" (``True``) so a
+    malformed entry is never pruned by age.
+    """
+    if not timestamp:
+        return True
+    try:
+        parsed = datetime.fromisoformat(timestamp)
+    except ValueError:
+        return True
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp() >= cutoff
+
+
 class AuditLog:
     """JSONL audit log stored on disk.
 
-    The file is append-only: existing lines are never rewritten. Every write
-    goes through :func:`lokdocsqr.core.safe_fs.atomic_append`.
+    The file is append-only during normal operation: entries are only ever
+    added, and every append goes through
+    :func:`lokdocsqr.core.safe_fs.atomic_append`. The single exception is the
+    explicit :meth:`prune` maintenance operation, which atomically rewrites
+    the file to drop whole old runs (never part of a run).
     """
 
     def __init__(self, path: Path) -> None:
@@ -120,6 +149,170 @@ class AuditLog:
         """Return all log entries whose ``source`` equals ``path``."""
         target = str(Path(path))
         return [log for log in self.iter_all() if log.source == target]
+
+    def lookup_by_path(self, path: str | Path) -> list[ActionLog]:
+        """Return entries where ``path`` is either the source or the target.
+
+        Useful for following one file across several runs (for example a file
+        moved back and forth): unlike :meth:`lookup_by_source`, it also matches
+        the destination side of a move/rename/trash entry.
+        """
+        target = str(Path(path))
+        return [
+            log
+            for log in self.iter_all()
+            if log.source == target or log.target == target
+        ]
+
+    def summarize_runs(self) -> list[dict[str, Any]]:
+        """Group entries by run id, in first-seen (append) order."""
+        runs: dict[str, dict[str, Any]] = {}
+        for log in self.iter_all():
+            run_id = log.run_id or ""
+            entry = runs.get(run_id)
+            if entry is None:
+                entry = {
+                    "run_id": run_id,
+                    "automation_id": log.automation_id or "",
+                    "entries": 0,
+                    "applied": 0,
+                    "rollbacks": 0,
+                    "first": log.timestamp or "",
+                    "last": log.timestamp or "",
+                }
+                runs[run_id] = entry
+            entry["entries"] += 1
+            if log.status == "applied":
+                entry["applied"] += 1
+            if log.reason == "rollback":
+                entry["rollbacks"] += 1
+            if log.timestamp:
+                entry["last"] = log.timestamp
+                if not entry["first"]:
+                    entry["first"] = log.timestamp
+        return list(runs.values())
+
+    def _raw_lines(self) -> list[str]:
+        try:
+            if not self.path.exists():
+                return []
+            raw_bytes = safe_fs.read_bytes(self.path)
+        except SafeFsError as exc:
+            logger.warning("audit: cannot read %s: %s", self.path, exc)
+            return []
+        text = raw_bytes.decode("utf-8", errors="replace")
+        return [line for line in text.splitlines() if line.strip()]
+
+    def prune(
+        self,
+        *,
+        older_than_seconds: float | None = None,
+        keep_runs: int | None = None,
+        now: float | None = None,
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        """Drop whole runs from the audit log according to a retention policy.
+
+        A run is removed only when *all* supplied conditions say so:
+
+        * ``keep_runs`` — keep the newest ``N`` runs;
+        * ``older_than_seconds`` — keep runs whose last entry is newer than
+          the cutoff. With both options, a run is kept if it is in the newest
+          ``N`` **or** newer than the cutoff.
+
+        Whole-run granularity keeps each run's original actions and its
+        rollback bookkeeping entries together, so a retained run still
+        produces a correct rollback plan. Lines that cannot be parsed or have
+        no run id are always kept (conservative). The rewrite is atomic and
+        only happens when ``dry_run`` is false.
+
+        Returns a summary dict; ``dropped_rollbackable`` counts the applied,
+        rollback-eligible actions that will no longer be reversible.
+        """
+        if older_than_seconds is None and keep_runs is None:
+            raise ValueError(
+                "prune requires older_than_seconds and/or keep_runs"
+            )
+        if older_than_seconds is not None and older_than_seconds < 0:
+            raise ValueError("older_than_seconds must be >= 0")
+        if keep_runs is not None and keep_runs < 0:
+            raise ValueError("keep_runs must be >= 0")
+
+        lines = self._raw_lines()
+        records: list[tuple[str, str]] = []
+        runs: dict[str, dict[str, Any]] = {}
+        for line in lines:
+            raw = _try_json_object(line)
+            run_id = raw.get("run_id") if raw is not None else None
+            timestamp = raw.get("timestamp") if raw is not None else None
+            run_id = run_id if isinstance(run_id, str) else ""
+            timestamp = timestamp if isinstance(timestamp, str) else ""
+            rollbackable = bool(
+                raw is not None
+                and raw.get("status") == "applied"
+                and raw.get("rollback_eligible") is True
+            )
+            records.append((line, run_id))
+            if not run_id:
+                continue
+            entry = runs.setdefault(
+                run_id, {"last": "", "rollbackable": 0}
+            )
+            if timestamp:
+                entry["last"] = timestamp
+            if rollbackable:
+                entry["rollbackable"] += 1
+
+        ordered = list(runs)
+        recent = (
+            set(ordered[-keep_runs:]) if keep_runs is not None else set()
+        )
+        cutoff: float | None = None
+        if older_than_seconds is not None:
+            base = time.time() if now is None else float(now)
+            cutoff = base - older_than_seconds
+
+        kept_runs: set[str] = set()
+        for run_id, info in runs.items():
+            by_count = run_id in recent
+            by_age = (
+                True
+                if cutoff is None
+                else _is_after(info["last"], cutoff)
+            )
+            if keep_runs is not None and older_than_seconds is not None:
+                keep = by_count or by_age
+            elif keep_runs is not None:
+                keep = by_count
+            else:
+                keep = by_age
+            if keep:
+                kept_runs.add(run_id)
+
+        kept_lines = [
+            line
+            for line, run_id in records
+            if not run_id or run_id in kept_runs
+        ]
+        dropped = [run_id for run_id in runs if run_id not in kept_runs]
+        summary = {
+            "total_runs": len(runs),
+            "kept_runs": len(kept_runs),
+            "dropped_runs": len(dropped),
+            "total_entries": len(lines),
+            "kept_entries": len(kept_lines),
+            "dropped_entries": len(lines) - len(kept_lines),
+            "dropped_rollbackable": sum(
+                runs[run_id]["rollbackable"] for run_id in dropped
+            ),
+            "dry_run": dry_run,
+        }
+        if not dry_run and len(kept_lines) != len(lines):
+            text = "\n".join(kept_lines)
+            if text:
+                text += "\n"
+            safe_fs.atomic_write(self.path, text)
+        return summary
 
     def build_rollback_plan(self, run_id: str) -> list[RollbackOp]:
         """Build a rollback plan for applied, rollback-eligible actions.

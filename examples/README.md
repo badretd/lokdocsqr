@@ -68,9 +68,15 @@ Audit entries are written under `<base-dir>/.logs/audit.jsonl`; inspect and
 roll back with:
 
 ```bash
-uv run lokdocsqr audit show <run-id>     --base-dir /tmp/lokdocsqr-examples
-uv run lokdocsqr audit rollback <run-id> --base-dir /tmp/lokdocsqr-examples
+uv run lokdocsqr audit runs                      --base-dir /tmp/lokdocsqr-examples
+uv run lokdocsqr audit show <run-id>             --base-dir /tmp/lokdocsqr-examples
+uv run lokdocsqr audit show --path inbox/report.txt --base-dir /tmp/lokdocsqr-examples
+uv run lokdocsqr audit rollback <run-id>         --base-dir /tmp/lokdocsqr-examples
 ```
+
+Each run (including each watch/schedule cycle) has its own run id, so
+`audit show <run-id>` shows only that run; `audit runs` and
+`audit show --path` let you find the id or follow one file across runs.
 
 ---
 
@@ -105,10 +111,19 @@ uv run lokdocsqr serve \
   examples/05_scheduled_inbox_backup.ldsq \
   --base-dir /tmp/lokdocsqr-examples --dry-run
 
-# Run one automation once, then host its triggers.
+# Run once, then host its triggers (dry-run: simulate every run).
 uv run lokdocsqr run examples/04_watch_inbox_to_processed.ldsq \
   --base-dir /tmp/lokdocsqr-examples --daemon --dry-run
+
+# Same, executing for real (moves files into processed/).
+uv run lokdocsqr run examples/04_watch_inbox_to_processed.ldsq \
+  --base-dir /tmp/lokdocsqr-examples --daemon --no-dry-run
 ```
+
+`--dry-run` / `--no-dry-run` applies to the **whole** `serve`/daemon session: it
+is propagated to every trigger binding, so trigger-driven runs use the same
+mode as the initial run. Without either flag, the document's `default_dry_run`
+governs.
 
 `serve` with an automation that declares no `watch_folder`/`scheduled_scan`
 trigger exits with guidance — use `run` for one-shot work, or `trigger` for
@@ -135,5 +150,7 @@ uv run lokdocsqr trigger examples/vertical_slice.ldsq \
   dependencies and are documented in `docs/DSL.md` §9.
 - **Audit and rollback.** `fs.move`, `fs.rename` and `fs.trash` are
   rollback-eligible; `audit rollback <run-id>` reverses them.
+- **Retention/cleanup.** `audit prune` bounds the audit log and `trash sweep`
+  expires quarantined files; both are explicit and support `--dry-run`.
 - **Full reference.** See [`docs/DSL.md`](../docs/DSL.md) for every node and
   [`docs/PACKAGING.md`](../docs/PACKAGING.md) for building the CLI.

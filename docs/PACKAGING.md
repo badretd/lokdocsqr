@@ -123,6 +123,7 @@ A real run needs an explicit opt-in because the CLI defaults to the fail-closed
 Then inspect and reverse the audit log:
 
 ```bash
+./dist/lokdocsqr/lokdocsqr audit runs --base-dir /tmp/lokdocsqr-demo
 ./dist/lokdocsqr/lokdocsqr audit show <run-id> --base-dir /tmp/lokdocsqr-demo
 ./dist/lokdocsqr/lokdocsqr audit rollback <run-id> --base-dir /tmp/lokdocsqr-demo
 ```

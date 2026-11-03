@@ -1162,7 +1162,7 @@ Moves a file into the configured trash directory and writes a sidecar; never del
 | Name | Type | Default | Allowed values | Meaning |
 |---|---|---|---|---|
 | `path` | string | — (required) | path | File to trash; write-scope-checked |
-| `ttl_seconds` | integer or null | config `trash_default_ttl`, else 30 days | any integer (not range-checked) | Recorded in the sidecar for the runtime expiry sweep |
+| `ttl_seconds` | integer or null | config `trash_default_ttl`, else 30 days | any integer (not range-checked) | Recorded in the sidecar; `lokdocsqr trash sweep` (or `Runtime.sweep_trash()`) removes the entry after `ttl_expires_at` |
 | `reason` | string or null | `"trash"` | any string | Recorded in `ActionLog.reason`; no behavioral effect |
 
 **Inputs**
@@ -1177,7 +1177,7 @@ Moves a file into the configured trash directory and writes a sidecar; never del
 |---|---|---|
 | `files` | list[string] | Trashed path (one-element list) |
 
-**Side effects / audit.** Requires `ctx.config.trash_dir` (missing raises `ConfigError`); verifies it is inside write scope. Moves via `safe_fs.trash`, writes `<trash-name>.sidecar.json` with `hash_before`, paths, size, timestamps, TTL, run/automation ids. `ActionLog(action_type="trash")`, risk `MEDIUM`, `rollback_eligible=True`. Dry-run plans the trash target and hashes the source but does not move it. `run` and `dry_run` return `{"action_log": log, "files": [<trash path>]}`.
+**Side effects / audit.** Requires `ctx.config.trash_dir` (missing raises `ConfigError`); verifies it is inside write scope. Moves via `safe_fs.trash`, writes `<trash-name>.sidecar.json` with `hash_before`, paths, size, timestamps, TTL, run/automation ids. `ActionLog(action_type="trash")`, risk `MEDIUM`, `rollback_eligible=True`. Dry-run plans the trash target and hashes the source but does not move it. `run` and `dry_run` return `{"action_log": log, "files": [<trash path>]}`. Expiry is **explicit**: `lokdocsqr trash sweep` (or `Runtime.sweep_trash()`) removes entries whose sidecar `ttl_expires_at` has passed; the runtime never deletes quarantined data on its own.
 
 ```ldsq
 node "tr" {
@@ -2445,6 +2445,8 @@ node "wh" {
 
 An explicit document setting is absolute: a document that says `default_dry_run = true` stays a dry-run even when `config.default_dry_run = false`. The explicit-argument path is still the way to force either mode. A watch/cron binding's `params.dry_run` is passed as the explicit argument for that binding. Manual/webhook declarations do not carry a binding; use the call argument.
 
+**CLI override.** `lokdocsqr run --daemon`, `serve` and `daemon` propagate an explicit CLI `--dry-run` / `--no-dry-run` to every trigger binding (the CLI writes it into each binding's `params.dry_run`). Without this, an explicit `default_dry_run` in the document would win for trigger-driven runs, so `--no-dry-run` would appear to apply only to the initial run. With no CLI flag, the document's `default_dry_run` (or the trigger's own `params.dry_run`) still governs.
+
 ### 10.7 `serve`
 
 `lokdocsqr serve` hosts watch/cron triggers until interrupted:
@@ -2460,6 +2462,7 @@ lokdocsqr run <automation> --daemon          # run once, then serve its triggers
 * `--base-dir` sets the workspace used to resolve relative paths and the default scope.
 * `--include PATH` (repeatable; file or directory) registers additional automations, which is useful when one serving document references another by `graph_id`.
 * `--dry-run` / `--no-dry-run` become the Runtime default for bindings that do not set `params.dry_run`. Nested `flow.loop_batch`/`flow.subflow` previews are wired automatically.
+* An explicit `--dry-run` / `--no-dry-run` also overrides every trigger binding for the session, so the flag governs trigger-driven runs too — not just the initial `--daemon` run.
 * `--daemon` executes every registered automation once before starting the trigger host. Without it, `serve` performs no immediate run.
 * `serve` and `--daemon` only host `watch_folder` / `scheduled_scan` triggers. If none are declared, `serve` exits with guidance and `run --daemon` performs its single run then exits rather than idling. Use `trigger` (§10.4/§10.5) for manual/webhook dispatch.
 * Registration prints `registered <automation_id>` for every document, then `serving; press Ctrl+C to stop` (or `daemon running...`). Every subsequent run prints run, node, audit and completion events to the console.

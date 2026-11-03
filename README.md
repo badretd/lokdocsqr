@@ -142,6 +142,10 @@ lokdocsqr run <automation> --daemon
 exits with guidance and `run --daemon` performs its single run and exits
 instead of idling.
 
+An explicit `--dry-run` / `--no-dry-run` applies to the **whole** session: it is
+propagated to every trigger binding, so trigger-driven runs use the same mode
+as the initial run. Without a flag, each document's `default_dry_run` governs.
+
 `manual_run` and `webhook` triggers are **not** served continuously. Fire them
 locally, with no socket and no network listener:
 
@@ -156,14 +160,63 @@ cat payload.json | lokdocsqr trigger <automation> --type webhook --payload -
 
 ## Audit and Rollback
 
-The audit log is append-only; every file change leaves a record suitable for
-rollback planning. Each run prints a run id.
+The audit log is append-only: every run appends its entries to
+`<base-dir>/.logs/audit.jsonl`, so the full history across runs is preserved.
+Each run — including every watch or schedule cycle — gets its own run id.
 
 ```bash
-lokdocsqr audit show <run-id>      --base-dir <workspace>
-lokdocsqr audit rollback <run-id>  --base-dir <workspace> --dry-run
-lokdocsqr audit rollback <run-id>  --base-dir <workspace>
+# List runs: run id, automation, entry/applied/rollback counts, time range.
+lokdocsqr audit runs --base-dir <workspace>
+lokdocsqr audit runs --automation <id> --last 20 --json --base-dir <workspace>
+
+# Show one run, the whole log, or one file's history across runs.
+lokdocsqr audit show <run-id> --base-dir <workspace>
+lokdocsqr audit show --base-dir <workspace>                    # all entries
+lokdocsqr audit show --path inbox/report.pdf --base-dir <workspace>
+
+# Review and reverse a run's applied, rollback-eligible actions.
+lokdocsqr audit rollback <run-id> --base-dir <workspace> --dry-run
+lokdocsqr audit rollback <run-id> --base-dir <workspace>
 ```
+
+`audit show <run-id>` is scoped to that run. Because each daemon/watch cycle is
+a separate run, use `audit runs` to find the id, or `audit show --path` to
+follow one file across runs. `audit rollback` is likewise per run: to undo a
+sequence, roll back the run ids in reverse chronological order (each rollback
+is itself appended to the audit log).
+
+### Retention and cleanup
+
+Rollback data has two parts, and **neither is cleaned up automatically** —
+deleting it is irreversible, so cleanup is an explicit, previewable operator
+action:
+
+| Data | What it is | Command |
+|---|---|---|
+| Audit entries | the rollback **plan** (what moved where) | `audit prune` |
+| Trash contents + sidecars | the rollback **payload** for `fs.trash` | `trash sweep` |
+
+```bash
+# Trash TTL: each fs.trash sidecar records ttl_expires_at (default 30 days).
+lokdocsqr trash sweep --base-dir <workspace> --dry-run
+lokdocsqr trash sweep --base-dir <workspace>
+
+# Audit retention: keep the last 90 days and/or the newest N runs.
+lokdocsqr audit prune --older-than 90 --base-dir <workspace> --dry-run
+lokdocsqr audit prune --keep-runs 500 --base-dir <workspace>
+```
+
+- `trash sweep` removes only regular files inside the trash directory whose
+  sidecar TTL has passed, plus their sidecars. Unknown files, symlinks, and
+  entries without a TTL sidecar are left untouched.
+- `audit prune` drops **whole runs** (originals and their rollback entries
+  together) so retained runs still produce a correct rollback plan. It reports
+  how many applied, rollback-eligible actions become irreversible.
+- Schedule either command (cron, systemd timer, Task Scheduler) or call
+  `Runtime.sweep_trash()` from an embedder.
+- Keep audit retention **at least as long as** the trash TTL, so
+  `audit rollback` can still restore a trashed file within its TTL. A pruned
+  audit run cannot be rolled back automatically.
 
 Locations (defaults):
 

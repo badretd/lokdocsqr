@@ -436,6 +436,155 @@ edge "ls-loop" {
 
 
 # ---------------------------------------------------------------------------
+# Daemon mode: an explicit CLI mode must govern trigger-driven runs too
+# ---------------------------------------------------------------------------
+
+_WATCH_MOVE_DSL = """\
+automation "watch-daemon-mode"
+
+default_dry_run = true
+
+scope {
+  roots = ["inbox", "processed"]
+  writable = ["inbox", "processed"]
+}
+
+trigger "watch-inbox" {
+  type = "triggers.watch_folder"
+  params {
+    path = "inbox"
+    patterns = "*.pdf"
+    recursive = false
+  }
+}
+
+node "watch" {
+  type = "triggers.watch_folder"
+  params {
+    path = "inbox"
+    patterns = "*.pdf"
+    recursive = false
+  }
+  outputs = [{name = "files", type = "FileRef[]"}]
+}
+
+node "loop" {
+  type = "flow.loop_batch"
+  inputs = ["items"]
+  params {
+    mode = "loop"
+    graph {
+      spec_version = "1.0"
+      metadata { id = "processed-move-child" }
+      nodes = [
+        {id = "pt", type = "utils.path_template", params = {template = "{item[path]}"}, outputs = [{name = "path", type = "string"}]},
+        {id = "mv", type = "fs.move", params = {target_dir = "processed", template = "{name}{ext}", conflict_policy = "rename"}, inputs = ["source"]}
+      ]
+      edges = [
+        {id = "pt-mv", source = "pt", target = "mv", source_port = "path", target_port = "source"}
+      ]
+    }
+  }
+}
+
+edge "watch-loop" {
+  source = "watch"
+  target = "loop"
+  source_port = "files"
+  target_port = "items"
+}
+"""
+
+
+def _write_watch_automation(path: Path, *, default_dry_run: bool) -> Path:
+    value = "true" if default_dry_run else "false"
+    path.write_text(
+        _WATCH_MOVE_DSL.replace(
+            "default_dry_run = true", f"default_dry_run = {value}"
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_daemon_no_dry_run_applies_to_trigger_runs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: Any,
+) -> None:
+    base = tmp_path / "ws"
+    inbox = base / "inbox"
+    inbox.mkdir(parents=True)
+    # The document explicitly says dry-run; the CLI flag must still win for
+    # every triggered run, not just the daemon's initial run.
+    automation = _write_watch_automation(
+        tmp_path / "watch.ldsq", default_dry_run=True
+    )
+
+    def _drive(runtime: Any) -> None:
+        before = len(runtime.results)
+        (inbox / "new.pdf").write_text("%PDF-1.4\n", encoding="utf-8")
+        assert runtime.wait_for_runs(before + 1, timeout=5.0), runtime.results
+
+    monkeypatch.setattr(cli_main, "_serve_until_signal", _drive)
+
+    assert (
+        cli_main.main(
+            [
+                "run",
+                str(automation),
+                "--base-dir",
+                str(base),
+                "--no-dry-run",
+                "--daemon",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert (base / "processed" / "new.pdf").exists()
+    assert not (inbox / "new.pdf").exists()
+
+
+def test_daemon_dry_run_keeps_trigger_runs_dry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: Any,
+) -> None:
+    base = tmp_path / "ws"
+    inbox = base / "inbox"
+    inbox.mkdir(parents=True)
+    # The document says real-run; --dry-run must keep every triggered run dry.
+    automation = _write_watch_automation(
+        tmp_path / "watch.ldsq", default_dry_run=False
+    )
+
+    def _drive(runtime: Any) -> None:
+        before = len(runtime.results)
+        (inbox / "new.pdf").write_text("%PDF-1.4\n", encoding="utf-8")
+        assert runtime.wait_for_runs(before + 1, timeout=5.0), runtime.results
+
+    monkeypatch.setattr(cli_main, "_serve_until_signal", _drive)
+
+    assert (
+        cli_main.main(
+            [
+                "run",
+                str(automation),
+                "--base-dir",
+                str(base),
+                "--dry-run",
+                "--daemon",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert (inbox / "new.pdf").exists()
+    assert not (base / "processed" / "new.pdf").exists()
+
+
+# ---------------------------------------------------------------------------
 # Trigger node path contract (mirrors access.list_files)
 # ---------------------------------------------------------------------------
 

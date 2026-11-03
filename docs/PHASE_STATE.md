@@ -192,6 +192,8 @@ were created for 8.6 or 8.7.
 | Zero-trigger handling for `serve` / `run --daemon` | yes | yes | yes — guidance / run-once |
 | Nested per-item dry-run preview (`{item[path]}`) | yes | yes | yes — planning vars seeded from `ctx.variables` |
 | CLI serve → watch → run end-to-end test | yes | yes | yes — `tests/test_cli_release_hardening.py` |
+| Audit history views (`audit runs`, filtered `audit show`, `--path`) | yes | yes | yes — `tests/test_audit_cli.py` |
+| Retention/cleanup (`trash sweep`, `audit prune`, `Runtime.sweep_trash`) | yes | yes | yes — `tests/test_cleanup.py` |
 | Cross-platform CI workflow | yes | prepared | yes — `.github/workflows/build.yml` |
 
 - New regression file: `tests/test_cli_release_hardening.py` (10 tests).

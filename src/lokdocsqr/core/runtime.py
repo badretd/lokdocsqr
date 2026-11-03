@@ -1842,6 +1842,26 @@ class Runtime:
         with self._state_lock:
             return len(self._results) >= count
 
+    def sweep_trash(self, now: float | None = None) -> list[Path]:
+        """Remove quarantine entries whose sidecar TTL has expired.
+
+        Explicit maintenance: the runtime never deletes quarantined data on
+        its own. Call this from your scheduler/systemd timer, or use
+        ``lokdocsqr trash sweep``. Returns the removed file paths.
+        """
+        raw = getattr(self.config, "trash_dir", None)
+        if raw is None:
+            return []
+        trash_dir = Path(raw).expanduser()
+        removed = safe_fs.purge_expired_trash(trash_dir, now=now)
+        if removed:
+            logger.info(
+                "runtime: trash sweep removed %d expired entrie(s) from %s",
+                len(removed),
+                trash_dir,
+            )
+        return removed
+
     # -- introspection ---------------------------------------------
     @property
     def triggers(self) -> tuple[TriggerSpec, ...]:
