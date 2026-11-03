@@ -6,9 +6,14 @@ Rules (see spec §4):
     2. Mutating operations (MUTATING_OPERATIONS) require
        ``ctx.scope.check(path, write=True)`` for every target path.
     3. R27: a mutating proposal with empty ``target_paths`` is a validation
-       error — scope cannot be checked without a path.
+       error — scope cannot be checked without a path — unless the proposal
+       is ``dynamic`` (source supplied by an inbound edge), in which case the
+       runtime node performs the authoritative check.
     4. Read proposals do not call ``scope.check(write=True)``; the read node
        already enforced scope on its own.
+    5. Dynamic proposals also skip the advisory pre-check; their paths are
+       still surfaced for previews/explain, but the node's runtime
+       ``ScopeManager.check`` is the definitive gate.
 
 Iteration 1 (7b-iter-1): :class:`ProposalValidationError` now lives in
 :mod:`lokdocsqr.core.errors` (parent: ``PolicyError`` when present,
@@ -75,11 +80,23 @@ def validate_proposal(proposal: ActionSummary, ctx: Any) -> None:
     if proposal.operation not in MUTATING_OPERATIONS:
         return
 
-    # R27: cannot scope-check a mutation without a path.
+    dynamic = getattr(proposal, "dynamic", False) is True
+
+    # R27: cannot scope-check a mutation without a path. A dynamic proposal
+    # (source supplied by an inbound edge) defers to the runtime scope check
+    # performed by the node immediately before it mutates anything.
     if not proposal.target_paths:
+        if dynamic:
+            return
         raise ProposalValidationError(
             "mutating proposal with empty target_paths"
         )
+
+    # Dynamic paths are advisory. Do not pre-reject them here: the node's
+    # ScopeManager.check remains the authoritative gate and runs before
+    # every mutation, so security is not relaxed.
+    if dynamic:
+        return
 
     for raw in proposal.target_paths:
         candidate = Path(raw)

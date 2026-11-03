@@ -231,3 +231,27 @@ PYTHONPATH=src .venv/bin/python -m pytest -q
 Results for this pass: full suite `1476 passed, 6 skipped, 2 xfailed` before
 the P6 additions; the final run for items 17–20 is recorded in the delivery
 message. No new `skip` or `xfail` markers were added.
+
+---
+
+# docs/DSL.md — Phase 10.6-followup changelog
+
+### D24 — proposal extraction reads node.params instead of resolved payload
+
+**Decision: fix.** The policy proposal builder now receives the resolved
+payload (params + edges + port defaults) and extracts paths from it. When a
+mutating node's source is only available via an inbound edge, the proposal is
+marked `dynamic` and the definitive path check is deferred to
+`ScopeManager.check` at runtime. Genuinely empty sources (no params, no edge)
+still raise `ProposalValidationError`.
+
+Implementation notes:
+
+* `fs.move` / `fs.copy` also recognise `target_dir` when computing the
+  proposed destination, so both the source and the destination under that
+  directory appear in `target_paths`.
+* Dynamic proposals add
+  `node '<id>': proposal paths are dynamic; deferring to runtime scope check`
+  to `RunResult.warnings`.
+* Non-mutating nodes are unchanged and never receive the dynamic marker.
+* `spec_version` remains `"1.0"`.

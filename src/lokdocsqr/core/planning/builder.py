@@ -41,7 +41,11 @@ from ..payload import build_node_payload
 from ..policy.engine import PolicyEngine
 from ..preview import ChangePreview, preview_diff
 from .plan import ActionPlan, PlanError
-from .registry import classify_node, extract_paths
+from .registry import (
+    classify_node,
+    extract_paths_detailed,
+    has_inbound_source_edge,
+)
 from .validator import ProposalValidationError, validate_proposal
 
 __all__ = ["build_action_plan"]
@@ -170,9 +174,9 @@ def _build_action_plan(
     ordered_ids = list(getattr(graph, "ordered_node_ids", []) or [])
 
     resolve_edges = _graph_needs_dynamic_payload(specs)
-    edges_by_target: dict[str, list[Any]] = (
-        _inbound_edges_by_target(doc) if resolve_edges else {}
-    )
+    # Group edges even when payload resolution is static: proposal extraction
+    # still needs to know whether a mutating node's source is edge-supplied.
+    edges_by_target: dict[str, list[Any]] = _inbound_edges_by_target(doc)
 
     planning_vars: dict[str, Any] = {}
     outputs_by_node: dict[str, dict[str, Any]] = {}
@@ -284,7 +288,14 @@ def _build_action_plan(
         try:
             node_spec = specs.get(node_id)
             node_type = getattr(node_spec, "type", None) or node_id
-            target_paths = extract_paths(payload, node_type)
+            inbound = edges_by_target.get(node_id, [])
+            extraction = extract_paths_detailed(
+                payload,
+                node_type,
+                has_source_edge=has_inbound_source_edge(inbound),
+                node_params=getattr(node_spec, "params", None),
+            )
+            target_paths = extraction.paths
             operation = classify_node(node_type)
             summary_text = f"{operation}: {', '.join(target_paths) or 'n/a'}"
             proposal = ActionSummary(
@@ -294,6 +305,7 @@ def _build_action_plan(
                 target_paths=target_paths,
                 payload=dict(payload),
                 summary=summary_text,
+                dynamic=extraction.dynamic,
             )
             validate_proposal(proposal, ctx)
         except ProposalValidationError as exc:

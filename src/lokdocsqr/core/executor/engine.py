@@ -33,7 +33,11 @@ from lokdocsqr.core.models import (
     WorkflowErrorHandling,
 )
 from lokdocsqr.core.payload import build_node_payload
-from lokdocsqr.core.planning.registry import classify_node, extract_paths
+from lokdocsqr.core.planning.registry import (
+    classify_node,
+    extract_paths_detailed,
+    has_inbound_source_edge,
+)
 from lokdocsqr.core.planning.validator import validate_proposal
 
 from .context import ExecutionContext
@@ -200,6 +204,7 @@ def _validated_proposal(
     registry_id: str,
     payload: dict[str, Any],
     summary_suffix: str = "",
+    has_source_edge: bool = False,
 ) -> ActionSummary:
     """Build and validate one proposal through the single gate path.
 
@@ -207,15 +212,25 @@ def _validated_proposal(
     trust domains, so each must be validated exactly once. Centralizing
     construction here prevents the two call sites from drifting while
     keeping the R35 re-validation of edits.
+
+    Path extraction always runs against the *resolved payload*. When the
+    source came from an inbound edge, the proposal is marked ``dynamic``
+    and its definitive scope check is deferred to the node runtime.
     """
     operation = classify_node(registry_id)
+    extraction = extract_paths_detailed(
+        payload,
+        registry_id,
+        has_source_edge=has_source_edge,
+    )
     proposal = ActionSummary(
         node_id=node_id,
         node_type=registry_id,
         operation=operation,
-        target_paths=extract_paths(payload, registry_id),
+        target_paths=extraction.paths,
         payload=dict(payload),
         summary=f"{operation}: {node_id}{summary_suffix}",
+        dynamic=extraction.dynamic,
     )
     # Defense in depth: validate before the policy engine or executor
     # sees the payload.
@@ -279,12 +294,19 @@ def _check_policy_and_verify(
     if not isinstance(registry_id, str) or not registry_id:
         registry_id = node_id
 
+    has_source_edge = bool(
+        getattr(node, "_proposal_has_source_edge", False)
+    )
     proposal = _validated_proposal(
         ctx=ctx,
         node_id=node_id,
         registry_id=registry_id,
         payload=payload,
+        has_source_edge=has_source_edge,
     )
+    # The executor only learns about dynamic proposals through this private
+    # marker; it turns the deferral into a visible RunResult warning.
+    setattr(node, "_proposal_dynamic", proposal.dynamic)
 
     decision = ctx.policy.decide(proposal)
     if decision.action == PolicyAction.ALLOW:
@@ -316,6 +338,7 @@ def _check_policy_and_verify(
             registry_id=registry_id,
             payload=verify_result.new_payload,
             summary_suffix=" (edited)",
+            has_source_edge=has_source_edge,
         )
         return dict(verify_result.new_payload)
 
@@ -590,6 +613,13 @@ class Executor:
             # deliberately unguarded; the gate runs once per node,
             # before the retry loop (R38). Payload may be replaced
             # by an EDIT verdict.
+            node_edges = inbound_edges.get(node_id, [])
+            setattr(
+                node,
+                "_proposal_has_source_edge",
+                has_inbound_source_edge(node_edges),
+            )
+            setattr(node, "_proposal_dynamic", False)
             if not self.ctx.dry_run:
                 payload = _check_policy_and_verify(
                     node, self.ctx, payload, node_id=node_id,
@@ -610,6 +640,11 @@ class Executor:
             retry_policy: dict[str, Any] | None = None
             retry_policy_error: NodeExecutionError | None = None
             node_warnings: list[str] = []
+            if getattr(node, "_proposal_dynamic", False):
+                node_warnings.append(
+                    f"node {node_id!r}: proposal paths are dynamic; "
+                    "deferring to runtime scope check"
+                )
             if not self.ctx.dry_run:
                 try:
                     retry_policy = _read_node_retry_policy(

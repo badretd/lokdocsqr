@@ -4,9 +4,12 @@ from .plan import ActionPlan, PlanError
 from .registry import (
     DEFAULT_OPERATION_MAP,
     DEFAULT_PATH_KEYS,
+    ExtractionResult,
     PAYLOAD_PATH_KEYS,
     classify_node,
     extract_paths,
+    extract_paths_detailed,
+    has_inbound_source_edge,
 )
 from .validator import (
     MUTATING_OPERATIONS,
@@ -18,6 +21,7 @@ from .validator import (
 __all__ = [
     "DEFAULT_OPERATION_MAP",
     "DEFAULT_PATH_KEYS",
+    "ExtractionResult",
     "PAYLOAD_PATH_KEYS",
     "MUTATING_OPERATIONS",
     "ActionPlan",
@@ -26,6 +30,8 @@ __all__ = [
     "build_action_plan",
     "classify_node",
     "extract_paths",
+    "extract_paths_detailed",
+    "has_inbound_source_edge",
     "validate_plan",
     "validate_proposal",
 ]

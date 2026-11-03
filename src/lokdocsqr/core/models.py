@@ -289,6 +289,11 @@ class ActionSummary:
     target_paths: tuple[str, ...] = ()
     payload: dict[str, Any] = field(default_factory=dict)
     summary: str = ""
+    # Phase 10.6-followup: a source supplied only by an inbound edge makes
+    # the proposal advisory; the definitive scope check is deferred to the
+    # node's runtime ScopeManager.check. Non-dynamic proposals still fail
+    # closed on empty target_paths.
+    dynamic: bool = False
 
     def __post_init__(self) -> None:
         target_paths = self.target_paths

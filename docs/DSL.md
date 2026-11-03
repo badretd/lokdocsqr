@@ -1015,6 +1015,8 @@ Copies one source file to a rendered destination with conflict resolution and an
 
 **`target_dir`.** When set, `target_dir` is rendered against `config.base_dir` and scope-checked first; the `template` result is then resolved against that directory instead of `source.parent`. When `null` (default), behaviour is unchanged.
 
+**Edge-supplied `source`.** `source` may be omitted from `params` and supplied by an inbound edge (for example `utils.path_template.path → fs.copy.source`). The policy proposal is then built from the resolved payload and marked `dynamic`; path extraction still includes the source and the computed destination, while the definitive scope check is deferred to the node's runtime `ScopeManager.check` (§14.7).
+
 **Side effects / audit.** Calls `safe_fs.copy_file`; `ActionLog(action_type="copy")`; risk `LOW` with no conflict, `MEDIUM` for skip/rename/overwrite, `HIGH` for pending verify. `ask` currently behaves as `skip` with reason `conflict_pending_verify`. Dry-run also performs the free-space probe and may fail with `SafeFsError("insufficient_space")`. `run` and `dry_run` return `{"action_log": log, "file": <destination>}`, so a downstream node wired to `file` receives the destination path.
 
 ```ldsq
@@ -1057,6 +1059,8 @@ Moves one source file to a rendered destination. Cross-volume handling is inside
 | `file` | string | Resolved destination path |
 
 **`target_dir`.** When set, `target_dir` is rendered against `config.base_dir` and scope-checked first; the `template` result is then resolved against that directory instead of `source.parent`. When `null` (default), behaviour is unchanged.
+
+**Edge-supplied `source`.** `source` may be omitted from `params` and supplied by an inbound edge (for example `utils.path_template.path → fs.move.source`). The policy proposal is then built from the resolved payload and marked `dynamic`; path extraction still includes the source and the computed destination, while the definitive scope check is deferred to the node's runtime `ScopeManager.check` (§14.7).
 
 **Side effects / audit.** Calls `safe_fs.safe_move` when the conflict decision is `proceed`. `ActionLog(action_type="move")`; rollback-eligible only when applied. Risk `LOW` for no conflict/no change, `MEDIUM` for policy-resolved conflicts, `HIGH` for `ask`. `run` and `dry_run` return `{"action_log": log, "file": <destination>}`, so the declared `file` port is populated.
 
@@ -2867,6 +2871,8 @@ The executor always resolves edges (`resolve_edges=True`). The planner resolves 
 
 The planner also threads a `planning_vars` mapping through the dry-run pass: any dry-run result dict with a `variables` dict contributes non-reserved keys to subsequent nodes. `ctx.variables` itself is isolated and not mutated.
 
+The executor's policy proposal gate also resolves edges; when a mutating node's source is supplied dynamically, the proposal is marked `dynamic` and the definitive path check is deferred to `ScopeManager.check` at runtime. The proposal still extracts the source and destination from the resolved payload (including `fs.move`/`fs.copy` `target_dir`) so previews and `--explain` remain useful.
+
 ### 13.4 Fail-closed cases
 
 | Case | Result |
@@ -2976,6 +2982,18 @@ Nodes may pre-set `status` (`"applied"`, `"skipped"`) and the executor leaves it
 `RunResult.success` is `success and not aborted`; it is false if any node failed.
 
 `RunResult.warnings` is a list of non-fatal diagnostics. The executor aggregates every node result's warnings. The main producer is `flow.loop_batch` / `flow.subflow` under `on_child_error="warn"` (the default), which emits one entry per failed child in the form `loop_batch node '<id>' item <index> failed: <error_type>: <error>`. Warnings are printed to stderr by the CLI `run` command; they do not on their own block execution, but `warn` mode also marks the producing node failed so `success` becomes `false` when a child failed.
+
+### 14.7 Policy proposals and dynamic paths
+
+Before a mutating node runs, the executor's policy gate builds an `ActionSummary` from the **resolved payload**, not from `NodeSpec.params` (`core/executor/engine.py:_validated_proposal`, `core/planning/registry.py:extract_paths_detailed`). For `fs.move` and `fs.copy` the extracted paths are the source plus the best-effort destination, using `target_dir` when present.
+
+When the source comes from an inbound edge, the proposal is marked `dynamic`. Its paths are still shown in previews and `--explain`, but they are advisory: the gate does not pre-reject the mutation, and the node's own `ScopeManager.check` (which runs immediately before every mutation) remains the authoritative check. A dynamic run adds this warning to `RunResult.warnings`:
+
+```text
+node '<id>': proposal paths are dynamic; deferring to runtime scope check
+```
+
+The deferral does not relax security: a resolved path outside the writable scope still fails with `ScopeViolation` at runtime. A mutating proposal with no extracted paths and `dynamic = false` — no `source` in the payload, no inbound `source` edge, and no derivable destination — still raises `ProposalValidationError("mutating proposal with empty target_paths")`. Non-mutating nodes never receive the dynamic marker.
 
 ---
 
@@ -3866,6 +3884,7 @@ edge "classify-validate" {
 | `outside scope` / `no writable roots` | Path is outside `roots`/`writable`, or no roots configured | Add the path to `scope.writable` and `scope.roots`; configure `base_dir` |
 | A required input port fails at execution even though the node class lists it | The document did not declare `inputs`; registry metadata is not injected | Declare `inputs` on the node, or provide `params`/edges/defaults |
 | Downstream receives `None` from an fs node | The upstream port name or the document edge does not match the produced key | Wire the declared `file`/`files` output; `fs.copy`, `fs.move`, `fs.rename`, `fs.archive`, `fs.convert`, and `fs.trash` now populate it |
+| `ProposalValidationError: mutating proposal with empty target_paths` | `source` supplied only by an edge on `fs.move`/`fs.copy` | Fixed in Phase 10.6-followup: extraction reads the resolved payload and marks edge-supplied sources `dynamic`. If seen on a custom mutating node, ensure `payload.get('source')` is checked before `params.get('source')` |
 | `retry_policy` on an fs node warns about side effects | `retry_safe=False` | Remove the policy, use a retry-safe node, or set `error_handling.strict_retry_safe = true` to reject it |
 | `flow.wait` does not pause during dry-run | Dry-run is side-effect free by design | Read `would_sleep` for the duration it would have waited |
 | A `flow.subflow`/`flow.loop_batch` plan errors | Nested previews fail closed | Set `recursive_preview=true` only when a planning callback is wired |
