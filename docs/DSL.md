@@ -4011,6 +4011,9 @@ These are real differences that remain between prose/documentation, declared met
 14. **`fs.tag` xattr persistence is best-effort.**
     If `safe_fs.set_xattr` is unavailable, the node logs and continues with the sidecar only. The sidecar is the durable record.
 
+15. **Edge conditions gate execution, not the action planner.**
+    `Executor` evaluates `edge.condition` and skips the target (and descendants). The action-plan builder (`core.planning.builder`) does not evaluate edge conditions, so a plan may still include a node whose edge would be falsy at run time. The executor remains the authority.
+
 16. **`utils.notify` is not transactional.**
     Delivery is fail-soft: partial SMTP/HTTP failures are reported as `sent=false` with an error, and there is no retry/rollback.
 

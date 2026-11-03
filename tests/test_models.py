@@ -286,7 +286,8 @@ def test_edgespec_defaults() -> None:
     edge = EdgeSpec(id="e1", source="a", target="b")
     assert edge.source_port == "out"
     assert edge.target_port == "in"
-    assert not hasattr(edge, "condition")
+    assert edge.condition is None
+    assert edge.kind == "data"
     assert edge.label == ""
 
 

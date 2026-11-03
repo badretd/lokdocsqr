@@ -147,3 +147,87 @@ child and parent so `Runtime._catalog()` could resolve `graph_id="copy-child"`.
 
 Remaining limitations are exactly the entries under `docs/DSL.md` →
 "Known divergences".
+
+---
+
+# docs/DSL.md — Phase 10.6 ergonomics & diagnostics changelog
+
+This pass is behavior-changing but stays on `spec_version = "1.0"`. Existing
+documents keep parsing, `compile_dsl` still returns the raw parser dict, and the
+round-trip guarantees are unchanged:
+
+```text
+parse_graph(document_to_dict(doc)) == doc
+emit_dsl(parse_dsl(text)) == text          # canonical text
+```
+
+## Decisions and behavior changes
+
+| # | Area | Before | After |
+|---|---|---|---|
+| 1 | Nested child failures | `loop_batch`/`subflow` swallowed failures; `RunResult.success` stayed true | `on_child_error = "continue"|"fail"|"warn"` (default `warn`); `warn` records `RunResult.warnings` and fails the producing node, `continue` keeps success, `fail` re-raises the first child `LokError`. `RunResult`/`NodeResult` gain `warnings` |
+| 2 | Validation output | CLI surfaced errors one at a time in practice | `validate_graph` returns every error; CLI prints all; `--first-error` restores one-at-a-time output |
+| 3 | Run introspection | Only node state was printed | `run --explain` prints outputs (types + 200-char values), action logs, errors; `--format=text|json`; `--explain` implies text |
+| 4 | Empty scans | `ok` with no indication whether a folder was empty | `access.list_files` and `triggers.watch_folder` always expose `scanned`; `--explain` prints `<node>: scanned N file(s)` |
+| 5 | Undeclared registry ports | Unknown port was an error even when the class declared it | `validate_graph` emits a warning via `warnings=`; CLI prints warnings to stderr; registry ports are never injected into the document |
+| 6 | Ordering dependencies | Required a fake data port | `edge.kind = "order"` constrains topology only, needs no `target_port`, is skipped by payload resolution and port validation |
+| 7 | Long lists | Lists had to be one physical line; trailing comma failed | Newlines inside `[...]` are whitespace and a trailing comma is accepted; emitter still writes inline lists |
+| 8 | Path templates | Only `{key}` placeholders | Added `basename`, `dirname`, `stem`, `suffix`, `join` (quoted literals or context keys, no nesting); absolute/`..` checks still run after substitution |
+| 9 | Parent traversal | Any `..` rejected before scope resolution | Opt-in `scope.allow_parent_traversal`/`AppConfig.allow_parent_traversal`; final writable-root containment still rejects escapes; default remains closed |
+| 10 | Move/copy destination base | `template` always relative to `source.parent` | `fs.move`/`fs.copy` accept `target_dir`, rendered against `config.base_dir`; `template` then resolves against it |
+| 11 | Two-file catalogs in CLI | `graph_id not found` under `run` | `--include` registers files/directories before execution; `--catalog-fallback` opt-in loads `<base_dir>/<graph_id>.ldsq|json` with a warning |
+| 12 | CLI dry-run + nested graphs | Failed closed on `loop_batch`/`subflow` | CLI `run --dry-run` sets `recursive_preview=true` and wires the existing planner callback; library remains strict |
+| 13 | `retry_policy` on non-retry-safe nodes | Failed before `run` | Warns (`RunResult.warnings`) and applies the policy; `error_handling.strict_retry_safe = true` restores rejection |
+| 14 | `retry_on` matching | Only the wrapper type matched | Matches `type(exc).__name__` across the `__cause__`/`__context__` chain |
+| 15 | Document dry-run default | Only `false` won over config; explicit `true` could be overridden | Explicit document setting is absolute; precedence is explicit argument > document > Runtime > config |
+| 16 | `serve` | Worked but was under-documented | Documented §10.7; `--include` added; file-or-directory, `--base-dir`, `--dry-run`/`--no-dry-run` stabilized |
+| 17 | `edge.condition` | Removed in Phase 10.5 as inert | Reinstated as a real gate: all inbound data edges falsy ⇒ target skipped and descendants cascade; uses §11 language |
+| 18 | Shorthand variables | Always `type = "string"` | Infers `int`, `float`, `bool`, `None`, else `string`; block form unchanged |
+| 19 | Conditions | `item.path` was a parse error | Only `item.<key>` is supported when `item` is a dict; no general attribute access |
+| 20 | CLI formats | `--json` only on some commands | Unified `--format=text|json` on `compile`, `validate`, `run`; `--json` remains an alias |
+
+## Compatibility and migration notes
+
+* **No `spec_version` bump.** New edge/variable/scope fields are optional with
+  backward-compatible defaults.
+* **Nested error default:** documents that relied on child failures being
+  silent now see `RunResult.warnings` and a failed run under the default
+  `on_child_error = "warn"`. Use `on_child_error = "continue"` for the old
+  success semantics.
+* **Retry safety:** documents with `retry_policy` on `retry_safe=False` nodes
+  now run with a warning by default. Set
+  `error_handling.strict_retry_safe = true` to opt back into rejection.
+* **Edge conditions:** `edge.condition` gates execution again. A node is
+  skipped only when every inbound data edge has a condition and all are falsy;
+  an ungated or truthy edge keeps it runnable. Order edges never gate.
+* **Variable inference:** shorthand variables no longer default to `string`.
+  Use the block form if an exact type spelling (for example `integer`) matters.
+* **Parent traversal:** still rejected by default. Enable
+  `scope.allow_parent_traversal` only when a writable root covers the resolved
+  sibling path.
+
+## Files touched (summary)
+
+Source: core models/parser/validator/paths/scope/config/runtime/executor/
+payload/conditions; CLI; `nodes/flow/{loop_batch,subflow,_common}`;
+`nodes/fs_ops/{_base,copy,move,_common}`; trigger helpers and watch node;
+`nodes/triggers/_base.py`.
+
+Tests: `tests/test_phase_10_6_diagnostics.py` (new), plus targeted updates to
+`tests/test_phase_8f.py`, `tests/test_phase_8pre_retry_policy.py`, and
+`tests/test_phase_10_5_fixes.py` where the specified behavior intentionally
+changed.
+
+Docs/tooling: `docs/DSL.md`, this changelog. `tools/verify_dsl_docs.py`
+remains generic and automatically covers the new DSL blocks.
+
+## Verification
+
+```bash
+PYTHONPATH=src .venv/bin/python -m pytest -q
+.venv/bin/python tools/verify_dsl_docs.py
+```
+
+Results for this pass: full suite `1476 passed, 6 skipped, 2 xfailed` before
+the P6 additions; the final run for items 17–20 is recorded in the delivery
+message. No new `skip` or `xfail` markers were added.
