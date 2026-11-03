@@ -14,7 +14,7 @@ import lokdocsqr.nodes  # noqa: F401  (register built-in node families)
 from tests.helpers import make_ctx
 from lokdocsqr.cli.main import main
 from lokdocsqr.core.dsl import compile_dsl
-from lokdocsqr.core.errors import ScopeViolation
+from lokdocsqr.core.errors import NodeExecutionError, ScopeViolation
 from lokdocsqr.core.paths import render_template
 from lokdocsqr.core.executor.engine import Executor
 from lokdocsqr.core.graph import (
@@ -723,3 +723,57 @@ def test_strict_retry_safe_rejects(tmp_path: Path) -> None:
     assert result.success is False
     assert node.run_calls == 0
     assert any("retry_safe=False" in error for error in result.errors)
+
+
+# ---------------------------------------------------------------------------
+# Item 14 — retry_on matches the cause chain
+# ---------------------------------------------------------------------------
+
+
+class _CauseFailingNode(Node):
+    id = "test.cause-failing"
+    retry_safe = True
+
+    def __init__(self) -> None:
+        self.run_calls = 0
+
+    @property
+    def title(self) -> str:
+        return "Cause failing"
+
+    def run(self, ctx: Any, payload: Any) -> Any:
+        self.run_calls += 1
+        try:
+            raise TimeoutError("slow")
+        except TimeoutError as exc:
+            raise NodeExecutionError("wrapped") from exc
+
+    def dry_run(self, ctx: Any, payload: Any) -> Any:
+        return self.run(ctx, payload)
+
+
+def test_retry_on_matches_cause_chain(tmp_path: Path) -> None:
+    document = WorkflowDocument(
+        spec_version="1.0",
+        metadata=WorkflowMetadata(id="cause-chain"),
+        nodes=[
+            NodeSpec(
+                id="n",
+                type="test.cause-failing",
+                params={
+                    "retry_policy": {
+                        "attempts": 2,
+                        "retry_on": ["TimeoutError"],
+                        "backoff": 0,
+                    }
+                },
+            )
+        ],
+        edges=[],
+    )
+    node = _CauseFailingNode()
+    result = Executor(make_ctx(tmp_path)).execute(
+        _retry_graph(document, node)
+    )
+    assert node.run_calls == 2
+    assert result.success is False

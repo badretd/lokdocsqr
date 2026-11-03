@@ -167,6 +167,18 @@ def _normalize_result(
     return result
 
 
+def _retry_on_matches(exc: BaseException, names: Any) -> bool:
+    """Return true when ``exc`` or any wrapper in its cause chain matches."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if type(current).__name__ in names:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 def _retry_delay(
     handling: WorkflowErrorHandling, failed_attempt: int
 ) -> float:
@@ -633,8 +645,9 @@ class Executor:
                     if not self.ctx.dry_run:
                         if retry_policy is not None:
                             if (
-                                type(exc).__name__
-                                in retry_policy["retry_on"]
+                                _retry_on_matches(
+                                    exc, retry_policy["retry_on"]
+                                )
                                 and attempts < retry_policy["attempts"]
                             ):
                                 delay = retry_policy["backoff"] * (
