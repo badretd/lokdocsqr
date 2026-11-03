@@ -36,6 +36,7 @@ import dataclasses
 from typing import Any
 
 from ..models import ActionSummary, PolicyAction, PolicyDecision
+from ..payload import build_node_payload
 from ..policy.engine import PolicyEngine
 from ..preview import ChangePreview, preview_diff
 from .plan import ActionPlan, PlanError
@@ -95,63 +96,21 @@ def _node_payload(
     outputs_by_node: dict[str, dict[str, Any]] | None = None,
     resolve_edges: bool = False,
 ) -> dict[str, Any]:
-    """Return the node payload, optionally resolving inbound edge values.
+    """Return the node payload via the shared resolver.
 
     The static part is ``node_spec.params``. When ``resolve_edges`` is true,
     inbound edges are resolved by ``(source, source_port) -> target_port``
-    using upstream dry-run outputs. This mirrors the edge semantics of
+    using upstream dry-run outputs. Edge values override static params; port
+    defaults fill only keys that remain unset. This is the same ordering as
     ``core.executor.engine.Executor._build_payload``; there is no
     ``$node.port`` string syntax in the raw graph.
     """
-    params = getattr(node_spec, "params", None)
-    payload: dict[str, Any] = dict(params) if isinstance(params, dict) else {}
-    if not resolve_edges:
-        return payload
-
-    port_values: dict[str, list[Any]] = {}
-    outputs = outputs_by_node or {}
-    for edge in inbound_edges or []:
-        source = getattr(edge, "source", None)
-        source_port = getattr(edge, "source_port", None)
-        target_port = getattr(edge, "target_port", None)
-        if source_port is None or target_port is None:
-            raise ValueError(
-                f"edge with source_port=None or target_port=None: "
-                f"source={source!r}"
-            )
-        if not (
-            isinstance(source, str)
-            and isinstance(source_port, str)
-            and isinstance(target_port, str)
-        ):
-            continue
-        source_outputs = outputs.get(source)
-        if source_outputs is None:
-            continue
-        port_values.setdefault(target_port, []).append(
-            source_outputs.get(source_port)
-        )
-
-    for port_name, values in port_values.items():
-        payload[port_name] = values[0] if len(values) == 1 else values
-
-    inputs = getattr(node_spec, "inputs", None)
-    if isinstance(inputs, list):
-        for port_spec in inputs:
-            name = getattr(port_spec, "name", None)
-            if not isinstance(name, str) or name in payload:
-                continue
-            default = getattr(port_spec, "default", None)
-            if default is not None:
-                payload[name] = default
-                continue
-            required = getattr(port_spec, "required", True)
-            if required:
-                raise ValueError(
-                    f"required input port {name!r} has no edge and no default"
-                )
-
-    return payload
+    return build_node_payload(
+        node_spec,
+        inbound_edges=inbound_edges,
+        outputs_by_node=outputs_by_node,
+        resolve_edges=resolve_edges,
+    )
 
 
 def _dry_run_outputs(result: Any) -> dict[str, Any]:

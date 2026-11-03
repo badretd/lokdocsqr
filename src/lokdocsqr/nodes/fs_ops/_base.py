@@ -35,7 +35,6 @@ from ._common import (
     risk_for_decision,
 )
 
-
 # The set of ``action_type`` values that
 # :meth:`lokdocsqr.core.audit.AuditLog.build_rollback_plan` can reverse.
 # Must stay in sync with the branches in ``core/audit.py``:
@@ -48,6 +47,25 @@ from ._common import (
 # ``fs.trash`` does not inherit from ``FsTemplateNode`` and sets
 # ``rollback_eligible=True`` explicitly in its own ``run``.
 _ROLLBACKABLE_ACTIONS = frozenset({"move", "rename"})
+
+
+def _payload_str(
+    payload: dict[str, Any], key: str, default: str, node_id: str
+) -> str:
+    """Return a string setting from ``payload``, falling back to ``default``.
+
+    Payload values come from ``NodeSpec.params`` (and, for wired ports,
+    from upstream outputs), so they are untrusted. Reject non-string
+    values here rather than letting a malformed template reach
+    ``render_template`` or a malformed policy reach conflict resolution.
+    """
+    value = payload.get(key, default)
+    if not isinstance(value, str):
+        raise ValueError(
+            f"{node_id} payload key {key!r} must be a string, "
+            f"got {type(value).__name__}"
+        )
+    return value
 
 
 class FsNode(Node):
@@ -116,7 +134,7 @@ class FsNode(Node):
         return variables
 
     @staticmethod
-    def _resolve(ctx, payload: dict[str, Any]) -> Path:
+    def _resolve(ctx: Any, payload: dict[str, Any]) -> Path:
         """Render ``payload["path_template"]`` and scope-check the result."""
         template = payload["path_template"]
         variables = payload.get("variables") or {}
@@ -142,22 +160,31 @@ class FsTemplateNode(FsNode):
     """
 
     action_type: str = ""
+    template: str = "{name}{ext}"
+    conflict_policy: str = "skip"
 
     # ── planning ─────────────────────────────────────────────────
     def _render_target(
-        self, ctx, src: Path, variables: dict[str, Any]
+        self,
+        ctx: Any,
+        src: Path,
+        variables: dict[str, Any],
+        template: str | None = None,
     ) -> Path:
-        """Render ``self.template`` and return the resolved destination.
+        """Render ``template`` (or ``self.template``) and return the destination.
 
         Relative results resolve against ``src.parent``; absolute
         results are returned as-is. ``..`` segments and empty renders
         are rejected here, before any ``safe_fs.*`` call sees the path.
+        Callers may pass a payload-supplied template; ``None`` preserves
+        the instance-level default.
         """
-        rendered_str = str(render_template(self.template, variables))
+        template = self.template if template is None else template
+        rendered_str = str(render_template(template, variables))
         if not rendered_str.strip():
             raise ValueError(
                 f"{self.id} template rendered to empty: "
-                f"template={self.template!r}"
+                f"template={template!r}"
             )
         parts = rendered_str.replace("\\", "/").split("/")
         if ".." in parts:
@@ -172,13 +199,25 @@ class FsTemplateNode(FsNode):
         return src.parent / rendered
 
     def _plan(
-        self, ctx, payload: dict[str, Any]
+        self, ctx: Any, payload: dict[str, Any]
     ) -> tuple[Path, Path, ConflictDecision]:
+        """Resolve source, destination and conflict for one action.
+
+        ``template`` and ``conflict_policy`` are read from ``payload``
+        first so a ``NodeSpec.params``-configured node behaves the same
+        as a programmatically constructed one. Instance attributes remain
+        the defaults (and the fallback for direct callers).
+        """
         src = Path(payload["source"])
         check_scope(ctx, str(src))
 
+        template = _payload_str(payload, "template", self.template, self.id)
+        conflict_policy = _payload_str(
+            payload, "conflict_policy", self.conflict_policy, self.id
+        )
+
         variables = self._variables(src, payload.get("variables") or {})
-        dst = self._render_target(ctx, src, variables)
+        dst = self._render_target(ctx, src, variables, template=template)
         check_scope(ctx, str(dst))
 
         if dst == src:
@@ -186,14 +225,14 @@ class FsTemplateNode(FsNode):
                 action="skip", final_dst=dst, reason="no_change"
             )
 
-        decision = resolve_conflict_policy(self.conflict_policy, dst)
+        decision = resolve_conflict_policy(conflict_policy, dst)
         if decision.action == "proceed":
             check_scope(ctx, str(decision.final_dst))
         return src, decision.final_dst, decision
 
     def _build_log(
         self,
-        ctx,
+        ctx: Any,
         src: Path,
         final_dst: Path,
         decision: ConflictDecision,
@@ -249,7 +288,7 @@ class FsTemplateNode(FsNode):
         )
 
     # ── Node ABC ─────────────────────────────────────────────────
-    def _run_template(self, ctx, payload):
+    def _run_template(self, ctx: Any, payload: Any) -> ActionLog:
         src, final_dst, decision = self._plan(ctx, payload)
         if decision.action == "proceed":
             self._execute(src, final_dst)
@@ -259,7 +298,7 @@ class FsTemplateNode(FsNode):
         ctx.audit.append(log)
         return log
 
-    def _dry_run_template(self, ctx, payload):
+    def _dry_run_template(self, ctx: Any, payload: Any) -> ActionLog:
         src, final_dst, decision = self._plan(ctx, payload)
         return self._build_log(
             ctx, src, final_dst, decision, dry_run=True

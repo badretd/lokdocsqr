@@ -31,8 +31,9 @@ Gate notes:
 
 | Finding | Implemented | Tested | Integrated |
 |---|---|---|---|
-| F-01 payload unification | working tree (uncommitted) | params-only/parity tests present | no |
+| F-01 payload unification | yes | yes | yes — shared `core.payload.build_node_payload` used by planner and executor |
 | F-02 write scope | no | no | no |
 | F-03 audit contract | no | no | no |
 
-Vertical slice: not written yet. 8.6 is not closed.
+F-01 is committed as the first 8.6 change, separately from the 8.6-pre
+closeout. Vertical slice: not written yet. 8.6 is not closed.

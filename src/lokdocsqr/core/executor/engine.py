@@ -28,9 +28,9 @@ from lokdocsqr.core.models import (
     ResolvedGraph,
     RunResult,
     VerifyAction,
-    VerifyResult,
     WorkflowErrorHandling,
 )
+from lokdocsqr.core.payload import build_node_payload
 from lokdocsqr.core.planning.registry import classify_node, extract_paths
 from lokdocsqr.core.planning.validator import validate_proposal
 
@@ -112,9 +112,38 @@ def _retry_delay(
     return base
 
 
+def _validated_proposal(
+    *,
+    ctx: ExecutionContext,
+    node_id: str,
+    registry_id: str,
+    payload: dict[str, Any],
+    summary_suffix: str = "",
+) -> ActionSummary:
+    """Build and validate one proposal through the single gate path.
+
+    The original payload and an EDIT ``new_payload`` are distinct
+    trust domains, so each must be validated exactly once. Centralizing
+    construction here prevents the two call sites from drifting while
+    keeping the R35 re-validation of edits.
+    """
+    operation = classify_node(registry_id)
+    proposal = ActionSummary(
+        node_id=node_id,
+        operation=operation,
+        target_paths=extract_paths(payload, registry_id),
+        payload=dict(payload),
+        summary=f"{operation}: {node_id}{summary_suffix}",
+    )
+    # Defense in depth: validate before the policy engine or executor
+    # sees the payload.
+    validate_proposal(proposal, ctx)
+    return proposal
+
+
 def _check_policy_and_verify(
     node: Any,
-    ctx: "ExecutionContext",
+    ctx: ExecutionContext,
     payload: dict[str, Any],
     *,
     node_id: str | None = None,
@@ -168,17 +197,12 @@ def _check_policy_and_verify(
     if not isinstance(registry_id, str) or not registry_id:
         registry_id = node_id
 
-    operation = classify_node(registry_id)
-    target_paths = extract_paths(payload, registry_id)
-    proposal = ActionSummary(
+    proposal = _validated_proposal(
+        ctx=ctx,
         node_id=node_id,
-        operation=operation,
-        target_paths=target_paths,
-        payload=dict(payload),
-        summary=f"{operation}: {node_id}",
+        registry_id=registry_id,
+        payload=payload,
     )
-    # Defense in depth: validate the proposal before the engine sees it.
-    validate_proposal(proposal, ctx)
 
     decision = ctx.policy.decide(proposal)
     if decision.action == PolicyAction.ALLOW:
@@ -203,15 +227,14 @@ def _check_policy_and_verify(
     if verify_result.action == VerifyAction.EDIT:
         if verify_result.new_payload is None:
             raise PolicyError(f"{node_id}: EDIT without new_payload")
-        edited = ActionSummary(
-            node_id=node_id,
-            operation=classify_node(registry_id),
-            target_paths=extract_paths(verify_result.new_payload, registry_id),
-            payload=dict(verify_result.new_payload),
-            summary=f"{operation}: {node_id} (edited)",
-        )
         # R35: do not trust the callback — re-validate the edit.
-        validate_proposal(edited, ctx)
+        _validated_proposal(
+            ctx=ctx,
+            node_id=node_id,
+            registry_id=registry_id,
+            payload=verify_result.new_payload,
+            summary_suffix=" (edited)",
+        )
         return dict(verify_result.new_payload)
 
     raise PolicyError(
@@ -439,7 +462,7 @@ class Executor:
             # deliberately unguarded; the gate runs once per node,
             # before the retry loop (R38). Payload may be replaced
             # by an EDIT verdict.
-            if not self.ctx.dry_run:         
+            if not self.ctx.dry_run:
                 payload = _check_policy_and_verify(
                     node, self.ctx, payload, node_id=node_id,
                 )
@@ -628,7 +651,12 @@ class Executor:
         edges: list[Any],
         node_results: dict[str, NodeResult],
     ) -> dict[str, Any]:
-        """Build the input payload for ``node_id`` from upstream outputs.
+        """Build the input payload for ``node_id`` from params and upstream outputs.
+
+        The shared resolver enforces the same precedence as the planner:
+        ``NodeSpec.params`` first, inbound edge values override same-named
+        params, and port defaults fill only keys that remain unset. Only
+        upstream results in the ENABLED state contribute values.
 
         Default values are applied and required input ports are validated
         even when the node has no inbound edges (trigger nodes): a
@@ -637,35 +665,18 @@ class Executor:
         receive that default. This is what the Phase-4 acceptance
         checklist requires.
         """
-        port_values: dict[str, list[Any]] = {}
-        for edge in edges:
-            if edge.source_port is None or edge.target_port is None:
-                raise ValueError(
-                    f"edge with source_port=None or target_port=None: "
-                    f"source={edge.source!r}"
-                )
-            source_result = node_results.get(edge.source)
-            if source_result is None or source_result.state != NodeState.ENABLED:
-                continue
-            value = source_result.outputs.get(edge.source_port)
-            port_values.setdefault(edge.target_port, []).append(value)
-
-        payload: dict[str, Any] = {}
-        for port_name, values in port_values.items():
-            payload[port_name] = values[0] if len(values) == 1 else values
-
-        for port_spec in node_spec.inputs:
-            if port_spec.name in payload:
-                continue
-            if port_spec.default is not None:
-                payload[port_spec.name] = port_spec.default
-            elif port_spec.required:
-                raise GraphValidationError(
-                    f"node {node_id!r} required input port "
-                    f"{port_spec.name!r} has no edge and no default"
-                )
-
-        return payload
+        outputs_by_node = {
+            source_id: result.outputs
+            for source_id, result in node_results.items()
+            if result.state == NodeState.ENABLED
+        }
+        return build_node_payload(
+            node_spec,
+            inbound_edges=edges,
+            outputs_by_node=outputs_by_node,
+            resolve_edges=True,
+            required_port_error=GraphValidationError,
+        )
 
 
 def execute(
