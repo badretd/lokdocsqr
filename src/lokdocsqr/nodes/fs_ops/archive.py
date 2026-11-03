@@ -1,3 +1,4 @@
+# mypy: disable-error-code="no-untyped-def,no-untyped-call"
 """Archive / Extract — zip / 7z with zip-slip protection.
 
 Node id: ``fs.archive``. Two operations:
@@ -35,17 +36,17 @@ from lokdocsqr.core.errors import (
 from lokdocsqr.core.models import Risk
 from lokdocsqr.core.node_api.decorators import register_node
 
+from ._base import FsNode
 from ._common import (
     build_action_log,
     check_scope,
     render_and_check,
     resolve_conflict_policy,
+    resolve_path,
     risk_for_decision,
 )
-from ._base import FsNode
 
-
-SUPPORTED_FORMATS = ("zip", "7z")
+SUPPORTED_FORMATS = ("zip",)
 
 
 # ── zip-slip protection ─────────────────────────────────────────────
@@ -64,9 +65,7 @@ def _entry_is_safe(name: str) -> bool:
     if len(name) >= 2 and name[1] == ":":
         return False
     parts = name.replace("\\", "/").split("/")
-    if ".." in parts:
-        return False
-    return True
+    return ".." not in parts
 
 
 def _resolve_entry_target(target_dir: Path, entry_name: str) -> Path:
@@ -107,21 +106,6 @@ def _build_zip_bytes(sources: list[Path]) -> bytes:
     return buf.getvalue()
 
 
-def _build_7z_bytes(sources: list[Path]) -> bytes:
-    """Assemble a 7z archive in memory (requires the ``py7zr`` extra).
-
-    ``_plan_create`` guarantees ``py7zr`` is importable before this
-    function is reached; the import here is therefore plain.
-    """
-    import py7zr  # noqa: F401  (guarded by _plan_create)
-
-    buf = io.BytesIO()
-    with py7zr.SevenZipFile(buf, "w") as zf:
-        for src in sources:
-            zf.write(src, arcname=src.name)
-    return buf.getvalue()
-
-
 # ── node ────────────────────────────────────────────────────────────
 
 @register_node
@@ -130,8 +114,8 @@ class ArchiveNode(FsNode):
 
     id = "fs.archive"
     title = "Archive / Extract"
-    inputs = ("file",)
-    outputs = ("file",)
+    inputs: Any = ("file",)
+    outputs: Any = ("file",)
 
     def __init__(
         self,
@@ -224,18 +208,8 @@ class ArchiveNode(FsNode):
                 f"expected one of {SUPPORTED_FORMATS}"
             )
 
-        # Fail fast in BOTH run() and dry_run() if 7z backend is missing.
-        if fmt == "7z":
-            try:
-                import py7zr  # noqa: F401
-            except ImportError as exc:
-                raise NodeExecutionError(
-                    "7z_backend_unavailable: "
-                    "install hint: pip install py7zr"
-                ) from exc
-
         target = render_and_check(
-            ctx, target_raw, payload.get("variables") or {}
+            ctx, target_raw, payload.get("variables") or {}, write=True
         )
         overwrite = bool(payload.get("overwrite", self.overwrite))
         if target.exists() and not overwrite:
@@ -246,8 +220,7 @@ class ArchiveNode(FsNode):
 
         sources: list[Path] = []
         for raw in sources_raw:
-            src = Path(raw)
-            check_scope(ctx, str(src))
+            src = resolve_path(ctx, raw, write=False)
             if not src.exists():
                 raise SafeFsError(f"source missing: {src}")
             sources.append(src)
@@ -274,14 +247,9 @@ class ArchiveNode(FsNode):
 
     def _run_create(self, ctx, payload):
         sources, target, fmt = self._plan_create(ctx, payload)
-        data = (
-            _build_zip_bytes(sources)
-            if fmt == "zip"
-            else _build_7z_bytes(sources)
-        )
+        data = _build_zip_bytes(sources)
         safe_fs.atomic_write(target, data)
         log = self._create_log(ctx, sources, target, fmt, dry_run=False)
-        ctx.audit.append(log)
         return log
 
     def _dry_create(self, ctx, payload):
@@ -301,15 +269,14 @@ class ArchiveNode(FsNode):
                 "archive.extract: 'target_dir' is required"
             )
 
-        source = Path(source_raw)
-        check_scope(ctx, str(source))
+        source = resolve_path(ctx, source_raw, write=False)
         if not source.exists():
             raise SafeFsError(f"source missing: {source}")
 
         target_dir = render_and_check(
-            ctx, target_dir_raw, payload.get("variables") or {}
+            ctx, target_dir_raw, payload.get("variables") or {}, write=True
         )
-        check_scope(ctx, str(target_dir))
+        check_scope(ctx, target_dir, write=True)
 
         policy = str(payload.get("conflict_policy", self.conflict_policy))
         return source, target_dir, policy
@@ -336,7 +303,7 @@ class ArchiveNode(FsNode):
             entries = []
             for info in zf.infolist():
                 final = _resolve_entry_target(target_dir, info.filename)
-                check_scope(ctx, str(final))
+                check_scope(ctx, final, write=True)
                 entries.append((info, final))
 
             # Phase 2: create target_dir and extract.
@@ -348,7 +315,7 @@ class ArchiveNode(FsNode):
                     continue
                 decision = resolve_conflict_policy(policy, final)
                 if decision.action == "proceed":
-                    check_scope(ctx, str(decision.final_dst))
+                    check_scope(ctx, decision.final_dst, write=True)
                 if decision.action == "skip":
                     logs.append(
                         self._extract_log(
@@ -364,8 +331,6 @@ class ArchiveNode(FsNode):
                     )
                 )
 
-        for log in logs:
-            ctx.audit.append(log)
         return logs
 
     def _dry_extract(self, ctx, payload):
@@ -375,7 +340,7 @@ class ArchiveNode(FsNode):
         with zipfile.ZipFile(source, "r") as zf:
             for info in zf.infolist():
                 final = _resolve_entry_target(target_dir, info.filename)
-                check_scope(ctx, str(final))
+                check_scope(ctx, final, write=True)
                 if info.is_dir() or info.filename.endswith("/"):
                     continue
                 decision = resolve_conflict_policy(policy, final)

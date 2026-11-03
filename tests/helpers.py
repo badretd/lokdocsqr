@@ -44,6 +44,7 @@ def make_ctx(
         automation_id=automation_id,
         dry_run=dry_run,
         events=events if events is not None else EventBus(),
+        policy=None,
     )
 
 
@@ -109,7 +110,7 @@ def make_doc(
 
 def resolved(doc, ordered, handlers, states=None) -> ResolvedGraph:
     if states is None:
-        states = {nid: NodeState.ENABLED for nid in ordered}
+        states = dict.fromkeys(ordered, NodeState.ENABLED)
     return ResolvedGraph(
         document=doc,
         ordered_node_ids=list(ordered),

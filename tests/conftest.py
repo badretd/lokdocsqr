@@ -20,15 +20,13 @@ surfaced by ``tests/test_phase_5b_diagnostics.py`` via a subprocess.
 If the real package imports cleanly (5b fixed, or 5a-only project),
 this conftest is a no-op.
 """
-import sys
 import os
+import sys
 import types
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
-from pathlib import Path
-
 
 _PHASE_5B_STUB_MARKER = "# --- phase 5b fs_ops stub (auto-added) ---"
 
@@ -58,8 +56,9 @@ def _install_phase_5b_stub() -> None:
 _install_phase_5b_stub()
 
 # --- phase 5b diagnostics helpers (auto-added) ---
-import ast as _ast_diag
-from pathlib import Path as _Path_diag
+import ast as _ast_diag  # noqa: E402
+from pathlib import Path as _Path_diag  # noqa: E402
+
 
 def _fs_ops_dir():
     return (
@@ -91,7 +90,7 @@ class _ScopeStub:
     def __init__(self, roots):
         self.roots = [Path(r).resolve() for r in roots]
 
-    def check(self, path) -> bool:
+    def check(self, path, write: bool = False) -> bool:
         p = Path(path).resolve()
         return any(p == r or r in p.parents for r in self.roots)
 
@@ -99,7 +98,7 @@ class _ScopeStub:
 def ctx(tmp_path, monkeypatch):
     # render_template() rejects absolute target/target_dir; the node is
     # designed to run with a relative-path workflow base — that base is CWD.
-    original_cwd = os.getcwd()
+    original_cwd = Path.cwd()
     monkeypatch.chdir(tmp_path)
     try:
         yield SimpleNamespace(
@@ -160,7 +159,7 @@ def _isolated_event_bus(monkeypatch):
 
 
 # ==== PHASE_8PRE_FIXTURES (auto-generated) ====
-import pytest as _p8p_pytest
+import pytest as _p8p_pytest  # noqa: E402
 
 
 @_p8p_pytest.fixture
@@ -172,11 +171,12 @@ def exec_ctx(tmp_path):
     This fixture builds a genuine ScopeManager/AuditLog/EventBus/FakeClock.
     """
     from types import SimpleNamespace
+
+    from lokdocsqr.core.audit import AuditLog
+    from lokdocsqr.core.clock import FakeClock
+    from lokdocsqr.core.events import EventBus
     from lokdocsqr.core.executor.context import ExecutionContext
     from lokdocsqr.core.scope import ScopeManager
-    from lokdocsqr.core.audit import AuditLog
-    from lokdocsqr.core.events import EventBus
-    from lokdocsqr.core.clock import FakeClock
 
     scope = ScopeManager(
         SimpleNamespace(roots=[tmp_path], writable=[tmp_path], allow_symlinks=False)

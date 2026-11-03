@@ -32,7 +32,7 @@ def _build_ctx(base: Path, trash: Path, *, dry_run: bool = False):
     allowed_roots = (base_resolved, trash_resolved)
 
     class _StrictScope:
-        def check(self, path):
+        def check(self, path, write: bool = False):
             p = Path(path)
             try:
                 resolved = p.resolve()

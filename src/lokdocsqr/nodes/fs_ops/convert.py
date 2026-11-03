@@ -1,3 +1,4 @@
+# mypy: disable-error-code="no-untyped-def,no-untyped-call"
 """Convert File — MIME-to-MIME converter registry.
 
 Node id: ``fs.convert``. Phase 5d converters:
@@ -19,21 +20,21 @@ import csv
 import io
 import json
 import mimetypes
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import NodeExecutionError, SafeFsError
 from lokdocsqr.core.models import Risk
 from lokdocsqr.core.node_api.decorators import register_node
 
+from ._base import FsNode
 from ._common import (
     build_action_log,
-    check_scope,
     render_and_check,
+    resolve_path,
 )
-from ._base import FsNode
-
 
 # ── converter implementations ───────────────────────────────────────
 
@@ -107,8 +108,8 @@ class ConvertNode(FsNode):
 
     id = "fs.convert"
     title = "Convert File"
-    inputs = ("file",)
-    outputs = ("file",)
+    inputs: Any = ("file",)
+    outputs: Any = ("file",)
 
     def __init__(
         self,
@@ -176,15 +177,13 @@ class ConvertNode(FsNode):
         if not target_raw:
             raise NodeExecutionError("fs.convert: 'target' is required")
 
-        source = Path(source_raw)
-        check_scope(ctx, str(source))
+        source = resolve_path(ctx, source_raw, write=False)
         if not source.exists():
             raise SafeFsError(f"source missing: {source}")
 
         target = render_and_check(
-            ctx, target_raw, payload.get("variables") or {}
+            ctx, target_raw, payload.get("variables") or {}, write=True
         )
-        check_scope(ctx, str(target))
 
         from_mime = (
             payload.get("from_mime")
@@ -239,7 +238,6 @@ class ConvertNode(FsNode):
         log = self._log(
             ctx, source, target, from_mime, to_mime, dry_run=False
         )
-        ctx.audit.append(log)
         return log
 
     def dry_run(self, ctx, payload):

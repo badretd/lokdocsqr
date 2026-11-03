@@ -90,10 +90,8 @@ def test_rollback_via_audit_restores_original(trash_env):
     src.write_bytes(content)
 
     result = run_trash(trash_env, src)
-    if not trash_env.audit.logs:
-        pytest.fail("BUG: trash.py — ActionLog not appended to ctx.audit")
 
-    logged = trash_env.audit.logs[-1]
+    logged = result
     assert getattr(logged, "original_path", None) == str(src)
     assert getattr(logged, "rollback_eligible", None) is True
 

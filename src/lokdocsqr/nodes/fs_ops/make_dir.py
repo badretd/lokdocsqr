@@ -1,3 +1,4 @@
+# mypy: disable-error-code="no-untyped-def,no-untyped-call"
 """Create Folder node (``fs.make_dir``) — templated path, idempotent.
 
 Architecture contract:
@@ -10,7 +11,7 @@ Architecture contract:
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.models import Risk
@@ -27,11 +28,11 @@ class MakeDirNode(FsNode):
     id = "fs.make_dir"
     title = "Create Folder"
     description = "Create a folder at a templated path (idempotent)."
-    inputs = {
+    inputs: ClassVar[dict[str, Any]] = {
         "path_template": {"type": "string", "required": True},
         "variables": {"type": "object", "required": False},
     }
-    outputs = {
+    outputs: ClassVar[dict[str, Any]] = {
         "action_log": {"type": "ActionLog"},
         "path": {"type": "string"},
     }
@@ -54,7 +55,6 @@ class MakeDirNode(FsNode):
             risk=Risk.LOW,
             dry_run=False,
         )
-        ctx.audit.append(log)
         return {"action_log": log, "path": str(path)}
 
     # --- dry_run -----------------------------------------------------

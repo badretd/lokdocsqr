@@ -12,7 +12,6 @@ from dataclasses import FrozenInstanceError, is_dataclass
 from pathlib import Path
 
 import pytest
-
 from lokdocsqr.core import models
 from lokdocsqr.core.models import (
     ActionLog,
@@ -396,11 +395,21 @@ def test_actionlog_roundtrip_to_from_dict() -> None:
         confidence=0.85,
         risk=Risk.HIGH,
         rollback_eligible=True,
+        original_path="/original/a.txt",
+        trash_path="/trash/a.txt",
+        sidecar_path="/trash/a.txt.sidecar.json",
+        hash_before="abc123",
         extra={"k": "v", "nested": {"ok": True}},
+        dry_run=True,
     )
     payload = original.to_dict()
     assert payload["risk"] == "high"
     assert payload["rollback_eligible"] is True
+    assert payload["dry_run"] is True
+    assert payload["original_path"] == "/original/a.txt"
+    assert payload["trash_path"] == "/trash/a.txt"
+    assert payload["sidecar_path"] == "/trash/a.txt.sidecar.json"
+    assert payload["hash_before"] == "abc123"
 
     restored = ActionLog.from_dict(payload)
     assert restored.run_id == original.run_id
@@ -409,6 +418,11 @@ def test_actionlog_roundtrip_to_from_dict() -> None:
     assert restored.target == original.target
     assert restored.risk is Risk.HIGH
     assert restored.rollback_eligible is True
+    assert restored.original_path == original.original_path
+    assert restored.trash_path == original.trash_path
+    assert restored.sidecar_path == original.sidecar_path
+    assert restored.hash_before == original.hash_before
+    assert restored.dry_run is True
     assert restored.extra == {"k": "v", "nested": {"ok": True}}
 
 
@@ -455,7 +469,7 @@ def test_phase7a_dataclasses_in_public_all() -> None:
         assert name in models.__all__, f"{name} missing from __all__"
 
 
-def test_ActionSummary_phase7a_defaults() -> None:
+def test_ActionSummary_phase7a_defaults() -> None:  # noqa: N802
     """ActionSummary exposes only the Phase 7a policy-facing fields."""
     summary = ActionSummary(node_id="n")
     assert summary.node_id == "n"
@@ -467,7 +481,7 @@ def test_ActionSummary_phase7a_defaults() -> None:
         assert not hasattr(summary, legacy)
 
 
-def test_ActionSummary_phase7a_fields() -> None:
+def test_ActionSummary_phase7a_fields() -> None:  # noqa: N802
     """ActionSummary accepts and stores all Phase 7a fields."""
     proposal = ActionSummary(
         node_id="fs.move",
@@ -483,7 +497,7 @@ def test_ActionSummary_phase7a_fields() -> None:
     assert proposal.summary == "move a to b"
 
 
-def test_ActionSummary_copies_payload() -> None:
+def test_ActionSummary_copies_payload() -> None:  # noqa: N802
     """ActionSummary.payload must be a copy, not a reference to caller's dict."""
     source = {"k": "v"}
     proposal = ActionSummary(node_id="n", payload=source)
@@ -491,7 +505,7 @@ def test_ActionSummary_copies_payload() -> None:
     assert proposal.payload == {"k": "v"}
 
 
-def test_ActionSummary_payload_isolated_between_instances() -> None:
+def test_ActionSummary_payload_isolated_between_instances() -> None:  # noqa: N802
     """Each ActionSummary must own its payload dict (default_factory)."""
     a = ActionSummary(node_id="a")
     b = ActionSummary(node_id="b")
@@ -499,7 +513,7 @@ def test_ActionSummary_payload_isolated_between_instances() -> None:
     assert b.payload == {}
 
 
-def test_ActionSummary_is_frozen() -> None:
+def test_ActionSummary_is_frozen() -> None:  # noqa: N802
     """Phase 7a makes ActionSummary immutable."""
     proposal = ActionSummary(node_id="n")
     with pytest.raises(FrozenInstanceError):

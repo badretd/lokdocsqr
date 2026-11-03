@@ -46,10 +46,10 @@ if TYPE_CHECKING:
     from .models import ActionSummary
 
 __all__ = [
+    "NODE_CHANGE_KIND",
+    "ChangePreview",
     "ChangeType",
     "DiffEntry",
-    "ChangePreview",
-    "NODE_CHANGE_KIND",
     "preview_diff",
 ]
 
@@ -112,10 +112,7 @@ class ChangePreview:
 #: Control characters that mark content as binary. Excludes ordinary
 #: whitespace: tab (0x09), LF (0x0a), CR (0x0d).
 _CONTROL_CHARS = frozenset(
-    list(range(0x01, 0x09))
-    + [0x0b, 0x0c]
-    + list(range(0x0e, 0x20))
-    + [0x7f]
+    [*list(range(1, 9)), 11, 12, *list(range(14, 32)), 127]
 )
 
 _CONTROL_RATIO_THRESHOLD = 0.05   # 5 %
@@ -223,9 +220,10 @@ def _unified_diff(
         b = ""
         fromfile = "/dev/null"
     else:
-        b = _decode(before)
-        if b is None or not _text_has_acceptable_controls(b):
+        decoded = _decode(before)
+        if decoded is None or not _text_has_acceptable_controls(decoded):
             return None
+        b = decoded
         fromfile = f"a/{path}"
 
     return "".join(
@@ -242,11 +240,16 @@ def _primary_path(paths: tuple[str, ...]) -> str:
     return paths[0] if paths else "n/a"
 
 
-def _target_exists(primary: str) -> tuple[Path | None, bool]:
+def _target_exists(primary: str, ctx: Any = None) -> tuple[Path | None, bool]:
     if not primary or primary == "n/a":
         return None, False
     try:
         p = Path(primary)
+        if not p.is_absolute() and ctx is not None:
+            config = getattr(ctx, "config", None)
+            base = getattr(config, "base_dir", None)
+            if isinstance(base, (str, Path)):
+                p = Path(base) / p
         return p, p.exists()
     except OSError:
         return None, False
@@ -270,16 +273,17 @@ def _change_type_from_operation(
 
 
 def _resolve_change_type(
-    proposal: "ActionSummary", target_exists: bool
+    proposal: ActionSummary, target_exists: bool
 ) -> ChangeType:
     """Return the :class:`ChangeType` for ``proposal``.
 
     Preference order:
-      1. :data:`NODE_CHANGE_KIND` (per node_id);
+      1. :data:`NODE_CHANGE_KIND` (per node type, not instance id);
          ``CREATE`` upgrades to ``MODIFY`` if the target already exists.
       2. ``_change_type_from_operation(proposal.operation, ...)`` fallback.
     """
-    base = NODE_CHANGE_KIND.get(proposal.node_id)
+    node_type = getattr(proposal, "node_type", "") or proposal.node_id
+    base = NODE_CHANGE_KIND.get(node_type)
     if base is not None:
         if base == ChangeType.CREATE and target_exists:
             return ChangeType.MODIFY
@@ -303,14 +307,14 @@ def _build_noop(path: str, before: str, after: str) -> ChangePreview:
 # Public API
 # ---------------------------------------------------------------------------
 
-def preview_diff(proposal: "ActionSummary", ctx: Any) -> ChangePreview:
+def preview_diff(proposal: ActionSummary, ctx: Any) -> ChangePreview:
     """Build a ChangePreview for ``proposal`` without touching the filesystem.
 
     ``ctx`` is accepted for API symmetry with ``build_action_plan`` and is
     not read. Only ``safe_fs.read_bytes`` and ``Path.exists`` are used.
     """
     primary = _primary_path(proposal.target_paths)
-    p, target_exists = _target_exists(primary)
+    p, target_exists = _target_exists(primary, ctx)
     ct = _resolve_change_type(proposal, target_exists)
 
     if ct == ChangeType.NOOP:
@@ -339,10 +343,7 @@ def preview_diff(proposal: "ActionSummary", ctx: Any) -> ChangePreview:
 
     if ct == ChangeType.MOVE:
         before = _safe_read(p) if p is not None else None
-        if before is not None:
-            before_summary = f"exists, {len(before)} bytes"
-        else:
-            before_summary = "does not exist"
+        before_summary = f"exists, {len(before)} bytes" if before is not None else "does not exist"
         return ChangePreview(
             path=primary,
             change_type=ChangeType.MOVE,
@@ -355,10 +356,7 @@ def preview_diff(proposal: "ActionSummary", ctx: Any) -> ChangePreview:
 
     if ct == ChangeType.COPY:
         before = _safe_read(p) if p is not None else None
-        if before is not None:
-            before_summary = f"exists, {len(before)} bytes"
-        else:
-            before_summary = "does not exist"
+        before_summary = f"exists, {len(before)} bytes" if before is not None else "does not exist"
         return ChangePreview(
             path=primary,
             change_type=ChangeType.COPY,
@@ -373,10 +371,7 @@ def preview_diff(proposal: "ActionSummary", ctx: Any) -> ChangePreview:
     before = _safe_read(p) if p is not None else None
     after = _payload_content(proposal.payload)
 
-    if before is not None:
-        before_summary = f"exists, {len(before)} bytes"
-    else:
-        before_summary = "does not exist"
+    before_summary = f"exists, {len(before)} bytes" if before is not None else "does not exist"
 
     if after is None:
         after_summary = "content unknown"

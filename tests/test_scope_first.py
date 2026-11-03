@@ -33,27 +33,26 @@ import tempfile
 from pathlib import Path
 
 import pytest
-
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import ScopeViolation
 
 from .test_dry_run import (  # reuse fixtures
     FS_OPS_NODE_IDS,
-    _TestCtx,
     _prepare,
+    _TestCtx,
 )
 
-
-# Which positional / kwarg carries the path per safe_fs method.
+# Which positional / kwarg carries the path per safe_fs method, and
+# whether that path must have been checked with ``write=True``.
 _PATH_PARAMS = {
-    "atomic_write": ["path"],
-    "atomic_append": ["path"],
-    "copy_file": ["src", "dst"],
-    "safe_move": ["src", "dst"],
-    "safe_rename": ["path"],
-    "make_dir": ["path"],
-    "quarantine": ["path"],
-    "trash": ["path"],
+    "atomic_write": [("path", True)],
+    "atomic_append": [("path", True)],
+    "copy_file": [("src", False), ("dst", True)],
+    "safe_move": [("src", True), ("dst", True)],
+    "safe_rename": [("path", True)],
+    "make_dir": [("path", True)],
+    "quarantine": [("path", True), ("trash_dir", True)],
+    "trash": [("path", True), ("trash_dir", True)],
 }
 
 # Default positional index for kwarg-name fallback.
@@ -63,16 +62,20 @@ _POS_INDEX = {"path": 0, "src": 0, "dst": 1, "target": 1, "trash_dir": 1}
 class ScopeFirstTracker:
     def __init__(self) -> None:
         self.checked: set[str] = set()
+        self.checked_write: set[str] = set()
         self.violations: list[str] = []
         self.calls: list[tuple[str, str]] = []
 
-    def _record(self, value) -> None:
+    def _record(self, value, *, write: bool) -> None:
         if value is None:
             return
         try:
-            self.checked.add(str(Path(value).resolve()))
+            resolved = str(Path(value).resolve())
         except (OSError, TypeError, ValueError):
-            self.checked.add(str(value))
+            resolved = str(value)
+        self.checked.add(resolved)
+        if write:
+            self.checked_write.add(resolved)
 
     def wrap_check(self, original):
         def wrapped(path, *args, **kwargs):
@@ -80,17 +83,21 @@ class ScopeFirstTracker:
             # Record the resolved return value (production: absolute path
             # inside workspace) *and* the raw input, so both the nodes
             # that re-use the returned path and any caller that kept the
-            # original string are covered.
-            self._record(result)
-            self._record(path)
+            # original string are covered. Record the write flag too:
+            # invariant 7 is about *correct* scope checks, not just any
+            # check (F-02).
+            write = bool(kwargs.get("write", False))
+            self._record(result, write=write)
+            self._record(path, write=write)
             return result
         return wrapped
 
-    def _is_covered(self, rp: str) -> bool:
-        if rp in self.checked:
+    def _is_covered(self, rp: str, *, write_only: bool) -> bool:
+        covered = self.checked_write if write_only else self.checked
+        if rp in covered:
             return True
         rp_path = Path(rp)
-        for c in self.checked:
+        for c in covered:
             try:
                 rp_path.relative_to(Path(c))
                 return True
@@ -100,8 +107,8 @@ class ScopeFirstTracker:
 
     def wrap_op(self, name, original, path_params):
         def wrapped(*args, **kwargs):
-            resolved: list[tuple[str, str]] = []
-            for pp in path_params:
+            resolved: list[tuple[str, str, bool]] = []
+            for pp, write_only in path_params:
                 p = kwargs.get(pp)
                 if p is None and args:
                     idx = _POS_INDEX.get(pp, 0)
@@ -113,13 +120,14 @@ class ScopeFirstTracker:
                     rp = str(Path(p).resolve())
                 except OSError:
                     rp = str(p)
-                resolved.append((pp, rp))
-            for pp, rp in resolved:
+                resolved.append((pp, rp, write_only))
+            for pp, rp, write_only in resolved:
                 self.calls.append((name, rp))
-                if not self._is_covered(rp):
+                if not self._is_covered(rp, write_only=write_only):
+                    flag = "write=True" if write_only else "read"
                     raise RuntimeError(
-                        f"scope.check not called before safe_fs.{name}"
-                        f"({pp}={rp})"
+                        f"scope.check not called ({flag}) before "
+                        f"safe_fs.{name}({pp}={rp})"
                     )
             return original(*args, **kwargs)
         return wrapped
@@ -144,7 +152,7 @@ def _run_one_with_tracker(node_id: str) -> None:
     runs at end-of-test-body, before ``monkeypatch``'s own teardown; a
     CWD still pointing at a temp directory would be flagged.
     """
-    original_cwd = os.getcwd()
+    original_cwd = Path.cwd()
     with tempfile.TemporaryDirectory() as td:
         sandbox = Path(td)
         os.chdir(sandbox)
@@ -189,7 +197,7 @@ def check_invariant_7() -> None:
             _run_one_with_tracker(node_id)
         except AssertionError as exc:
             failures.append(str(exc))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             if "scope.check not called" in str(exc):
                 failures.append(f"{node_id}: {exc}")
     assert not failures, (
@@ -223,13 +231,33 @@ def test_tracker_catches_unchecked_write(tmp_path: Path) -> None:
 
     originals = {"atomic_write": safe_fs.atomic_write}
     safe_fs.atomic_write = tracker.wrap_op(
-        "atomic_write", originals["atomic_write"], ["path"]
+        "atomic_write", originals["atomic_write"], [("path", True)]
     )
     try:
-        with pytest.raises(RuntimeError, match="scope.check not called"):
+        with pytest.raises(RuntimeError, match=r"scope\.check"):
             safe_fs.atomic_write(tmp_path / "evil.txt", b"data")
     finally:
         safe_fs.atomic_write = originals["atomic_write"]
+
+
+def test_tracker_rejects_read_check_before_write(tmp_path: Path) -> None:
+    """F-02: a read-scope check must not authorize a mutation."""
+    ctx = _TestCtx([tmp_path])
+    tracker = ScopeFirstTracker()
+    ctx.scope.check = tracker.wrap_check(ctx.scope.check)
+
+    original = safe_fs.atomic_write
+    safe_fs.atomic_write = tracker.wrap_op(
+        "atomic_write", original, [("path", True)]
+    )
+    try:
+        ctx.scope.check(tmp_path / "x.txt", write=False)
+        with pytest.raises(RuntimeError, match="write=True"):
+            safe_fs.atomic_write(tmp_path / "x.txt", b"data")
+        ctx.scope.check(tmp_path / "x.txt", write=True)
+        safe_fs.atomic_write(tmp_path / "x.txt", b"data")
+    finally:
+        safe_fs.atomic_write = original
 
 
 @pytest.mark.parametrize("node_id", FS_OPS_NODE_IDS)

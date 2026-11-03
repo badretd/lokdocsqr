@@ -49,27 +49,16 @@ Verify that LokDoc Core builds successfully with all declared dependencies and t
 
 ### 4.3 Results
 
-| Check | Result |
-|---|---|
-| PyInstaller build | PASS |
-| Distribution size (one-dir) | 260 MB |
-| Binary launch | PASS |
-| Dependency import check | PASS |
-
-The measured 260 MB represents the **entire one-dir distribution directory**, i.e. the Python runtime, the bundled standard library, PyInstaller bootloader, and all resolved third-party dependencies.
+**Not reproducible.** No `lokdoc.spec` / `lokdocsqr.spec` is shipped in
+the repository, so the PyInstaller command above cannot be reproduced
+from a clean checkout. The historical size numbers in this section are
+therefore not a build gate and must not be reported as a PASS. Packaging
+gets a real spec file and a CI job in Phase 8.8.
 
 ### 4.4 Size Budget
 
-The size budget for the final build (core + GUI) is **400 MB**.
-
-| Metric | Value |
-|---|---|
-| Current one-dir build | 260 MB |
-| Final build budget | 400 MB |
-| Remaining headroom | 140 MB |
-| Headroom as share of budget | 35 % |
-
-The current build uses 65 % of the budget. The remaining 140 MB is reserved for the GUI layer.
+The size budget for the final build (core + GUI) is **400 MB**. This is
+a planning target only until a reproducible spec file exists.
 
 ### 4.5 Expected Size Impact of the GUI Layer
 
@@ -85,4 +74,7 @@ Based on typical PySide one-dir builds, the GUI layer plus node editor is expect
 
 ### 4.6 Conclusion
 
-The core builds cleanly, starts successfully, and imports all required dependencies. At 260 MB the distribution leaves a 140 MB (35 %) margin against the 400 MB budget. This margin is sufficient to accommodate the planned PySide GUI layer with its node-based editor, including the Qt plugins and resources that the node editor requires. The size budget will be re-verified after GUI integration using the same measurement method.
+No reproducible PyInstaller artifact is currently claimed. The 260 MB
+figure and the former PASS rows were historical measurements without a
+spec file in the tree; they are removed from the gate. The project
+continues to use that size range only as a rough budget input.

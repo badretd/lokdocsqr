@@ -8,18 +8,17 @@ Only the five 8.6-pre items changed here. The remaining 8z tickets keep
 their prior status.
 
 ## TICKET-8z-T0: fs.copy/move/rename._plan — payload override
-**Status:** DEFERRED to Phase 8.6 — root cause is F-01, not T0.
+**Status:** CLOSED in Phase 8.6 as a symptom of F-01.
 **Symptom:** `_plan` reads `self.template` / `self.conflict_policy`
 rather than the payload. A node configured only through `NodeSpec.params`
 can therefore plan a different target than the executor uses.
-**Reason for deferral:** T0 is a symptom. The root cause is that the
-executor does not seed `NodeSpec.params` into the payload; fixing only
-`FsTemplateNode._plan` would leave every other node’s params ignored.
-The authoritative fix is F-01 in Phase 8.6.
-**Opened:** `TICKET-8.6-root-params` — shared payload resolution with
-precedence `params` < edges < port defaults, called by both the planner
-and the executor.
-**Priority:** medium (deferred by phase boundary).
+**Resolution:** F-01 landed first (`TICKET-8.6-root-params`): shared
+payload resolution with precedence `params` < edges < port defaults,
+called by both planner and executor. `FsTemplateNode._plan` now reads the
+payload with instance attributes as fallbacks.
+**Tests:** `tests/test_acceptance_vertical_slice.py`,
+`tests/test_api_contracts_fs_ops_payload.py`.
+**Priority:** medium (resolved in 8.6).
 
 ## TICKET-8z-ActionLog-from_dict: audit integrity
 **File:** core/models.py::ActionLog.from_dict
@@ -38,24 +37,23 @@ mirrored in `tests/test_models.py`.
 
 ## TICKET-8z-RunResult-to_dict: payload dropped
 **File:** core/models.py::RunResult.to_dict
-**Status:** DEFERRED until after F-03 (audit contract).
+**Status:** CLOSED after F-03 (audit contract).
 **Symptom:** `NodeResult.payload` (Phase 5c) is not serialized.
-**Reason for deferral:** This is audit serialization. The roadmap
-requires F-03 (one audit owner, executor populates
-`RunResult.action_logs`) to land before serialization tickets are
-closed. Closing it first would lock in a result shape that F-03 may
-change.
-**Priority:** low (deferred by ordering).
+**Resolution:** `RunResult.to_dict` serializes `NodeResult.payload` through
+`_json_safe` (`Path` / `Enum` / `datetime` converted).
+**Tests:** `tests/test_models_audit.py::test_runresult_to_dict_serializes_noderesult_payload`.
+**Priority:** low (resolved).
 
 ## TICKET-8z-ActionLog-to_dict: field loss
 **File:** core/models.py::ActionLog.to_dict
-**Status:** DEFERRED until after F-03 (audit contract).
+**Status:** CLOSED after F-03 (audit contract).
 **Symptom:** `original_path`, `trash_path`, `sidecar_path`,
 `hash_before`, and `dry_run` are not serialized; `from_dict` does not
 restore them, so the on-disk audit log loses evidence.
-**Reason for deferral:** Same ordering rule as `RunResult-to_dict`:
-serialization follows F-03, not the other way round.
-**Priority:** low (deferred by ordering).
+**Resolution:** `to_dict`/`from_dict` now round-trip every audit field,
+and `timestamp` is normalized to ISO-8601 when it is a `datetime`.
+**Tests:** `tests/test_models_audit.py::test_actionlog_roundtrip_to_from_dict`.
+**Priority:** low (resolved).
 
 ## TICKET-8z-FlowRetry-port-types: bool contract
 **File:** nodes/flow/retry.py::_execute

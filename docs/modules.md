@@ -23,6 +23,28 @@ It is the authoritative roadmap: file paths, responsibilities, dependency rules.
 4. **All file-affecting operations support dry-run, audit log, and rollback/quarantine.**
 5. **All filesystem work is confined to allowed roots declared by `WorkspaceScope`.**
 
+### 1.1 Implementation status vs. the tree below (2026-11-03)
+
+The tree is the target layout. Current code differs in these known ways:
+
+- `core/policy.py` is a package: `core/policy/{config,decision,engine}.py`.
+- `core/runtime.py` does not exist yet (Phase 10).
+- `core/preview.py`, `core/payload.py`, `core/catalog.py`, `core/clock.py`
+  exist and are part of the current core surface.
+- `nodes/llm/`, `nodes/triggers/`, and `nodes/planning/` are empty packages;
+  `nodes/utils/*` is implemented.
+- `nodes/fs_ops/*` imports `core.safe_fs`, `core.models`, `core.errors`, and
+  `core.paths` directly, not only `core.node_api`. This is real and accepted
+  for the monolith; the one-way rule below is the constraint that is actually
+  enforced by `tests/test_architecture.py`.
+- `nodes/flow/subflow.py` and `nodes/flow/loop_batch.py` import
+  `core.executor.engine.Executor`; `nodes/utils/*` imports
+  `nodes.flow._base`. The “not imported outside their node family” rule is a
+  target, not yet true.
+- `cli/main.py` exposes `--help` / `--version`; full commands arrive in Phase 11.
+  `gui/app.py` remains a stub.
+
+
 ---
 
 ## 2. Directory Tree

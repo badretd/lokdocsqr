@@ -6,15 +6,18 @@ The only I/O here is read-only (``os.walk``, ``stat``) used by
 """
 from __future__ import annotations
 
+import dataclasses
+import json
 import os
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
+from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import ScopeViolation
-from lokdocsqr.core.models import ActionLog
+from lokdocsqr.core.models import ActionLog, Risk
 from lokdocsqr.core.paths import render_template
-
 
 T = TypeVar("T")
 
@@ -88,7 +91,7 @@ def build_action_log(
         confidence=confidence,
         risk=risk,
         dry_run=dry_run,
-        timestamp=now,
+        timestamp=now.isoformat(),
         rollback_eligible=rollback_eligible,
         original_path=original_path,
         trash_path=trash_path,
@@ -98,25 +101,62 @@ def build_action_log(
     )
 
 
-def check_scope(ctx, path) -> None:
-    """Enforce ``scope.check(path)`` before any ``safe_fs.*`` call.
+def check_scope(ctx: Any, path: Any, *, write: bool = False) -> Path:
+    """Enforce ``scope.check(path, write=write)`` before any ``safe_fs.*`` call.
+
+    ``write=False`` is for sources the node only reads. Every target,
+    trash destination, sidecar and parent directory that will be mutated
+    must pass ``write=True`` so the scope gate selects the writable roots.
 
     Raises ``ScopeViolation`` on failure. A rejected path must NOT
     produce an ``ActionLog`` — callers are expected to let the
     exception propagate so the executor aborts the node cleanly.
     """
-    result = ctx.scope.check(path)
+    result = ctx.scope.check(path, write=write)
     if not result:
         raise ScopeViolation(f"outside scope: {path}")
+    if isinstance(result, (str, Path)):
+        return Path(result)
+    # Duck-typed test scopes may return a bare bool.
+    return Path(path)
 
 
-def render_and_check(ctx, template: str, variables: dict[str, Any]) -> Path:
+def _base_dir(ctx: Any) -> Path | None:
+    """Return ``ctx.config.base_dir`` when it is a real path."""
+    config = getattr(ctx, "config", None)
+    base = getattr(config, "base_dir", None)
+    if isinstance(base, (str, Path)):
+        return Path(base)
+    return None
+
+
+def resolve_path(ctx: Any, raw: str | Path, *, write: bool = False) -> Path:
+    """Resolve ``raw`` against ``config.base_dir`` and scope-check it.
+
+    Relative paths must never depend on the process CWD (F-05). A
+    relative path with no usable ``base_dir`` is left as-is for mocked
+    or backward-compatible contexts.
+    """
+    path = Path(raw)
+    if not path.is_absolute():
+        base = _base_dir(ctx)
+        if base is not None:
+            path = base / path
+    return check_scope(ctx, path, write=write)
+
+
+def render_and_check(
+    ctx: Any, template: str, variables: dict[str, Any], *, write: bool = True
+) -> Path:
     """Render ``template`` and re-validate the result against the scope.
 
     ``render_template`` may substitute untrusted values (e.g. a filename
     returned by an LLM). Re-checking the rendered result is mandatory:
     a template that is safe by itself can still expand into a path with
     ``..`` segments or escape the scope root.
+
+    Rendered relative paths resolve against ``config.base_dir`` (F-05),
+    not the process CWD.
 
     Returns the rendered ``Path`` after both checks pass.
     """
@@ -128,12 +168,15 @@ def render_and_check(ctx, template: str, variables: dict[str, Any]) -> Path:
         raise ScopeViolation(f"rendered path contains '..': {rendered!r}")
 
     path = Path(rendered)
-    check_scope(ctx, str(path))
-    return path
+    if not path.is_absolute():
+        base = _base_dir(ctx)
+        if base is not None:
+            path = base / path
+    return check_scope(ctx, path, write=write)
 
 
 def assert_dry_run_no_side_effects(
-    ctx,
+    ctx: Any,
     fn: Callable[..., T],
     *args: Any,
     **kwargs: Any,
@@ -160,7 +203,7 @@ def assert_dry_run_no_side_effects(
                 )
 
 
-def _snapshot(root) -> dict[str, tuple[int, float]]:
+def _snapshot(root: Any) -> dict[str, tuple[int, float]]:
     root = Path(root)
     if not root.exists():
         return {}
@@ -179,7 +222,7 @@ def _snapshot(root) -> dict[str, tuple[int, float]]:
     return result
 
 
-def _diff(before: dict, after: dict) -> str:
+def _diff(before: dict[str, Any], after: dict[str, Any]) -> str:
     lines = []
     for key in sorted(set(before) | set(after)):
         if before.get(key) != after.get(key):
@@ -196,10 +239,6 @@ def _diff(before: dict, after: dict) -> str:
 # The verifier references this docstring as the specification for
 # subphase 5b; keep the resolution order and suffix format stable.
 # ─────────────────────────────────────────────────────────────────────
-import dataclasses
-
-from lokdocsqr.core.models import Risk
-
 
 CONFLICT_POLICIES = ("skip", "rename", "overwrite", "ask")
 
@@ -217,10 +256,10 @@ class ConflictDecision:
 
     action: str
     final_dst: Path
-    reason: "str | None"
+    reason: str | None
 
 
-def resolve_conflict_policy(policy: str, dst) -> ConflictDecision:
+def resolve_conflict_policy(policy: str, dst: Any) -> ConflictDecision:
     """Resolve what to do when ``dst`` may already exist.
 
     Resolution order (fixed — verifier references this docstring as
@@ -337,11 +376,6 @@ def risk_for_decision(decision: ConflictDecision) -> Risk:
 #     # TTL sweep metadata (core/runtime.py)
 #     ttl_seconds, ttl_expires_at, run_id, automation_id
 # ─────────────────────────────────────────────────────────────────────
-import json
-from datetime import timedelta
-
-from lokdocsqr.core import safe_fs
-
 
 TRASH_SIDECAR_SUFFIX = ".sidecar.json"
 DEFAULT_TRASH_TTL_SECONDS = 30 * 24 * 3600
@@ -349,14 +383,14 @@ DEFAULT_TRASH_TTL_SECONDS = 30 * 24 * 3600
 
 def _trash_sidecar_dict(
     *,
-    ctx,
-    origin_abs,
-    hash_before,
-    size,
-    ttl_seconds,
-    trash_path=None,
-    sidecar_path=None,
-):
+    ctx: Any,
+    origin_abs: str,
+    hash_before: str,
+    size: int,
+    ttl_seconds: int,
+    trash_path: Any = None,
+    sidecar_path: Any = None,
+) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     ttl = int(ttl_seconds)
     expires = now + timedelta(seconds=ttl)
@@ -380,8 +414,13 @@ def _trash_sidecar_dict(
 
 
 def build_trash_sidecar_payload(
-    ctx, origin, ttl_seconds, *, trash_path=None, sidecar_path=None,
-):
+    ctx: Any,
+    origin: Any,
+    ttl_seconds: int,
+    *,
+    trash_path: Any = None,
+    sidecar_path: Any = None,
+) -> dict[str, Any]:
     """Build the sidecar JSON payload **without writing it** (for dry_run).
 
     ``origin`` must still exist (this runs before any move). ``hash_before``
@@ -401,7 +440,9 @@ def build_trash_sidecar_payload(
     )
 
 
-def build_trash_sidecar(ctx, origin, trash_path, ttl_seconds):
+def build_trash_sidecar(
+    ctx: Any, origin: Any, trash_path: Any, ttl_seconds: int
+) -> tuple[Path, dict[str, Any]]:
     """Build + write the sidecar JSON next to the trashed file.
 
     Returns ``(sidecar_path, payload)``. The write goes through

@@ -2,37 +2,38 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any
 
 __all__ = [
+    "ActionLog",
+    "ActionSummary",
+    "EdgeSpec",
+    # --- Phase 4 runtime extensions ---
+    "FileRef",
+    "NodeResult",
+    "NodeSpec",
+    "NodeState",
+    # --- Phase 7a policy models ---
+    "PolicyAction",
+    "PolicyDecision",
+    "PortSpec",
+    "ResolvedGraph",
+    "Risk",
+    "RollbackOp",
+    "RunResult",
+    "TriggerSpec",
+    "VariableSpec",
+    "VerifyAction",
+    "VerifyResult",
+    "WorkflowDocument",
+    "WorkflowErrorHandling",
     # --- Workflow specification v1.0 public surface ---
     "WorkflowMetadata",
     "WorkflowScopeSettings",
-    "WorkflowErrorHandling",
     "WorkflowSettings",
-    "VariableSpec",
-    "TriggerSpec",
-    "PortSpec",
-    "NodeSpec",
-    "EdgeSpec",
-    "WorkflowDocument",
-    "ResolvedGraph",
-    "NodeState",
-    "Risk",
-    # --- Phase 4 runtime extensions ---
-    "FileRef",
-    "ActionSummary",
-    "ActionLog",
-    "NodeResult",
-    "RollbackOp",
-    "RunResult",
-    # --- Phase 7a policy models ---
-    "PolicyAction",
-    "VerifyAction",
-    "PolicyDecision",
-    "VerifyResult",
 ]
 
 
@@ -205,7 +206,6 @@ class WorkspaceScope:
 
 
 # --- Phase 4 models ---------------------------------------------------------
-from datetime import datetime, timezone
 
 
 def _utc_now_iso() -> str:
@@ -214,11 +214,13 @@ def _utc_now_iso() -> str:
 
 
 def _json_safe(value: Any) -> Any:
-    """Convert Paths and Enums into JSON-safe primitives recursively."""
+    """Convert Paths, Enums and datetimes into JSON-safe primitives recursively."""
     if isinstance(value, Path):
         return str(value)
     if isinstance(value, Enum):
         return value.value
+    if isinstance(value, datetime):
+        return value.isoformat()
     if isinstance(value, dict):
         return {str(key): _json_safe(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
@@ -275,6 +277,7 @@ class ActionSummary:
     """
 
     node_id: str = ""
+    node_type: str = ""
     operation: str = "unknown"
     target_paths: tuple[str, ...] = ()
     payload: dict[str, Any] = field(default_factory=dict)
@@ -331,13 +334,18 @@ class ActionLog:
             "reason": self.reason,
             "confidence": self.confidence,
             "risk": self.risk.value if isinstance(self.risk, Risk) else str(self.risk),
-            "timestamp": self.timestamp,
+            "timestamp": _json_safe(self.timestamp),
             "rollback_eligible": self.rollback_eligible,
+            "original_path": self.original_path,
+            "trash_path": self.trash_path,
+            "sidecar_path": self.sidecar_path,
+            "hash_before": self.hash_before,
             "extra": _json_safe(self.extra),
+            "dry_run": self.dry_run,
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ActionLog":
+    def from_dict(cls, data: dict[str, Any]) -> ActionLog:
         """Build an ActionLog from a JSON-decoded mapping.
 
         Raises:
@@ -397,6 +405,10 @@ class ActionLog:
                 data.get("rollback_eligible", False),
                 field="rollback_eligible",
             ),
+            original_path=_optional_str(data.get("original_path")),
+            trash_path=_optional_str(data.get("trash_path")),
+            sidecar_path=_optional_str(data.get("sidecar_path")),
+            hash_before=_optional_str(data.get("hash_before")),
             extra=dict(extra_raw),
         )
 
@@ -466,6 +478,7 @@ class RunResult:
                     "error": result.error,
                     "attempts": result.attempts,
                     "duration_seconds": result.duration_seconds,
+                    "payload": _json_safe(result.payload),
                 }
                 for node_id, result in self.node_results.items()
             },
@@ -520,6 +533,6 @@ class VerifyResult:
     """Result of a verify callback (wired in 7c, type prepared in 7a)."""
 
     action: VerifyAction
-    new_payload: dict | None = None
+    new_payload: dict[str, Any] | None = None
     reason: str = ""
 

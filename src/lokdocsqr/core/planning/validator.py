@@ -29,8 +29,8 @@ if TYPE_CHECKING:
 __all__ = [
     "MUTATING_OPERATIONS",
     "ProposalValidationError",
-    "validate_proposal",
     "validate_plan",
+    "validate_proposal",
 ]
 
 MUTATING_OPERATIONS: frozenset[str] = frozenset(
@@ -82,8 +82,14 @@ def validate_proposal(proposal: ActionSummary, ctx: Any) -> None:
         )
 
     for raw in proposal.target_paths:
+        candidate = Path(raw)
+        if not candidate.is_absolute():
+            config = getattr(ctx, "config", None)
+            base = getattr(config, "base_dir", None)
+            if isinstance(base, (str, Path)):
+                candidate = Path(base) / candidate
         try:
-            ctx.scope.check(Path(raw), write=True)
+            ctx.scope.check(candidate, write=True)
         except ProposalValidationError:
             raise
         except Exception as exc:
@@ -92,7 +98,7 @@ def validate_proposal(proposal: ActionSummary, ctx: Any) -> None:
             ) from exc
 
 
-def validate_plan(plan: "ActionPlan", ctx: Any) -> None:
+def validate_plan(plan: ActionPlan, ctx: Any) -> None:
     """Validate every proposal in ``plan``. Informational; ``blocked`` is not raised."""
     for proposal in plan.summaries:
         validate_proposal(proposal, ctx)

@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any
 
 from lokdocsqr.core.errors import (
     GraphValidationError,
@@ -51,6 +52,31 @@ def _node_instance(handler: Any) -> Any:
     return handler
 
 
+def _logs_from_return(raw: Any) -> list[ActionLog] | None:
+    """Extract audit entries from a node return value, if it carries them.
+
+    F-03: nodes own log *construction*, the executor owns log *append*.
+    Accepted shapes are ``ActionLog``, ``list[ActionLog]`` /
+    ``tuple[ActionLog, ...]``, and ``dict["action_log"]`` containing one
+    of those. Anything else is ordinary node output.
+    """
+    if isinstance(raw, ActionLog):
+        return [raw]
+    if isinstance(raw, (list, tuple)) and raw and all(
+        isinstance(item, ActionLog) for item in raw
+    ):
+        return list(raw)
+    if isinstance(raw, dict):
+        candidate = raw.get("action_log")
+        if isinstance(candidate, ActionLog):
+            return [candidate]
+        if isinstance(candidate, (list, tuple)) and candidate and all(
+            isinstance(item, ActionLog) for item in candidate
+        ):
+            return list(candidate)
+    return None
+
+
 def _normalize_result(
     node_id: str,
     raw: Any,
@@ -64,6 +90,25 @@ def _normalize_result(
         raw.attempts = max(raw.attempts, attempts)
         raw.duration_seconds = max(raw.duration_seconds, duration_seconds)
         return raw
+
+    action_logs = _logs_from_return(raw)
+    if action_logs is not None:
+        if isinstance(raw, dict):
+            outputs = {
+                key: value
+                for key, value in raw.items()
+                if key != "action_log"
+            }
+        else:
+            outputs = {}
+        return NodeResult(
+            node_id=node_id,
+            state=NodeState.ENABLED,
+            outputs=outputs,
+            action_logs=action_logs,
+            attempts=attempts,
+            duration_seconds=duration_seconds,
+        )
 
     if isinstance(raw, dict):
         return NodeResult(
@@ -108,7 +153,7 @@ def _retry_delay(
     if backoff == "linear":
         return base * failed_attempt
     if backoff == "exponential":
-        return base * (2 ** max(0, failed_attempt - 1))
+        return base * float(2 ** max(0, failed_attempt - 1))
     return base
 
 
@@ -130,6 +175,7 @@ def _validated_proposal(
     operation = classify_node(registry_id)
     proposal = ActionSummary(
         node_id=node_id,
+        node_type=registry_id,
         operation=operation,
         target_paths=extract_paths(payload, registry_id),
         payload=dict(payload),
@@ -383,7 +429,10 @@ class Executor:
                 _handler_for_skip, "_inject_on_error", False
             )
             if _inject_on_error:
-                skip_states = (NodeState.SKIPPED, NodeState.DISABLED)
+                skip_states: tuple[NodeState, ...] = (
+                    NodeState.SKIPPED,
+                    NodeState.DISABLED,
+                )
             else:
                 skip_states = (
                     NodeState.SKIPPED,

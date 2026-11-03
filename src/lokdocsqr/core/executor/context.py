@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from lokdocsqr.core.audit import AuditLog
 from lokdocsqr.core.catalog import AutomationCatalog
@@ -35,7 +36,7 @@ RESERVED_VARIABLES = frozenset({
 @dataclass
 class ExecutionContext:
     """Mutable state shared by the executor and nodes for one run.
-    
+
     Per-run execution context passed to every node.
 
     The context itself never mutates the filesystem. It exposes ``scope`` (the
@@ -57,7 +58,7 @@ class ExecutionContext:
     events: EventBus = field(default_factory=lambda: bus)
     variables: dict[str, Any] = field(default_factory=dict)
     path_cache: dict[str, Path] = field(default_factory=dict)
-    policy: PolicyEngine | None = None
+    policy: PolicyEngine | None = field(default_factory=PolicyEngine.default)
     verify_callback: Callable[[ActionSummary], VerifyResult] | None = None
     clock: Clock = field(default_factory=SystemClock)
     flow_depth: int = 0

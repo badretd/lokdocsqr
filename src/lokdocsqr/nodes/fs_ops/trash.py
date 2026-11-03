@@ -1,3 +1,4 @@
+# mypy: disable-error-code="no-untyped-def,no-untyped-call"
 """fs.trash node — Delete to Trash / Quarantine.
 
 Never deletes. Moves files into ``ctx.config["trash_dir"]`` via
@@ -13,8 +14,8 @@ Invariants honoured here:
     probes (``Path.stat``, ``safe_fs.hash_file``) are allowed.
 
 Return contract (matches fs_ops convention, cf. ``fs_ops.rename``):
-  * ``run`` returns the appended ``ActionLog``.
-  * ``dry_run`` returns an unappended ``ActionLog``.
+  * ``run`` returns the ``ActionLog``; the executor owns audit append.
+  * ``dry_run`` returns the same shape with ``status="planned"``.
 Both ``run`` and ``dry_run`` therefore expose ``action_type``,
 ``dry_run``, ``trash_path``, ``sidecar_path``, ``hash_before`` and
 ``reason`` as attributes — exactly what ``tests/trash/*`` and
@@ -22,8 +23,9 @@ Both ``run`` and ``dry_run`` therefore expose ``action_type``,
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import ConfigError, ScopeViolation
@@ -32,7 +34,6 @@ from lokdocsqr.core.node_api.decorators import register_node
 
 from . import _common
 from ._base import FsNode
-
 
 _ONE_DAY_SECONDS = 24 * 3600
 _DEFAULT_TTL_SECONDS = 30 * _ONE_DAY_SECONDS
@@ -51,7 +52,7 @@ def _as_payload(payload: Any) -> dict[str, Any]:
         return payload
     if isinstance(payload, (str, bytes, Path)):
         return {"path": payload}
-    return payload  # type: ignore[return-value]
+    return cast(dict[str, Any], payload)
 
 
 def _resolve_trash_dir(ctx) -> Path:
@@ -93,6 +94,15 @@ def _resolve_ttl_seconds(ctx, payload: dict[str, Any]) -> int:
     return int(default)
 
 
+def _now(ctx) -> float:
+    """Return the run clock's current time, falling back to wall time."""
+    clock = getattr(ctx, "clock", None)
+    now = getattr(clock, "now", None)
+    if callable(now):
+        return float(now())
+    return time.time()
+
+
 def _check_trash_dir_in_scope(ctx, trash_dir: Path) -> None:
     """Verify ``trash_dir`` is inside ``ctx.scope``.
 
@@ -108,7 +118,7 @@ def _check_trash_dir_in_scope(ctx, trash_dir: Path) -> None:
     misattribute the bug to the user running the automation.
     """
     try:
-        ctx.scope.check(str(trash_dir))
+        ctx.scope.check(str(trash_dir), write=True)
     except ScopeViolation as exc:
         raise ConfigError(
             f"trash_dir outside workspace scope: {trash_dir} "
@@ -127,22 +137,21 @@ class TrashNode(FsNode):
             does not affect behaviour.
 
     Return:
-        ``ActionLog`` (per fs_ops convention). ``run`` appends it to
-        ``ctx.audit``; ``dry_run`` returns it unappended. Callers read
+        ``ActionLog`` (per fs_ops convention). The executor appends it to
+        ``ctx.audit``; ``dry_run`` returns a planned log. Callers read
         ``log.action_type``, ``log.dry_run``, ``log.trash_path``,
         ``log.sidecar_path``, ``log.hash_before``, ``log.reason``.
     """
 
     id = "fs.trash"
     title = "Delete to Trash / Quarantine"
-    inputs = ("files",)
-    outputs = ("files",)
+    inputs: Any = ("files",)
+    outputs: Any = ("files",)
 
     # ── run ─────────────────────────────────────────────────────
     def run(self, ctx, payload):
         payload = _as_payload(payload)
-        origin = Path(payload["path"])
-        _common.check_scope(ctx, str(origin))
+        origin = _common.resolve_path(ctx, payload["path"], write=True)
 
         trash_dir = _resolve_trash_dir(ctx)
         _check_trash_dir_in_scope(ctx, trash_dir)
@@ -151,8 +160,10 @@ class TrashNode(FsNode):
         reason = payload.get("reason") or "trash"
 
         # Move (never delete). ``safe_fs.trash`` returns the final
-        # timestamped path inside ``trash_dir``.
-        trash_path = safe_fs.trash(origin, trash_dir)
+        # timestamped path inside ``trash_dir``. The run clock is passed
+        # explicitly so dry-run planning and execution share one stamp.
+        when = _now(ctx)
+        trash_path = safe_fs.trash(origin, trash_dir, timestamp=when)
 
         # Phase 5c: ``build_trash_sidecar`` returns ``(sidecar_path, payload)``
         # (was ``(payload, sidecar_path)`` in 5b). Unpack in the new order so
@@ -179,14 +190,12 @@ class TrashNode(FsNode):
             sidecar_path=str(sidecar_path),
             hash_before=sidecar_payload["hash_before"],
         )
-        ctx.audit.append(log)
         return log
 
     # ── dry_run ─────────────────────────────────────────────────
     def dry_run(self, ctx, payload) -> ActionLog:
         payload = _as_payload(payload)
-        origin = Path(payload["path"])
-        _common.check_scope(ctx, str(origin))
+        origin = _common.resolve_path(ctx, payload["path"], write=True)
 
         trash_dir = _resolve_trash_dir(ctx)
         _check_trash_dir_in_scope(ctx, trash_dir)
@@ -195,7 +204,10 @@ class TrashNode(FsNode):
         reason = payload.get("reason") or "trash"
 
         # Plan destinations FIRST — the sidecar payload records them.
-        planned_trash_path = trash_dir / origin.name
+        # Use the same helper as safe_fs.trash so preview == execution.
+        planned_trash_path = safe_fs.trash_target(
+            origin, trash_dir, timestamp=_now(ctx)
+        )
         planned_sidecar_path = planned_trash_path.parent / (
             planned_trash_path.name + _common.TRASH_SIDECAR_SUFFIX
         )

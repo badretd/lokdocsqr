@@ -9,12 +9,10 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from tests.helpers import make_scope  # noqa: E402
-
-from lokdocsqr.core import safe_fs  # noqa: E402
-from lokdocsqr.core.audit import AuditLog  # noqa: E402
-from lokdocsqr.core.errors import SafeFsError, ScopeViolation  # noqa: E402
-from lokdocsqr.core.models import (  # noqa: E402
+from lokdocsqr.core import safe_fs
+from lokdocsqr.core.audit import AuditLog
+from lokdocsqr.core.errors import SafeFsError, ScopeViolation
+from lokdocsqr.core.models import (
     ActionLog,
     ActionSummary,
     FileRef,
@@ -25,6 +23,7 @@ from lokdocsqr.core.models import (  # noqa: E402
     RunResult,
 )
 
+from tests.helpers import make_scope
 
 # ---------------------------------------------------------------------------
 # A. core/models.py
@@ -43,11 +42,21 @@ def test_actionlog_roundtrip_to_from_dict() -> None:
         confidence=0.85,
         risk=Risk.HIGH,
         rollback_eligible=True,
+        original_path="/original/a.txt",
+        trash_path="/trash/a.txt",
+        sidecar_path="/trash/a.txt.sidecar.json",
+        hash_before="abc123",
         extra={"k": "v", "nested": {"ok": True}},
+        dry_run=True,
     )
     payload = original.to_dict()
     assert payload["risk"] == "high"
     assert payload["rollback_eligible"] is True
+    assert payload["dry_run"] is True
+    assert payload["original_path"] == "/original/a.txt"
+    assert payload["trash_path"] == "/trash/a.txt"
+    assert payload["sidecar_path"] == "/trash/a.txt.sidecar.json"
+    assert payload["hash_before"] == "abc123"
 
     restored = ActionLog.from_dict(payload)
     assert restored.run_id == original.run_id
@@ -61,6 +70,11 @@ def test_actionlog_roundtrip_to_from_dict() -> None:
     assert restored.confidence == original.confidence
     assert restored.risk is Risk.HIGH
     assert restored.rollback_eligible is True
+    assert restored.original_path == original.original_path
+    assert restored.trash_path == original.trash_path
+    assert restored.sidecar_path == original.sidecar_path
+    assert restored.hash_before == original.hash_before
+    assert restored.dry_run is True
     assert restored.extra == {"k": "v", "nested": {"ok": True}}
 
 
@@ -124,7 +138,7 @@ def test_fileref_defaults() -> None:
     assert ref.metadata == {}
 
 
-def test_ActionSummary_defaults() -> None:
+def test_ActionSummary_defaults() -> None:  # noqa: N802
     summary = ActionSummary()
     assert summary.node_id == ""
     assert summary.operation == "unknown"
@@ -175,21 +189,44 @@ def test_runresult_to_dict_serializes_rollback_plan() -> None:
     assert data["rollback_plan"][0]["action"] == "move_back"
 
 
+def test_runresult_to_dict_serializes_noderesult_payload() -> None:
+    """F-11: Phase 5c payload must survive RunResult serialization."""
+    result = RunResult(
+        run_id="r",
+        automation_id="a",
+        dry_run=False,
+        success=True,
+        node_results={
+            "n1": NodeResult(
+                node_id="n1",
+                state=NodeState.ENABLED,
+                outputs={"action_log": "placeholder"},
+                payload={"source": Path("/src/a.txt"), "risk": Risk.LOW},
+            )
+        },
+    )
+    data = result.to_dict()
+    assert data["node_results"]["n1"]["payload"] == {
+        "source": "/src/a.txt",
+        "risk": "low",
+    }
+
+
 # ---------------------------------------------------------------------------
 # B. core/audit.py
 # ---------------------------------------------------------------------------
 
 def _log(**overrides) -> ActionLog:
-    base = dict(
-        run_id="r1",
-        node_id="n1",
-        automation_id="a1",
-        action_type="move",
-        source="/src/a.txt",
-        target="/dst/a.txt",
-        status="applied",
-        rollback_eligible=True,
-    )
+    base = {
+        "run_id": "r1",
+        "node_id": "n1",
+        "automation_id": "a1",
+        "action_type": "move",
+        "source": "/src/a.txt",
+        "target": "/dst/a.txt",
+        "status": "applied",
+        "rollback_eligible": True,
+    }
     base.update(overrides)
     return ActionLog(**base)
 

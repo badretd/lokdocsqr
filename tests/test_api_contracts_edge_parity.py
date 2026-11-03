@@ -26,7 +26,6 @@ test-environment artefact, not an edge-resolution bug.
 from __future__ import annotations
 
 import pytest
-
 from lokdocsqr.core.executor.engine import Executor
 from lokdocsqr.core.models import (
     EdgeSpec,
@@ -89,6 +88,19 @@ def _make_graph(case: str, n2_handler):
         nodes.append(n2)
         handlers["n2"] = n2_handler
 
+    elif case == "params_and_edge":
+        n2 = NodeSpec(
+            id="n2",
+            type="fs.write_file",
+            params={"path_template": "from_params.txt", "content": "x"},
+        )
+        edges.append(EdgeSpec(
+            id="e1", source="n1", target="n2",
+            source_port="path_template", target_port="path_template",
+        ))
+        nodes.append(n2)
+        handlers["n2"] = n2_handler
+
     elif case == "missing_source_port":
         n2 = NodeSpec(id="n2", type="fs.write_file")
         edges.append(EdgeSpec(
@@ -136,15 +148,9 @@ def _make_graph(case: str, n2_handler):
 
 @pytest.mark.parametrize(
     "case",
-    ["single_edge", "two_incoming"],
+    ["single_edge", "two_incoming", "params_and_edge"],
 )
-def test_builder_executor_edge_parity(case: str, exec_ctx, tmp_path, monkeypatch) -> None:
-    # exec_ctx.scope.root == tmp_path; validate_proposal resolves relative
-    # paths against CWD. Align CWD with scope root so planner-side
-    # scope-check accepts the rendered path. This is a fixture-level
-    # environment adjustment, not a change to the parity contract.
-    monkeypatch.chdir(tmp_path)
-
+def test_builder_executor_edge_parity(case: str, exec_ctx, tmp_path) -> None:
     # Phase 1: planner — capture the payload it passes to n2.dry_run.
     planner_spy = _SpyWriteFile()
     graph = _make_graph(case, n2_handler=planner_spy)
@@ -155,6 +161,10 @@ def test_builder_executor_edge_parity(case: str, exec_ctx, tmp_path, monkeypatch
         f"planner called n2.dry_run {len(planner_spy.captured)} times, expected 1"
     )
     planner_payload = planner_spy.captured[0]
+    if case == "params_and_edge":
+        assert planner_payload["path_template"] == "x.txt", (
+            "edge must override NodeSpec.params"
+        )
 
     proposal_n2 = next((p for p in plan.proposals if p.node_id == "n2"), None)
     assert proposal_n2 is not None, "planner produced no proposal for n2"

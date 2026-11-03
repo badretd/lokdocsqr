@@ -32,6 +32,7 @@ Phase 7d-a additions (flat graphs only):
 """
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 from typing import Any
 
@@ -216,7 +217,7 @@ def _build_action_plan(
         if isinstance(node, type):
             try:
                 node = node()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 errors.append(
                     PlanError(
                         node_id=node_id,
@@ -244,7 +245,7 @@ def _build_action_plan(
                 outputs_by_node=outputs_by_node,
                 resolve_edges=resolve_edges,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             errors.append(
                 PlanError(
                     node_id=node_id,
@@ -257,21 +258,17 @@ def _build_action_plan(
         node_ctx = _isolated_ctx(ctx, planning_vars)
         if dataclasses.is_dataclass(node_ctx) and not isinstance(node_ctx, type):
             if hasattr(node_ctx, "planning_callback"):
-                try:
+                with contextlib.suppress(TypeError, ValueError):
                     node_ctx = dataclasses.replace(
                         node_ctx, planning_callback=_recurse
                     )
-                except (TypeError, ValueError):
-                    pass
         else:
-            try:
-                setattr(node_ctx, "planning_callback", _recurse)
-            except Exception:  # noqa: BLE001
-                pass
+            with contextlib.suppress(Exception):
+                node_ctx.planning_callback = _recurse
 
         try:
             dry_run_result = dry_run(node_ctx, payload)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             errors.append(
                 PlanError(
                     node_id=node_id,
@@ -292,6 +289,7 @@ def _build_action_plan(
             summary_text = f"{operation}: {', '.join(target_paths) or 'n/a'}"
             proposal = ActionSummary(
                 node_id=node_id,
+                node_type=node_type,
                 operation=operation,
                 target_paths=target_paths,
                 payload=dict(payload),
@@ -307,7 +305,7 @@ def _build_action_plan(
                 )
             )
             continue
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             errors.append(
                 PlanError(
                     node_id=node_id,

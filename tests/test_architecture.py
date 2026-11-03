@@ -5,8 +5,6 @@ import ast
 import os
 from pathlib import Path
 
-import pytest
-
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src" / "lokdocsqr"
 CORE = SRC / "core"
@@ -196,11 +194,7 @@ def _ast_mutation_hits(path: Path):
             continue
 
         root, attr = chain[0], chain[-1]
-        if root == "os" and attr in _OS_MUT:
-            yield node.lineno, ".".join(chain)
-        elif root == "shutil" and attr in _SH_MUT:
-            yield node.lineno, ".".join(chain)
-        elif attr in _PATH_MUT and "Path" in chain:
+        if (root == "os" and attr in _OS_MUT) or (root == "shutil" and attr in _SH_MUT) or (attr in _PATH_MUT and "Path" in chain):
             yield node.lineno, ".".join(chain)
 
 
@@ -273,9 +267,11 @@ def test_invariant_4_no_delete_api() -> None:
         if not isinstance(node, ast.ClassDef):
             continue
         for item in node.body:
-            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if _public_name_is_forbidden(item.name):
-                    violations.append(f"public method {node.name}.{item.name}")
+            if (
+                isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and _public_name_is_forbidden(item.name)
+            ):
+                violations.append(f"public method {node.name}.{item.name}")
     assert not violations, "No-delete API violations:\n" + "\n".join(violations)
 
 
@@ -341,7 +337,7 @@ def _run_delegated(
       (e.g. via ``Path(__file__).resolve().parent.parent``), so we also
       delete known artefacts from the real project root afterwards.
     """
-    original_cwd = os.getcwd()
+    original_cwd = Path.cwd()
     monkeypatch.chdir(tmp_path)
     try:
         _load_checker(module_name, func_name)()
@@ -517,14 +513,10 @@ def test_invariant_9_mutation_ban() -> None:
     assert not violations, "Mutation-ban violations:\n" + "\n".join(violations)
 
 # === 8z invariant 10 wrapper ===
-def test_invariant_10_edge_payload_parity(tmp_path, monkeypatch, exec_ctx) -> None:
+def test_invariant_10_edge_payload_parity(tmp_path, exec_ctx) -> None:
     checker = _load_checker(
         "test_api_contracts_edge_parity",
         "test_builder_executor_edge_parity",
     )
-    original_cwd = os.getcwd()
-    try:
-        for case in ("single_edge", "two_incoming"):
-            checker(case, exec_ctx, tmp_path, monkeypatch)
-    finally:
-        os.chdir(original_cwd)
+    for case in ("single_edge", "two_incoming", "params_and_edge"):
+        checker(case, exec_ctx, tmp_path)

@@ -1,3 +1,4 @@
+# mypy: disable-error-code="no-untyped-def,no-untyped-call"
 """Tag / Set Metadata node (``fs.tag``).
 
 Modes: ``set``, ``add``, ``remove``. Persists tags to a sidecar JSON
@@ -16,10 +17,11 @@ Architecture contract:
 """
 from __future__ import annotations
 
+import contextlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import NodeExecutionError
@@ -27,21 +29,11 @@ from lokdocsqr.core.models import Risk
 from lokdocsqr.core.node_api.decorators import register_node
 
 from ._base import FsNode
-from ._common import build_action_log, check_scope
-
+from ._common import build_action_log, check_scope, resolve_path
 
 _MODES = ("set", "add", "remove")
 _XATTR_KEY = "user.lokdocsqr.tags"
 _SIDECAR_SUFFIX = ".tags.json"
-
-
-def _try_xattr():
-    """Return the ``xattr`` module, or ``None`` if it is unavailable."""
-    try:
-        import xattr  # noqa: F401
-    except ImportError:
-        return None
-    return xattr
 
 
 @register_node
@@ -54,7 +46,7 @@ class TagNode(FsNode):
         "Set, add, or remove tags on a file. Persists to a sidecar JSON "
         "and, where available, extended attributes."
     )
-    inputs = {
+    inputs: ClassVar[dict[str, Any]] = {
         "path": {"type": "string", "required": True},
         "tags": {"type": "list[str]", "required": True},
         "mode": {
@@ -64,7 +56,7 @@ class TagNode(FsNode):
             "enum": list(_MODES),
         },
     }
-    outputs = {
+    outputs: ClassVar[dict[str, Any]] = {
         "action_log": {"type": "ActionLog"},
         "tags": {"type": "list[str]"},
     }
@@ -74,7 +66,7 @@ class TagNode(FsNode):
         raw_path = payload.get("path")
         if not raw_path:
             raise NodeExecutionError("tag: 'path' is required")
-        check_scope(ctx, str(raw_path))
+        path = resolve_path(ctx, raw_path, write=True)
 
         tags = payload.get("tags")
         if not isinstance(tags, (list, tuple)):
@@ -89,7 +81,6 @@ class TagNode(FsNode):
                 f"tag: 'mode' must be one of {_MODES}, got {mode!r}"
             )
 
-        path = Path(raw_path)
         if not path.exists():
             raise NodeExecutionError(
                 f"tag: target file does not exist: {path}"
@@ -136,34 +127,21 @@ class TagNode(FsNode):
 
     def _write_sidecar(self, ctx, path: Path, tags: list[str]) -> Path:
         sidecar = self._sidecar_path(path)
-        check_scope(ctx, str(sidecar))
+        check_scope(ctx, sidecar, write=True)
         safe_fs.atomic_write(sidecar, self._build_sidecar_payload(tags))
         return sidecar
 
     def _write_xattr(self, ctx, path: Path, tags: list[str]) -> None:
-        xattr = _try_xattr()
-        if xattr is None:
-            try:
-                ctx.logger.info(
-                    "tag: xattr module unavailable; sidecar-only for %s",
-                    path,
-                )
-            except AttributeError:
-                pass
+        wrote = safe_fs.set_xattr(
+            path, _XATTR_KEY, json.dumps(tags).encode("utf-8")
+        )
+        if wrote:
             return
-        try:
-            xattr.setxattr(
-                str(path), _XATTR_KEY, json.dumps(tags).encode("utf-8")
+        with contextlib.suppress(AttributeError):
+            ctx.logger.info(
+                "tag: xattr module unavailable; sidecar-only for %s",
+                path,
             )
-        except OSError as exc:
-            try:
-                ctx.logger.warning(
-                    "tag: xattr write failed for %s (sidecar-only): %s",
-                    path,
-                    exc,
-                )
-            except AttributeError:
-                pass
 
     def _build_log(
         self, ctx, path, mode, added, removed, final, dry_run: bool
@@ -195,7 +173,6 @@ class TagNode(FsNode):
         log = self._build_log(
             ctx, path, mode, added, removed, final, dry_run=False
         )
-        ctx.audit.append(log)
         return {"action_log": log, "tags": final}
 
     def dry_run(self, ctx, payload: dict[str, Any]) -> dict[str, Any]:

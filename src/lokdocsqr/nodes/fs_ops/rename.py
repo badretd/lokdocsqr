@@ -1,3 +1,4 @@
+# mypy: disable-error-code="no-untyped-def,no-untyped-call"
 """Rename File(s) — template-driven filename rewriting.
 
 Node id: ``fs.rename``. Supported template variables:
@@ -28,8 +29,9 @@ class RenameNode(FsTemplateNode):
     id = "fs.rename"
     title = "Rename File(s)"
     action_type = "rename"
-    inputs = ("file",)
-    outputs = ("file",)
+    _source_write = True
+    inputs: Any = ("file",)
+    outputs: Any = ("file",)
 
     def __init__(
         self,

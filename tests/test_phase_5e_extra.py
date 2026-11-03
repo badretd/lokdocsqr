@@ -8,35 +8,32 @@ Requires: pytest, freezegun.
 """
 from __future__ import annotations
 
-import os
 import ast
 import inspect
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
+import lokdocsqr.nodes.fs_ops.tag as tag_mod
 import pytest
 from freezegun import freeze_time
-
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import NodeExecutionError
 from lokdocsqr.core.models import Risk
 from lokdocsqr.core.node_api.registry import registry
-
-import lokdocsqr.nodes.fs_ops.tag as tag_mod
 from lokdocsqr.nodes.fs_ops._common import build_action_log
 
 from . import test_architecture as arch
 from . import test_fs_ops_integration as integ
 from .test_dry_run import (
     FS_OPS_NODE_IDS,
-    _TestCtx,
     _prepare,
     _snapshot,
+    _TestCtx,
     check_invariant_6,
 )
 from .test_scope_first import ScopeFirstTracker
-
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -46,18 +43,18 @@ ROOT = Path(__file__).resolve().parent.parent
 # ---------------------------------------------------------------------------
 
 def _make_log(**overrides):
-    base = dict(
-        run_id="r",
-        automation_id="a",
-        node_id="n",
-        action_type="x",
-        source=None,
-        target=None,
-        reason="r",
-        confidence=1.0,
-        risk=Risk.LOW,
-        dry_run=False,
-    )
+    base = {
+        "run_id": "r",
+        "automation_id": "a",
+        "node_id": "n",
+        "action_type": "x",
+        "source": None,
+        "target": None,
+        "reason": "r",
+        "confidence": 1.0,
+        "risk": Risk.LOW,
+        "dry_run": False,
+    }
     base.update(overrides)
     return build_action_log(**base)
 
@@ -92,7 +89,7 @@ def test_archive_create_log_extra_sources_is_list(tmp_path: Path, monkeypatch) -
     # restored before this function returns — otherwise the leak detector
     # (which runs at end-of-body, while monkeypatch.chdir is still in
     # effect) flags every file under tmp_path as a CWD leak.
-    original_cwd = os.getcwd()
+    original_cwd = Path.cwd()
     monkeypatch.chdir(tmp_path)
     try:
         node, payload = _prepare("fs.archive", tmp_path)
@@ -181,14 +178,16 @@ def test_tag_dry_run_does_not_write_sidecar(tmp_path: Path) -> None:
     assert not _tag_sidecar(target).exists()
 
 
-def test_tag_run_audits_and_dry_run_does_not(tmp_path: Path) -> None:
+def test_tag_run_returns_log_without_appending(tmp_path: Path) -> None:
     target = tmp_path / "f.txt"
     target.write_text("hello", encoding="utf-8")
     node = registry.get("fs.tag")()
 
     ctx_run = _TestCtx([tmp_path])
-    node.run(ctx_run, {"path": str(target), "tags": ["x"], "mode": "set"})
-    assert len(ctx_run.audit.entries) == 1
+    result = node.run(ctx_run, {"path": str(target), "tags": ["x"], "mode": "set"})
+    assert result["action_log"].status == "applied"
+    # F-03: the executor owns audit append; nodes only build the log.
+    assert ctx_run.audit.entries == []
 
     ctx_dry = _TestCtx([tmp_path])
     node.dry_run(ctx_dry, {"path": str(target), "tags": ["y"], "mode": "add"})
@@ -206,15 +205,13 @@ def test_tag_rejects_invalid_mode(tmp_path: Path) -> None:
 
 
 def test_tag_xattr_branch_calls_setxattr(tmp_path: Path, monkeypatch) -> None:
-    class FakeXattr:
-        def __init__(self) -> None:
-            self.calls = []
+    calls: list[tuple[str, str, bytes]] = []
 
-        def setxattr(self, path: str, key: str, value: bytes) -> None:
-            self.calls.append((path, key, value))
+    def fake_set_xattr(path, key, value):
+        calls.append((str(path), key, value))
+        return True
 
-    fake = FakeXattr()
-    monkeypatch.setattr(tag_mod, "_try_xattr", lambda: fake)
+    monkeypatch.setattr(safe_fs, "set_xattr", fake_set_xattr)
 
     target = tmp_path / "f.txt"
     target.write_text("hello", encoding="utf-8")
@@ -223,13 +220,13 @@ def test_tag_xattr_branch_calls_setxattr(tmp_path: Path, monkeypatch) -> None:
 
     node.run(ctx, {"path": str(target), "tags": ["x"], "mode": "set"})
 
-    assert fake.calls
-    assert fake.calls[0][1] == tag_mod._XATTR_KEY
-    assert json.loads(fake.calls[0][2].decode("utf-8")) == ["x"]
+    assert calls
+    assert calls[0][1] == tag_mod._XATTR_KEY
+    assert json.loads(calls[0][2].decode("utf-8")) == ["x"]
 
 
 def test_tag_xattr_absence_degrades_to_sidecar(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(tag_mod, "_try_xattr", lambda: None)
+    monkeypatch.setattr(safe_fs, "set_xattr", lambda *a, **kw: False)
 
     target = tmp_path / "f.txt"
     target.write_text("hello", encoding="utf-8")
@@ -334,11 +331,11 @@ def test_invariant_6_and_7_are_not_skipped_and_call_checkers(
 def test_mutation_scope_first_tracker_catches_unchecked_make_dir(tmp_path: Path) -> None:
     tracker = ScopeFirstTracker()
     original = safe_fs.make_dir
-    safe_fs.make_dir = tracker.wrap_op("make_dir", original, ["path"])
+    safe_fs.make_dir = tracker.wrap_op("make_dir", original, [("path", True)])
     try:
         with pytest.raises(
             RuntimeError,
-            match="scope.check not called before safe_fs.make_dir",
+            match=r"scope\.check.*not called.*safe_fs\.make_dir",
         ):
             safe_fs.make_dir(tmp_path / "unchecked")
     finally:
@@ -457,7 +454,7 @@ def test_zipfile_ast_guard_real_archive_is_clean() -> None:
 # Golden integration really executes (not skip/xfail)
 # ---------------------------------------------------------------------------
 
-def test_golden_fs_ops_integration_executes(tmp_path: Path, monkeypatch) -> None:
+def test_golden_fs_ops_integration_executes(tmp_path: Path) -> None:
     source = inspect.getsource(integ.test_golden_fs_ops_integration)
     tree = ast.parse(source)
     fn = next(
@@ -471,14 +468,7 @@ def test_golden_fs_ops_integration_executes(tmp_path: Path, monkeypatch) -> None
         assert "skip" not in deco_src.lower()
         assert "xfail" not in deco_src.lower()
 
-    # integ.test_golden_fs_ops_integration re-uses our monkeypatch and
-    # chdirs into tmp_path internally. Restore the real CWD before the
-    # test body ends so the leak detector doesn't scan tmp_path.
-    original_cwd = os.getcwd()
-    try:
-        integ.test_golden_fs_ops_integration(tmp_path, monkeypatch)
-    finally:
-        os.chdir(original_cwd)
+    integ.test_golden_fs_ops_integration(tmp_path)
 
 
 # ---------------------------------------------------------------------------

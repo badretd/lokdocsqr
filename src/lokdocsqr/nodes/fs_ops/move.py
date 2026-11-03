@@ -1,3 +1,4 @@
+# mypy: disable-error-code="no-untyped-def,no-untyped-call"
 """Move File(s) — template-driven move, conflict policy.
 
 Node id: ``fs.move``. All cross-volume logic lives in
@@ -24,8 +25,9 @@ class MoveNode(FsTemplateNode):
     id = "fs.move"
     title = "Move File(s)"
     action_type = "move"
-    inputs = ("file",)
-    outputs = ("file",)
+    _source_write = True
+    inputs: Any = ("file",)
+    outputs: Any = ("file",)
 
     def __init__(
         self,

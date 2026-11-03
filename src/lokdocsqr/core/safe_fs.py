@@ -66,6 +66,7 @@ destination, vanished source, ACL denial that doesn't clear).
 """
 from __future__ import annotations
 
+import contextlib
 import errno
 import hashlib
 import json
@@ -75,11 +76,11 @@ import shutil
 import stat as stat_module
 import sys
 import time
-from pathlib import Path
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
 from lokdocsqr.core.errors import SafeFsError
-
 
 _log = logging.getLogger(__name__)
 
@@ -105,19 +106,21 @@ _TEMP_FILE_PATTERN = ".*.tmp.*"
 _TRANSIENT_WINERRORS = frozenset({5, 32, 33, 170, 1175})
 
 __all__ = [
-    "atomic_write",
     "atomic_append",
+    "atomic_write",
+    "cleanup_stale_temp_files",
     "copy_file",
-    "safe_move",
-    "safe_rename",
+    "hash_file",
+    "list_dir",
     "make_dir",
     "quarantine",
-    "trash",
-    "stat",
-    "hash_file",
     "read_bytes",
-    "list_dir",
-    "cleanup_stale_temp_files",
+    "safe_move",
+    "safe_rename",
+    "set_xattr",
+    "stat",
+    "trash",
+    "trash_target",
 ]
 
 
@@ -172,7 +175,7 @@ def _safe_replace(
                 f"{context}: source vanished before replace: {src}"
             )
         try:
-            os.replace(src, dst)
+            os.replace(src, dst)  # noqa: PTH105 - patched by EXDEV tests
             if attempt > 1:
                 _log.info(
                     "%s: replace succeeded after %d attempt(s): %s",
@@ -255,14 +258,14 @@ def _open_with_retry(
     mode: str,
     *,
     timeout: float = _DEFAULT_OPEN_TIMEOUT,
-    **kwargs,
-):
+    **kwargs: Any,
+) -> Any:
     """Open ``path`` in ``mode``, retrying transient Windows locks."""
     deadline = time.monotonic() + timeout
     delay = 0.02
     while True:
         try:
-            return open(path, mode, **kwargs)
+            return path.open(mode, **kwargs)
         except OSError as exc:
             if not _is_transient(exc):
                 raise
@@ -294,27 +297,23 @@ def atomic_write(path: Path, data: str | bytes, encoding: str = "utf-8") -> None
     tmp = path.parent / f".{path.name}.tmp.{os.getpid()}.{time.time_ns()}"
     try:
         if isinstance(data, bytes):
-            with open(tmp, "wb") as handle:
+            with tmp.open("wb") as handle:
                 handle.write(data)
                 handle.flush()
                 os.fsync(handle.fileno())
         else:
-            with open(tmp, "w", encoding=encoding) as handle:
+            with tmp.open("w", encoding=encoding) as handle:
                 handle.write(data)
                 handle.flush()
                 os.fsync(handle.fileno())
         _safe_replace(tmp, path, context=f"atomic_write({path})")
     except SafeFsError:
-        try:
+        with contextlib.suppress(OSError):
             tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
         raise
     except OSError as exc:
-        try:
+        with contextlib.suppress(OSError):
             tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
         raise SafeFsError(f"atomic_write failed for {path}: {exc}") from exc
 
 
@@ -449,11 +448,63 @@ def make_dir(path: Path) -> None:
         raise SafeFsError(f"make_dir failed for {path}: {exc}") from exc
 
 
+def set_xattr(path: Path, name: str, value: bytes) -> bool:
+    """Set one extended attribute through the single mutation layer.
+
+    Returns ``False`` when the optional ``xattr`` module is not installed
+    (callers degrade to sidecar-only). Raises :class:`SafeFsError` when
+    the attribute write itself fails.
+    """
+    try:
+        import xattr  # type: ignore[import-not-found]
+    except ImportError:
+        return False
+    try:
+        xattr.setxattr(str(Path(path)), name, value)
+    except OSError as exc:
+        raise SafeFsError(f"set_xattr failed for {path}: {exc}") from exc
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Quarantine / trash
 # ---------------------------------------------------------------------------
 
-def quarantine(path: Path, trash_dir: Path, reason: str = "quarantined") -> Path:
+def _trash_target(path: Path, trash_dir: Path, timestamp: float) -> Path:
+    """Return the collision-free destination for ``path`` in ``trash_dir``.
+
+    Shared by real quarantine and dry-run planning so preview and
+    execution agree (F-06). ``timestamp`` is a Unix time in seconds.
+    """
+    stamp = datetime.fromtimestamp(timestamp, tz=timezone.utc).strftime(
+        "%Y%m%dT%H%M%S"
+    )
+    base_target = Path(trash_dir) / f"{stamp}_{Path(path).name}"
+    target = base_target
+    counter = 0
+    while target.exists():
+        counter += 1
+        target = base_target.with_name(
+            f"{base_target.stem}_{counter}{base_target.suffix}"
+        )
+    return target
+
+
+def trash_target(
+    path: Path, trash_dir: Path, timestamp: float | None = None
+) -> Path:
+    """Plan the destination :func:`trash` will use at ``timestamp``."""
+    when = time.time() if timestamp is None else float(timestamp)
+    return _trash_target(Path(path), Path(trash_dir), when)
+
+
+def quarantine(
+    path: Path,
+    trash_dir: Path,
+    reason: str = "quarantined",
+    *,
+    timestamp: float | None = None,
+) -> Path:
     """Move ``path`` into ``trash_dir`` and write a JSON sidecar."""
     path = Path(path)
     trash_dir = Path(trash_dir)
@@ -465,17 +516,8 @@ def quarantine(path: Path, trash_dir: Path, reason: str = "quarantined") -> Path
     # wall clock under tests and real time in production. Formatting it
     # as YYYYmmddTHHMMSS keeps the trash path human-readable, sortable
     # by name, and lets test_trash_time assert on the year substring.
-    stamp = datetime.fromtimestamp(time.time(), tz=timezone.utc).strftime(
-        "%Y%m%dT%H%M%S"
-    )
-    base_target = trash_dir / f"{stamp}_{path.name}"
-    target = base_target
-    counter = 0
-    while target.exists():
-        counter += 1
-        target = base_target.with_name(
-            f"{base_target.stem}_{counter}{base_target.suffix}"
-        )
+    when = time.time() if timestamp is None else float(timestamp)
+    target = _trash_target(path, trash_dir, when)
 
     safe_move(path, target)
 
@@ -483,14 +525,16 @@ def quarantine(path: Path, trash_dir: Path, reason: str = "quarantined") -> Path
     meta = {
         "original_path": str(path.absolute()),
         "reason": reason,
-        "timestamp": time.time(),
+        "timestamp": when,
     }
     atomic_write(sidecar, json.dumps(meta, indent=2) + "\n")
     return target
 
-def trash(path: Path, trash_dir: Path) -> Path:
+def trash(
+    path: Path, trash_dir: Path, *, timestamp: float | None = None
+) -> Path:
     """Move ``path`` into the trash directory (convenience wrapper)."""
-    return quarantine(path, trash_dir, reason="trashed")
+    return quarantine(path, trash_dir, reason="trashed", timestamp=timestamp)
 
 
 # ---------------------------------------------------------------------------
@@ -514,7 +558,7 @@ def hash_file(path: Path, algorithm: str = "sha256") -> str:
     except ValueError as exc:
         raise SafeFsError(f"hash_file: unknown algorithm {algorithm!r}: {exc}") from exc
     try:
-        with open(path, "rb") as handle:
+        with path.open("rb") as handle:
             while True:
                 chunk = handle.read(_CHUNK_SIZE)
                 if not chunk:
@@ -529,7 +573,7 @@ def read_bytes(path: Path, limit: int = -1) -> bytes:
     """Read up to ``limit`` bytes (default: all) from ``path``."""
     path = Path(path)
     try:
-        with open(path, "rb") as handle:
+        with path.open("rb") as handle:
             if limit < 0:
                 return handle.read()
             return handle.read(limit)

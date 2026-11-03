@@ -1,39 +1,44 @@
 # Phase State
 
-Done: 0-8, 8.6-pre
-Current: 8.6 — P0 engine hardening
+Done: 0-8, 8.6-pre, 8.6, 8.7
+Current: 8.8 (background tooling) / 9 unblocked
 
 ## 8.6-pre — ticket closeout
 
-Closed (implemented / tested / integrated):
+- `TICKET-8z-ActionLog-from_dict` — closed (fail-closed audit parsing).
+- `TICKET-8z-FlowRetry-port-types` — closed (real booleans).
+- `TICKET-8z-T0` — closed in 8.6 as a symptom of F-01.
+- `TICKET-8z-RunResult-to_dict` / `TICKET-8z-ActionLog-to_dict` —
+  closed after F-03, as required by the ordering rule.
+- The pre-phase commit contains no changes to `engine.py` / `builder.py`.
 
-- `TICKET-8z-ActionLog-from_dict` — fail-closed audit parsing.
-  Tests: `test_models_audit.py::test_actionlog_from_dict_rejects_corrupt_fields`,
-  `::test_audit_iter_all_skips_corrupt_risk`.
-- `TICKET-8z-FlowRetry-port-types` — `flow.retry` returns real booleans.
-  Tests: `test_phase_8g.py::test_retry_on_error_true` / `_false` / `_missing`.
-
-Deferred with reason:
-
-- `TICKET-8z-T0` → 8.6. It is a symptom of F-01; opened
-  `TICKET-8.6-root-params`.
-- `TICKET-8z-RunResult-to_dict` → after F-03. Audit serialization must
-  follow the audit-ownership fix.
-- `TICKET-8z-ActionLog-to_dict` → after F-03. Same ordering rule.
-
-Gate notes:
-
-- No committed changes to `core/executor/engine.py` or
-  `core/planning/builder.py` in this phase.
-- The 8.6-pre closeout is a separate commit from 8.6.
-
-## 8.6 — current
+## 8.6 — P0 engine hardening
 
 | Finding | Implemented | Tested | Integrated |
 |---|---|---|---|
-| F-01 payload unification | yes | yes | yes — shared `core.payload.build_node_payload` used by planner and executor |
-| F-02 write scope | no | no | no |
-| F-03 audit contract | no | no | no |
+| F-01 payload unification | yes | yes | yes — `core.payload.build_node_payload`, two call sites |
+| F-02 write scope | yes | yes | yes — every mutating fs_ops call uses `write=True` |
+| F-03 audit contract | yes | yes | yes — executor is the only `ctx.audit.append` owner |
 
-F-01 is committed as the first 8.6 change, separately from the 8.6-pre
-closeout. Vertical slice: not written yet. 8.6 is not closed.
+- Vertical slice: `tests/test_acceptance_vertical_slice.py` (params-only
+  `fs.make_dir` + `fs.write_file` + `fs.move`, real pipeline, dry-run,
+  one audit copy, one event per entry, rollback).
+- Regression rewrites: `test_api_contracts_edge_parity.py` (params + edges),
+  `test_fs_ops_integration.py` (engine-based), `test_scope_first.py`
+  (write flag enforced).
+
+## 8.7 — P1 correctness
+
+| Finding | Fix | Acceptance |
+|---|---|---|
+| F-04 | Preview keys off node type | `test_preview_change_kind_by_instance` |
+| F-05 | Relative paths use `config.base_dir` | `test_relative_paths_resolve_from_base_dir` |
+| F-06 | Dry-run/real trash share one target helper | `test_dry_run_trash_path_matches_real` |
+| F-07 | `safe_fs.set_xattr` wrapper | `test_xattr_goes_through_safe_fs` |
+| F-08 | 7z removed from supported formats | `test_archive_7z_unsupported` |
+| F-09 | Entry point + `xattr` extra; build claim removed | `lokdocsqr --version` |
+| F-10A | Default `ExecutionContext` policy is `PolicyEngine.default()` | `test_high_risk_without_verify_fails_closed` |
+| F-15 | `modules.md` / `PHASE_STATE.md` synced | doc review |
+
+All 8.7 acceptance tests are green. Per operator instruction, no Git tags
+were created for 8.6 or 8.7.

@@ -1,3 +1,4 @@
+# mypy: disable-error-code="no-untyped-def,no-untyped-call"
 """Write / Append File node (``fs.write_file``).
 
 Architecture contract:
@@ -16,7 +17,7 @@ through ``safe_fs.make_dir``.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import NodeExecutionError
@@ -25,7 +26,6 @@ from lokdocsqr.core.node_api.decorators import register_node
 
 from ._base import FsNode
 from ._common import build_action_log, check_scope
-
 
 _VALID_MODES = ("write", "append")
 
@@ -37,7 +37,7 @@ class WriteFileNode(FsNode):
     id = "fs.write_file"
     title = "Write / Append File"
     description = "Write or append content to a templated path."
-    inputs = {
+    inputs: ClassVar[dict[str, Any]] = {
         "path_template": {"type": "string", "required": True},
         "content": {"type": "string", "required": True},
         "mode": {
@@ -49,7 +49,7 @@ class WriteFileNode(FsNode):
         "create_parents": {"type": "bool", "required": False, "default": True},
         "variables": {"type": "object", "required": False},
     }
-    outputs = {
+    outputs: ClassVar[dict[str, Any]] = {
         "action_log": {"type": "ActionLog"},
         "path": {"type": "string"},
         "bytes_written": {"type": "integer"},
@@ -66,7 +66,7 @@ class WriteFileNode(FsNode):
         if create_parents:
             # Parent may equal the scope root; re-check is cheap and
             # satisfies invariant 7 before every safe_fs.* call.
-            check_scope(ctx, str(path.parent))
+            check_scope(ctx, str(path.parent), write=True)
             safe_fs.make_dir(path.parent)
 
         if mode == "append":
@@ -87,7 +87,6 @@ class WriteFileNode(FsNode):
             dry_run=False,
             details={"mode": mode, "bytes": len(data)},
         )
-        ctx.audit.append(log)
         return {
             "action_log": log,
             "path": str(path),
@@ -145,4 +144,4 @@ class WriteFileNode(FsNode):
                 f"Write File: 'mode' must be one of {_VALID_MODES}, "
                 f"got {mode!r}"
             )
-        return mode
+        return str(mode)

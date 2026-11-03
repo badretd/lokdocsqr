@@ -32,6 +32,7 @@ from ._common import (
     check_scope,
     render_and_check,
     resolve_conflict_policy,
+    resolve_path,
     risk_for_decision,
 )
 
@@ -138,7 +139,7 @@ class FsNode(Node):
         """Render ``payload["path_template"]`` and scope-check the result."""
         template = payload["path_template"]
         variables = payload.get("variables") or {}
-        return render_and_check(ctx, template, variables)
+        return render_and_check(ctx, template, variables, write=True)
 
 
 class FsTemplateNode(FsNode):
@@ -155,13 +156,14 @@ class FsTemplateNode(FsNode):
     The pipeline is:
 
         _plan      → render target, scope-check, resolve conflict
-        run        → plan, execute if ``proceed``, log, audit
-        dry_run    → plan, log only (no execution, no audit)
+        run        → plan, execute if ``proceed``, return log
+        dry_run    → plan, log only (no execution)
     """
 
     action_type: str = ""
     template: str = "{name}{ext}"
     conflict_policy: str = "skip"
+    _source_write: bool = False
 
     # ── planning ─────────────────────────────────────────────────
     def _render_target(
@@ -208,8 +210,9 @@ class FsTemplateNode(FsNode):
         as a programmatically constructed one. Instance attributes remain
         the defaults (and the fallback for direct callers).
         """
-        src = Path(payload["source"])
-        check_scope(ctx, str(src))
+        src = resolve_path(
+            ctx, payload["source"], write=self._source_write
+        )
 
         template = _payload_str(payload, "template", self.template, self.id)
         conflict_policy = _payload_str(
@@ -218,7 +221,7 @@ class FsTemplateNode(FsNode):
 
         variables = self._variables(src, payload.get("variables") or {})
         dst = self._render_target(ctx, src, variables, template=template)
-        check_scope(ctx, str(dst))
+        check_scope(ctx, dst, write=True)
 
         if dst == src:
             return src, dst, ConflictDecision(
@@ -227,7 +230,7 @@ class FsTemplateNode(FsNode):
 
         decision = resolve_conflict_policy(conflict_policy, dst)
         if decision.action == "proceed":
-            check_scope(ctx, str(decision.final_dst))
+            check_scope(ctx, decision.final_dst, write=True)
         return src, decision.final_dst, decision
 
     def _build_log(
@@ -295,7 +298,6 @@ class FsTemplateNode(FsNode):
         log = self._build_log(
             ctx, src, final_dst, decision, dry_run=False
         )
-        ctx.audit.append(log)
         return log
 
     def _dry_run_template(self, ctx: Any, payload: Any) -> ActionLog:
