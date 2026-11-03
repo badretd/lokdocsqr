@@ -38,6 +38,7 @@ from lokdocsqr.core.node_api.decorators import register_node
 
 from ._base import FsNode
 from ._common import (
+    ActionResult,
     build_action_log,
     check_scope,
     render_and_check,
@@ -250,11 +251,12 @@ class ArchiveNode(FsNode):
         data = _build_zip_bytes(sources)
         safe_fs.atomic_write(target, data)
         log = self._create_log(ctx, sources, target, fmt, dry_run=False)
-        return log
+        return ActionResult(log, file=str(target))
 
     def _dry_create(self, ctx, payload):
         sources, target, fmt = self._plan_create(ctx, payload)
-        return self._create_log(ctx, sources, target, fmt, dry_run=True)
+        log = self._create_log(ctx, sources, target, fmt, dry_run=True)
+        return ActionResult(log, file=str(target))
 
     # ── extract ───────────────────────────────────────────────────
 
@@ -331,7 +333,7 @@ class ArchiveNode(FsNode):
                     )
                 )
 
-        return logs
+        return ActionResult(logs, file=str(target_dir))
 
     def _dry_extract(self, ctx, payload):
         source, target_dir, policy = self._plan_extract(ctx, payload)
@@ -347,7 +349,7 @@ class ArchiveNode(FsNode):
                 logs.append(
                     self._extract_log(ctx, source, decision, dry_run=True)
                 )
-        return logs
+        return ActionResult(logs, file=str(target_dir))
 
     # ── Node ABC ─────────────────────────────────────────────────
     def run(self, ctx, payload):

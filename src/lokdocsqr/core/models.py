@@ -152,7 +152,6 @@ class EdgeSpec:
     target: str
     source_port: str = "out"
     target_port: str = "in"
-    condition: str | None = None
     label: str = ""
 
 

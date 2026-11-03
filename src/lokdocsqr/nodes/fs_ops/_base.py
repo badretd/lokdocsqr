@@ -27,6 +27,7 @@ from lokdocsqr.core.node_api.base import Node
 from lokdocsqr.core.paths import render_template
 
 from ._common import (
+    ActionResult,
     ConflictDecision,
     build_action_log,
     check_scope,
@@ -291,17 +292,18 @@ class FsTemplateNode(FsNode):
         )
 
     # ── Node ABC ─────────────────────────────────────────────────
-    def _run_template(self, ctx: Any, payload: Any) -> ActionLog:
+    def _run_template(self, ctx: Any, payload: Any) -> ActionResult:
         src, final_dst, decision = self._plan(ctx, payload)
         if decision.action == "proceed":
             self._execute(src, final_dst)
         log = self._build_log(
             ctx, src, final_dst, decision, dry_run=False
         )
-        return log
+        return ActionResult(log, file=str(final_dst))
 
-    def _dry_run_template(self, ctx: Any, payload: Any) -> ActionLog:
+    def _dry_run_template(self, ctx: Any, payload: Any) -> ActionResult:
         src, final_dst, decision = self._plan(ctx, payload)
-        return self._build_log(
+        log = self._build_log(
             ctx, src, final_dst, decision, dry_run=True
         )
+        return ActionResult(log, file=str(final_dst))

@@ -13,13 +13,14 @@ Invariants honoured here:
   * invariant 9 — every mutation goes through ``safe_fs``; read-only
     probes (``Path.stat``, ``safe_fs.hash_file``) are allowed.
 
-Return contract (matches fs_ops convention, cf. ``fs_ops.rename``):
-  * ``run`` returns the ``ActionLog``; the executor owns audit append.
+Return contract (matches the fs_ops output convention):
+  * ``run`` returns ``{"action_log": log, "files": [<trash path>]}``;
+    the executor owns audit append.
   * ``dry_run`` returns the same shape with ``status="planned"``.
-Both ``run`` and ``dry_run`` therefore expose ``action_type``,
-``dry_run``, ``trash_path``, ``sidecar_path``, ``hash_before`` and
-``reason`` as attributes — exactly what ``tests/trash/*`` and
-``conftest.run_trash`` consume.
+``ActionResult`` forwards attribute access to ``action_log``, so both
+methods still expose ``action_type``, ``dry_run``, ``trash_path``,
+``sidecar_path``, ``hash_before`` and ``reason`` — exactly what
+``tests/trash/*`` and ``conftest.run_trash`` consume.
 """
 from __future__ import annotations
 
@@ -29,7 +30,7 @@ from typing import Any, cast
 
 from lokdocsqr.core import safe_fs
 from lokdocsqr.core.errors import ConfigError, ScopeViolation
-from lokdocsqr.core.models import ActionLog, Risk
+from lokdocsqr.core.models import Risk
 from lokdocsqr.core.node_api.decorators import register_node
 
 from . import _common
@@ -137,10 +138,12 @@ class TrashNode(FsNode):
             does not affect behaviour.
 
     Return:
-        ``ActionLog`` (per fs_ops convention). The executor appends it to
-        ``ctx.audit``; ``dry_run`` returns a planned log. Callers read
-        ``log.action_type``, ``log.dry_run``, ``log.trash_path``,
-        ``log.sidecar_path``, ``log.hash_before``, ``log.reason``.
+        ``{"action_log": log, "files": [<trash path>]}``. The executor
+        appends the log to ``ctx.audit``; ``dry_run`` returns a planned
+        log. Attribute access forwards to the wrapped log, so callers may
+        read ``result.action_type``, ``result.dry_run``,
+        ``result.trash_path``, ``result.sidecar_path``,
+        ``result.hash_before``, ``result.reason``.
     """
 
     id = "fs.trash"
@@ -190,10 +193,10 @@ class TrashNode(FsNode):
             sidecar_path=str(sidecar_path),
             hash_before=sidecar_payload["hash_before"],
         )
-        return log
+        return _common.ActionResult(log, files=[str(trash_path)])
 
     # ── dry_run ─────────────────────────────────────────────────
-    def dry_run(self, ctx, payload) -> ActionLog:
+    def dry_run(self, ctx, payload) -> _common.ActionResult:
         payload = _as_payload(payload)
         origin = _common.resolve_path(ctx, payload["path"], write=True)
 
@@ -235,4 +238,4 @@ class TrashNode(FsNode):
             sidecar_path=str(planned_sidecar_path),
             hash_before=sidecar_payload["hash_before"],
         )
-        return log
+        return _common.ActionResult(log, files=[str(planned_trash_path)])

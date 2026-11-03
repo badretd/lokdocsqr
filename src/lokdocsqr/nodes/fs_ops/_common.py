@@ -22,6 +22,30 @@ from lokdocsqr.core.paths import render_template
 T = TypeVar("T")
 
 
+class ActionResult(dict):
+    """Node return value carrying an audit log and declared output ports.
+
+    The executor recognizes ``{"action_log": ...}`` and exposes every other
+    key as a ``NodeResult`` output (see ``engine._logs_from_return``). This
+    dict subclass keeps the historical ``ActionLog`` attribute access working
+    for direct callers (tests, scripts) while giving downstream nodes the
+    declared ``file``/``files`` output value.
+    """
+
+    def __init__(
+        self,
+        action_log: ActionLog | list[ActionLog] | tuple[ActionLog, ...],
+        **outputs: Any,
+    ) -> None:
+        super().__init__(action_log=action_log, **outputs)
+
+    def __getattr__(self, name: str) -> Any:
+        log = dict.get(self, "action_log")
+        if isinstance(log, ActionLog):
+            return getattr(log, name)
+        raise AttributeError(name)
+
+
 def build_action_log(
     *,
     run_id: str,

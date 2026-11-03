@@ -54,11 +54,12 @@ def test_dry_run_extract_does_not_touch_tree(ctx, tmp_path):
     target_dir = tmp_path / "out"
 
     before = _snapshot(tmp_path)
-    logs = ArchiveNode().dry_run(ctx, {
+    result = ArchiveNode().dry_run(ctx, {
         "operation": "extract",
         "source": str(archive),
         "target_dir": "out",
     })
+    logs = result["action_log"]
     assert _snapshot(tmp_path) == before
     assert not target_dir.exists()
     assert logs, "dry_run must return ActionLog entries"

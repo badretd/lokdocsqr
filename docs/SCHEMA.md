@@ -1,5 +1,10 @@
 # LokDocSQR — Automation Schema (v1.0)
 
+> **Status — container outline only.** This file describes the JSON container
+> shape. Node contracts, DSL truth, and executable behavior live in
+> [`docs/DSL.md`](DSL.md); remaining behavior/spec gaps are listed there under
+> "Known divergences".
+
 This document describes the **JSON automation schema** that LokDocSQR consumes,
 and the **DSL** (Phase 10.5) that compiles into it.
 

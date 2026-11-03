@@ -31,6 +31,7 @@ from lokdocsqr.core.node_api.decorators import register_node
 
 from ._base import FsNode
 from ._common import (
+    ActionResult,
     build_action_log,
     render_and_check,
     resolve_path,
@@ -238,7 +239,7 @@ class ConvertNode(FsNode):
         log = self._log(
             ctx, source, target, from_mime, to_mime, dry_run=False
         )
-        return log
+        return ActionResult(log, file=str(target))
 
     def dry_run(self, ctx, payload):
         source, target, from_mime, to_mime, _converter = self._plan(
@@ -246,6 +247,7 @@ class ConvertNode(FsNode):
         )
         # Read-only probe (spec: dry_run reads source, does not write).
         safe_fs.read_bytes(source)
-        return self._log(
+        log = self._log(
             ctx, source, target, from_mime, to_mime, dry_run=True
         )
+        return ActionResult(log, file=str(target))

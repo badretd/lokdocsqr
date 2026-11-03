@@ -34,6 +34,25 @@ _CONTENT_KEYS = frozenset({
 })
 
 
+_SEQUENCE_KEYS = ("items", "files", "file_refs", "input", "data")
+
+
+def _has_sequence_input(payload: Any) -> bool:
+    """Return True when ``payload`` is a list/tuple or a dict with a list key.
+
+    ``_extract_items`` intentionally returns an empty list for anything else;
+    filter uses this predicate to distinguish "empty sequence" (valid) from
+    "not a sequence" (error).
+    """
+    if isinstance(payload, (list, tuple)):
+        return True
+    if isinstance(payload, dict):
+        return any(
+            isinstance(payload.get(key), list) for key in _SEQUENCE_KEYS
+        )
+    return False
+
+
 def _metadata_item(item: Any) -> Any:
     if not isinstance(item, dict):
         return item
@@ -87,6 +106,9 @@ class FilterNode(_FlowBase):
             if isinstance(payload, dict)
             else None
         )
+        if not _has_sequence_input(payload):
+            # D10: non-list input is a per-node error, not an empty result.
+            return [], ["error"], 0, 0, 0, 1
         items, _ = _extract_items(payload)
         base = _base_mapping(ctx, payload)
 

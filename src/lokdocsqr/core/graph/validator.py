@@ -78,6 +78,13 @@ def _validate_path_value(
         errors.append(
             f"node {node_id!r} param {key!r}: rejected by path policy ({exc})"
         )
+    except (TypeError, KeyError, IndexError, AttributeError):
+        # The template may contain an indexed/subscripted placeholder such
+        # as ``{item[path]}`` that cannot be resolved without runtime data.
+        # The static checks above still reject literal absolute paths and
+        # ``..`` segments. Runtime rendering re-applies the same policy with
+        # the populated context.
+        pass
     return errors
 
 

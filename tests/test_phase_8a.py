@@ -222,14 +222,6 @@ def test_c1_preview_override_does_not_call_execute(tmp_path: Path):
     assert isinstance(node._preview(ctx, payload), dict)
 
 
-@pytest.mark.xfail(
-    reason=(
-        "C2 real production bug: filter on non-list input returns empty "
-        "aggregates (total=0, kept=0, errors=0) without an 'error' marker; "
-        "_extract_items silently returns [] for non-list payloads"
-    ),
-    strict=False,
-)
 def test_c2_filter_non_list_input_reports_error(tmp_path: Path):
     from lokdocsqr.nodes.flow.filter import FilterNode
     node = FilterNode()

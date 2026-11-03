@@ -33,12 +33,13 @@ def test_skip_policy_does_not_overwrite_and_logs_conflict_skip(ctx, tmp_path):
     existing = target_dir / "file.txt"
     existing.write_bytes(b"old")
 
-    logs = ArchiveNode().run(ctx, {
+    result = ArchiveNode().run(ctx, {
         "operation": "extract",
         "source": str(archive),
         "target_dir": "out",
         "conflict_policy": "skip",
     })
+    logs = result["action_log"]
     assert existing.read_bytes() == b"old"
     assert any("conflict_skip" in (log.reason or "") for log in logs), (
         f"expected 'conflict_skip' in ActionLog reasons, got: "

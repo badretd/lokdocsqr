@@ -282,7 +282,6 @@ def _parse_edge(raw: Any, index: int) -> EdgeSpec:
         target=target,
         source_port=source_port,
         target_port=target_port,
-        condition=_optional_nullable_str(obj, "condition", context),
         label=_optional_str(obj, "label", context, ""),
     )
 
