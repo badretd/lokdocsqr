@@ -807,7 +807,9 @@ def test_subflow_propagates_child_lokerror(
         tmp_path, automations=FakeCatalog({"A": object()})
     )
     with pytest.raises(BoomError):
-        SubflowNode()._execute(ctx, {"graph_id": "A"})
+        SubflowNode()._execute(
+            ctx, {"graph_id": "A", "on_child_error": "fail"}
+        )
 
 
 # ---------------------------------------------------------------------------

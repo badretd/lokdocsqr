@@ -1601,6 +1601,7 @@ Executes a child graph once per item (`loop`) or once per chunk (`batch`). Sourc
 | `graph` | object | — | raw Workflow v1.0 dict | Inline child graph |
 | `max_depth` | integer | config `flow.max_subflow_depth`, else `4` | `> 0` | Maximum child depth |
 | `recursive_preview` | bool | `false` | true/false | Allows dry-run preview through `ctx.planning_callback`; otherwise preview fails closed |
+| `on_child_error` | string | `"warn"` | `"continue"`, `"fail"`, `"warn"` | How a failed child unit is reported (§14.6) |
 
 **Inputs**
 
@@ -1623,7 +1624,7 @@ Executes a child graph once per item (`loop`) or once per chunk (`batch`). Sourc
 | `graph_id` | string |
 | `depth` | integer |
 
-**Behavior.** The child graph is resolved even when `items` is empty (fail-closed). In `loop` mode each child context gets `item`, `index`, and `batch=[item]`; in `batch` mode `item=None` and `batch` is the chunk. Parent variables stay visible; `flow.run_id`, `flow.automation_id`, `flow.depth`, `flow.parent_run_id` are injected. Per-item `LokError` failures are recorded as `{index, error, error_type}` and `results` stays aligned (`None` for the failed unit); non-`LokError` exceptions propagate. `dry_run` fails closed unless `params.recursive_preview=true` and `ctx.planning_callback` is available. The node does not emit `ActionLog` itself; child nodes do.
+**Behavior.** The child graph is resolved even when `items` is empty (fail-closed). In `loop` mode each child context gets `item`, `index`, and `batch=[item]`; in `batch` mode `item=None` and `batch` is the chunk. Parent variables stay visible; `flow.run_id`, `flow.automation_id`, `flow.depth`, `flow.parent_run_id` are injected. Per-item failures (a raised `LokError` or a child `RunResult` with `success=false`) are recorded as `{index, error, error_type}` and `results` stays aligned (`None` for the failed unit); non-`LokError` exceptions propagate. `on_child_error` selects the reporting policy: `continue` records errors and leaves the node successful; `warn` (default) also records each failure in `RunResult.warnings` and marks the node/run failed while continuing the remaining items; `fail` re-raises the first child `LokError` immediately. `dry_run` fails closed unless `params.recursive_preview=true` and `ctx.planning_callback` is available. The node does not emit `ActionLog` itself; child nodes do.
 
 ```ldsq
 node "loop" {
@@ -1763,6 +1764,7 @@ Invokes a nested automation or an inline graph. Source: `src/lokdocsqr/nodes/flo
 | `graph` | object | — | raw Workflow v1.0 dict | Inline child graph |
 | `max_depth` | integer | config `flow.max_subflow_depth`, else `4` | `> 0` | Maximum child depth (inclusive) |
 | `recursive_preview` | bool | `false` | true/false | Allows dry-run preview through `ctx.planning_callback`; otherwise preview fails closed |
+| `on_child_error` | string | `"warn"` | `"continue"`, `"fail"`, `"warn"` | How a failed child run is reported (§14.6) |
 
 **Inputs**
 
@@ -1782,7 +1784,7 @@ Invokes a nested automation or an inline graph. Source: `src/lokdocsqr/nodes/flo
 | `errors` | any[] |
 | `error_count` | int |
 
-**Behavior.** Exactly one of `graph_id`/`graph` is required. `graph_id` must not contain `/`, `\`, or end with `.json`; it is looked up in `ctx.automations` (`AutomationCatalog`) and is not a filesystem path. Inline graphs run `parse_graph → validate_graph → resolve_states → build_graph`. The depth guard rejects when `ctx.flow_depth >= max_depth`; the child receives `flow_depth + 1`. A `graph_id` already in `ctx.subflow_stack` raises a cycle error. Child contexts share scope/config/audit/policy/clock and merge parent variables with `flow.*`; the child document's own `settings.scope` is not applied. Dry-run fails closed unless `recursive_preview=true` and a planning callback exists. See §15.
+**Behavior.** Exactly one of `graph_id`/`graph` is required. `graph_id` must not contain `/`, `\`, or end with `.json`; it is looked up in `ctx.automations` (`AutomationCatalog`) and is not a filesystem path. Inline graphs run `parse_graph → validate_graph → resolve_states → build_graph`. The depth guard rejects when `ctx.flow_depth >= max_depth`; the child receives `flow_depth + 1`. A `graph_id` already in `ctx.subflow_stack` raises a cycle error. Child contexts share scope/config/audit/policy/clock and merge parent variables with `flow.*`; the child document's own `settings.scope` is not applied. A raised child `LokError` or a child `RunResult` with `success=false` is reported through `errors`; under the default `on_child_error=warn` it also adds a `RunResult.warnings` entry and marks the run failed, `continue` records it without failing, and `fail` re-raises the first `LokError`. Dry-run fails closed unless `recursive_preview=true` and a planning callback exists. See §15.
 
 ```ldsq
 node "sf" {
@@ -2847,6 +2849,8 @@ Nodes may pre-set `status` (`"applied"`, `"skipped"`) and the executor leaves it
 
 `RunResult.success` is `success and not aborted`; it is false if any node failed.
 
+`RunResult.warnings` is a list of non-fatal diagnostics. The executor aggregates every node result's warnings. The main producer is `flow.loop_batch` / `flow.subflow` under `on_child_error="warn"` (the default), which emits one entry per failed child in the form `loop_batch node '<id>' item <index> failed: <error_type>: <error>`. Warnings are printed to stderr by the CLI `run` command; they do not on their own block execution, but `warn` mode also marks the producing node failed so `success` becomes `false` when a child failed.
+
 ---
 
 ## 15. Subflows
@@ -2897,7 +2901,8 @@ For inline graphs the same inheritance applies; `graph_id` is `None` and no stac
 * per-unit child contexts add `item`, `index`, `batch` and keep parent variables;
 * `batch` mode sets `item=None` and `batch` to the chunk;
 * empty `items` still resolves the child graph (fail-closed) and returns empty results;
-* per-unit `LokError` is captured in `errors`; non-`LokError` propagates;
+* per-unit `LokError` or failed child `RunResult` is captured in `errors`; non-`LokError` propagates;
+* `on_child_error` defaults to `warn`: failures also populate `RunResult.warnings` and fail the node; `continue` keeps the old success semantics, `fail` re-raises at the first `LokError`;
 * `dry_run` fails closed unless `recursive_preview=true` and `ctx.planning_callback` exists;
 * the shared error text says `subflow:` even when the caller is `loop_batch`.
 

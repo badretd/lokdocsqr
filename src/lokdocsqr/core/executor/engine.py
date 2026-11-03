@@ -84,64 +84,87 @@ def _normalize_result(
     attempts: int,
     duration_seconds: float,
 ) -> NodeResult:
-    """Normalize whatever a node returned into a NodeResult."""
-    if isinstance(raw, NodeResult):
-        raw.node_id = raw.node_id or node_id
-        raw.attempts = max(raw.attempts, attempts)
-        raw.duration_seconds = max(raw.duration_seconds, duration_seconds)
-        return raw
+    """Normalize whatever a node returned into a NodeResult.
 
-    action_logs = _logs_from_return(raw)
-    if action_logs is not None:
-        if isinstance(raw, dict):
-            outputs = {
-                key: value
-                for key, value in raw.items()
-                if key != "action_log"
-            }
-        else:
-            outputs = {}
-        return NodeResult(
-            node_id=node_id,
-            state=NodeState.ENABLED,
-            outputs=outputs,
-            action_logs=action_logs,
-            attempts=attempts,
-            duration_seconds=duration_seconds,
-        )
-
+    Nodes may return a ``warnings`` list alongside their outputs; the
+    executor lifts it onto :attr:`NodeResult.warnings` instead of exposing
+    it as a data port. The private ``_force_failed`` marker lets nested
+    nodes (``flow.loop_batch`` / ``flow.subflow``) request a failed node
+    result while still returning their usual output envelope.
+    """
+    warnings: list[str] = []
+    force_failed = False
     if isinstance(raw, dict):
-        return NodeResult(
-            node_id=node_id,
-            state=NodeState.ENABLED,
-            outputs=dict(raw),
-            attempts=attempts,
-            duration_seconds=duration_seconds,
-        )
+        raw = dict(raw)
+        raw_warnings = raw.pop("warnings", None)
+        if isinstance(raw_warnings, (list, tuple)):
+            warnings = [str(item) for item in raw_warnings]
+        force_failed = bool(raw.pop("_force_failed", False))
 
-    output_ports = list(getattr(node_spec, "outputs", []) or [])
-    if len(output_ports) == 1:
-        return NodeResult(
-            node_id=node_id,
-            state=NodeState.ENABLED,
-            outputs={output_ports[0].name: raw},
-            attempts=attempts,
-            duration_seconds=duration_seconds,
+    if isinstance(raw, NodeResult):
+        result = raw
+        result.node_id = result.node_id or node_id
+        result.attempts = max(result.attempts, attempts)
+        result.duration_seconds = max(
+            result.duration_seconds, duration_seconds
         )
+    else:
+        action_logs = _logs_from_return(raw)
+        if action_logs is not None:
+            if isinstance(raw, dict):
+                outputs = {
+                    key: value
+                    for key, value in raw.items()
+                    if key != "action_log"
+                }
+            else:
+                outputs = {}
+            result = NodeResult(
+                node_id=node_id,
+                state=NodeState.ENABLED,
+                outputs=outputs,
+                action_logs=action_logs,
+                attempts=attempts,
+                duration_seconds=duration_seconds,
+            )
+        elif isinstance(raw, dict):
+            result = NodeResult(
+                node_id=node_id,
+                state=NodeState.ENABLED,
+                outputs=dict(raw),
+                attempts=attempts,
+                duration_seconds=duration_seconds,
+            )
+        else:
+            output_ports = list(getattr(node_spec, "outputs", []) or [])
+            if len(output_ports) == 1:
+                result = NodeResult(
+                    node_id=node_id,
+                    state=NodeState.ENABLED,
+                    outputs={output_ports[0].name: raw},
+                    attempts=attempts,
+                    duration_seconds=duration_seconds,
+                )
+            elif len(output_ports) == 0:
+                result = NodeResult(
+                    node_id=node_id,
+                    state=NodeState.ENABLED,
+                    outputs={},
+                    attempts=attempts,
+                    duration_seconds=duration_seconds,
+                )
+            else:
+                raise NodeExecutionError(
+                    f"node {node_id!r} returned unsupported value "
+                    f"{type(raw).__name__!r} with "
+                    f"{len(output_ports)} output ports"
+                )
 
-    if len(output_ports) == 0:
-        return NodeResult(
-            node_id=node_id,
-            state=NodeState.ENABLED,
-            outputs={},
-            attempts=attempts,
-            duration_seconds=duration_seconds,
-        )
-
-    raise NodeExecutionError(
-        f"node {node_id!r} returned unsupported value "
-        f"{type(raw).__name__!r} with {len(output_ports)} output ports"
-    )
+    if warnings:
+        result.warnings.extend(warnings)
+    if force_failed and result.state == NodeState.ENABLED:
+        result.state = NodeState.FAILED
+    return result
 
 
 def _retry_delay(
@@ -375,6 +398,7 @@ class Executor:
         node_results: dict[str, NodeResult] = {}
         self._node_results = node_results
         errors: list[str] = []
+        warnings: list[str] = []
         success = True
         aborted = False
 
@@ -627,6 +651,7 @@ class Executor:
 
             assert result is not None
             node_results[node_id] = result
+            warnings.extend(result.warnings)
 
             self.ctx.emit(
                 EVENT_NODE_FINISHED,
@@ -678,6 +703,7 @@ class Executor:
             node_results=node_results,
             action_logs=run_logs,
             errors=errors,
+            warnings=warnings,
             started_at=started_at,
             finished_at=finished_at,
             rollback_plan=rollback_plan,

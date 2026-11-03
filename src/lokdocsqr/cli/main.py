@@ -604,6 +604,8 @@ def _print_run_result(result: RunResult, *, as_json: bool) -> None:
     for error in result.errors:
         if not any(node_result.error == error for node_result in result.node_results.values()):
             print(f"  error: {error}")
+    for warning in result.warnings:
+        print(f"  warning: {warning}", file=sys.stderr)
     if result.rollback_plan:
         print(f"  rollback: {len(result.rollback_plan)} operation(s) available")
 

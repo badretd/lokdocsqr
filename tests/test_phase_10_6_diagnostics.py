@@ -1,0 +1,83 @@
+"""Regression tests for the Phase 10.6 ergonomics/diagnostics pass.
+
+Each test group maps to one numbered item from the task brief.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import lokdocsqr.nodes  # noqa: F401  (register built-in node families)
+from tests.helpers import make_ctx
+from lokdocsqr.core.executor.engine import Executor
+from lokdocsqr.core.graph import (
+    build_graph,
+    parse_graph,
+    resolve_states,
+)
+from lokdocsqr.core.node_api.registry import registry
+
+
+def _run_document(tmp_path: Path, raw: dict[str, Any]) -> Any:
+    document = parse_graph(raw)
+    graph = build_graph(document, resolve_states(document), registry)
+    return Executor(make_ctx(tmp_path)).execute(graph)
+
+
+# ---------------------------------------------------------------------------
+# Item 1 — loop_batch / subflow surface child errors
+# ---------------------------------------------------------------------------
+
+
+def _invalid_child_graph() -> dict[str, Any]:
+    return {
+        "spec_version": "1.0",
+        "metadata": {"id": "bad-child"},
+        "nodes": [
+            {
+                "id": "a",
+                "type": "fs.make_dir",
+                "params": {"path_template": "a"},
+                "outputs": [{"name": "path"}],
+            },
+            {
+                "id": "b",
+                "type": "fs.make_dir",
+                "params": {"path_template": "b"},
+                "inputs": [{"name": "in"}],
+            },
+        ],
+        "edges": [
+            {
+                "id": "bad-edge",
+                "source": "a",
+                "target": "b",
+                "source_port": "missing",
+                "target_port": "in",
+            }
+        ],
+    }
+
+
+def test_loop_batch_on_child_error_warn(tmp_path: Path) -> None:
+    raw = {
+        "spec_version": "1.0",
+        "metadata": {"id": "loop-warn-parent"},
+        "nodes": [
+            {
+                "id": "loop",
+                "type": "flow.loop_batch",
+                "params": {
+                    "items": [1],
+                    "graph": _invalid_child_graph(),
+                    "on_child_error": "warn",
+                },
+            }
+        ],
+        "edges": [],
+    }
+    result = _run_document(tmp_path, raw)
+
+    assert result.warnings, "expected a child failure warning"
+    assert any("loop_batch node" in item for item in result.warnings)
+    assert result.success is False

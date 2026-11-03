@@ -423,6 +423,7 @@ class NodeResult:
     error: str | None = None
     attempts: int = 1
     duration_seconds: float = 0.0
+    warnings: list[str] = field(default_factory=list)
 
     # Phase 5c: payload emitted by fs_ops.* / consumed by downstream nodes.
     # Added at end with default None so 5a/5b callers that don't pass
@@ -451,6 +452,7 @@ class RunResult:
     node_results: dict[str, NodeResult] = field(default_factory=dict)
     action_logs: list[ActionLog] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     started_at: str = field(default_factory=_utc_now_iso)
     finished_at: str | None = None
     rollback_plan: list[RollbackOp] = field(default_factory=list)
@@ -477,12 +479,14 @@ class RunResult:
                     "error": result.error,
                     "attempts": result.attempts,
                     "duration_seconds": result.duration_seconds,
+                    "warnings": list(result.warnings),
                     "payload": _json_safe(result.payload),
                 }
                 for node_id, result in self.node_results.items()
             },
             "action_logs": [log.to_dict() for log in self.action_logs],
             "errors": list(self.errors),
+            "warnings": list(self.warnings),
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "rollback_plan": [

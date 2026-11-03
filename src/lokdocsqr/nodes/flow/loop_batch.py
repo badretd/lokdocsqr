@@ -197,34 +197,74 @@ class LoopBatchNode(_FlowBase):
         else:
             batch_size = 1
 
-        # Step 4 — resolve child graph (fail-closed, even when items empty).
-        graph_id, child_graph = _resolve_child_graph(ctx, payload)
+        on_child_error = payload.get("on_child_error", "warn")
+        if on_child_error not in ("continue", "fail", "warn"):
+            raise NodeExecutionError(
+                f"loop_batch: invalid on_child_error {on_child_error!r}, "
+                f"expected 'continue', 'fail' or 'warn'"
+            )
 
-        # Step 5 — empty items: no-op, but ports still covered.
-        if not items:
-            return {
-                "results": [],
-                "errors": [],
-                "error_count": 0,
-                "total": 0,
-                "mode": mode,
-                "batch_size": batch_size,
-                "graph_id": graph_id,
-                "depth": ctx.flow_depth + 1,
-            }
-
-        # Step 6 — build units.
+        # Step 4 — build units before resolving the child so a failed
+        # resolution can still be reported per unit under ``warn`` /
+        # ``continue``.
         if mode == "loop":
             units = [(i, item) for i, item in enumerate(items)]
         else:  # batch
             units = [
                 (chunk_index, items[offset : offset + batch_size])
-                for chunk_index, offset in enumerate(range(0, len(items), batch_size))
+                for chunk_index, offset in enumerate(
+                    range(0, len(items), batch_size)
+                )
             ]
         total = len(units)
 
+        # Step 5 — resolve child graph (fail-closed, even when items empty).
+        try:
+            graph_id, child_graph = _resolve_child_graph(ctx, payload)
+        except LokError as exc:
+            if on_child_error == "fail" or not units:
+                raise
+            errors = [
+                {
+                    "index": index,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                }
+                for index, _unit in units
+            ]
+            warnings = (
+                [self._warning(ctx, index, exc) for index, _unit in units]
+                if on_child_error == "warn"
+                else []
+            )
+            return self._result_dict(
+                results=[None for _ in units],
+                errors=errors,
+                warnings=warnings,
+                total=total,
+                mode=mode,
+                batch_size=batch_size,
+                graph_id=None,
+                depth=ctx.flow_depth + 1,
+                force_failed=on_child_error == "warn",
+            )
+
+        # Step 6 — empty items: no-op, but ports still covered.
+        if not items:
+            return self._result_dict(
+                results=[],
+                errors=[],
+                warnings=[],
+                total=0,
+                mode=mode,
+                batch_size=batch_size,
+                graph_id=graph_id,
+                depth=ctx.flow_depth + 1,
+            )
+
         results: list[Any] = []
         errors: list[dict[str, Any]] = []
+        warnings: list[str] = []
         flow_vars = {
             "flow.run_id": ctx.run_id,
             "flow.automation_id": graph_id,
@@ -260,18 +300,71 @@ class LoopBatchNode(_FlowBase):
             try:
                 run_result = Executor(child_ctx).execute(child_graph)
             except LokError as exc:
+                if on_child_error == "fail":
+                    raise
                 errors.append({
                     "index": index,
                     "error": str(exc),
                     "error_type": type(exc).__name__,
                 })
+                if on_child_error == "warn":
+                    warnings.append(self._warning(ctx, index, exc))
                 results.append(None)
             # D8f.2: non-LokError propagates — it is a programming bug.
             else:
-                results.append(run_result)
+                if not run_result.success:
+                    detail = "; ".join(run_result.errors) or "child run failed"
+                    errors.append({
+                        "index": index,
+                        "error": detail,
+                        "error_type": "NodeExecutionError",
+                    })
+                    if on_child_error == "warn":
+                        warnings.append(
+                            self._warning(
+                                ctx,
+                                index,
+                                NodeExecutionError(detail),
+                            )
+                        )
+                    results.append(None)
+                else:
+                    results.append(run_result)
 
         # Step 8 — return.
-        return {
+        return self._result_dict(
+            results=results,
+            errors=errors,
+            warnings=warnings,
+            total=total,
+            mode=mode,
+            batch_size=batch_size,
+            graph_id=graph_id,
+            depth=ctx.flow_depth + 1,
+            force_failed=on_child_error == "warn" and bool(errors),
+        )
+
+    def _warning(self, ctx: Any, index: int, exc: BaseException) -> str:
+        node_id = getattr(ctx, "node_id", None) or self.id
+        return (
+            f"loop_batch node '{node_id}' item {index} failed: "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+    @staticmethod
+    def _result_dict(
+        *,
+        results: list[Any],
+        errors: list[dict[str, Any]],
+        warnings: list[str],
+        total: int,
+        mode: str,
+        batch_size: int,
+        graph_id: str | None,
+        depth: int,
+        force_failed: bool = False,
+    ) -> dict[str, Any]:
+        result: dict[str, Any] = {
             "results": results,
             "errors": errors,
             "error_count": len(errors),
@@ -279,5 +372,10 @@ class LoopBatchNode(_FlowBase):
             "mode": mode,
             "batch_size": batch_size,
             "graph_id": graph_id,
-            "depth": ctx.flow_depth + 1,
+            "depth": depth,
         }
+        if warnings:
+            result["warnings"] = warnings
+        if force_failed:
+            result["_force_failed"] = True
+        return result
