@@ -100,7 +100,6 @@ work. If the agent brings those, reject the phase.
 - `PHASE_STATE.md` updated: F-01, F-02, F-03 = **integrated** (not just
   *tested*). T0 closed as symptom. `engine-double-validate` — closed if D1
   collapsed the call, otherwise left open.
-- `git tag phase-8.6`.
 
 ---
 
@@ -120,23 +119,7 @@ regression.
 | F-10A | Verify gate fail-closed in production path (CLI / runtime default to a `PolicyEngine`, not `None`) | `test_high_risk_without_verify_fails_closed` |
 | F-15 | Sync `modules.md` / `PHASE_STATE.md` with actual imports and statuses | doc review |
 
-**Gate 8.7:** all items green; vertical slice still green; `git tag phase-8.7`.
-
----
-
-## 6. Phase 8.8 — Tooling hygiene (background, parallel with 9+)
-
-Non-blocking. Can land in any order. Do not delay 9 for this phase.
-
-- **F-14** — uniform node port metadata (one `PortSpec` type, `describe()`
-  generated from it).
-- **F-16** — replace doc-presence / self-referential tests with behavioural
-  tests; extend AST scans to `open(..., "w"/"a"/"x")` and `xattr.*`.
-- **F-17** — fix `[tool.ruff] src` layout; run `ruff --fix`; burn down `mypy`
-  starting with `fs_ops/_base.py` and `executor/engine.py`.
-- **F-18** — extras (`[ocr]`, `[archive]`, `[gui]`, `[dev]`); base runtime minimal.
-- **F-19** — CI: install, `pytest`, `ruff`, `mypy`, smoke import. Coverage
-  threshold once the baseline is clean.
+**Gate 8.7:** all items green; vertical slice still green;
 
 ---
 
@@ -155,7 +138,6 @@ Non-blocking. Can land in any order. Do not delay 9 for this phase.
   extended to include the mock LLM path.
 
 **Gate 9:** acceptance green; vertical slice (with mock LLM) green;
-`git tag phase-9`.
 
 ---
 
@@ -169,7 +151,7 @@ Non-blocking. Can land in any order. Do not delay 9 for this phase.
 - **Acceptance:** cron fires an automation twice without corruption; watcher
   sees a file change → executor runs → audit contains entries.
 
-**Gate 10:** acceptance green; vertical slice green; `git tag phase-10`.
+**Gate 10:** acceptance green; vertical slice green;
 
 ---
 
@@ -181,7 +163,7 @@ Non-blocking. Can land in any order. Do not delay 9 for this phase.
 - **Acceptance:** a sample DSL parses, executes through the runtime, and produces
   audit entries.
 
-**Gate 10.5:** acceptance green; round-trip stable; `git tag phase-10.5`.
+**Gate 10.5:** acceptance green; round-trip stable;
 
 ---
 
@@ -192,7 +174,7 @@ Non-blocking. Can land in any order. Do not delay 9 for this phase.
 - Flags: `--dry-run`, `--scope`, `--config`.
 - **Acceptance:** the vertical slice is reachable through the CLI end-to-end.
 
-**Gate 11:** acceptance green; `git tag phase-11`.
+**Gate 11:** acceptance green;
 
 ---
 
@@ -203,7 +185,7 @@ Non-blocking. Can land in any order. Do not delay 9 for this phase.
 - **GUI smoke (required at both gates):** open a graph → dry-run → see the diff
   → approve → real-run → see the audit entries.
 
-**Gate 12a / 12b:** smoke green; `git tag phase-12a`, `phase-12b`.
+**Gate 12a / 12b:** smoke green;
 
 ---
 
@@ -231,7 +213,6 @@ is incomplete.
 - `tests/test_architecture.py` is green.
 - `PHASE_STATE.md` records *implemented* / *tested* / *integrated* statuses
   separately.
-- `git tag phase-<N>` created.
 
 ---
 

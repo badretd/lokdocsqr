@@ -11,6 +11,7 @@ license-files = ["LICENSE", "NOTICE", "THIRD-PARTY-NOTICES"]
 requires-python = ">=3.10"
 dependencies = [
     "deskew>=1.5.3",
+    "ollama>=0.6.3",
     "openpyxl>=3.1.5",
     "pandas>=2.3.3",
     "pillow>=12.3.0",
@@ -39,8 +40,10 @@ dev = [
     "pandas-stubs>=2.3.3.260113",
     "pyinstaller>=6.22.3",
     "pytest>=9.1.1",
+    "pytest-httpserver>=1.2.0",
     "pytest-mock>=3.17.0",
     "pytest-qt>=4.5.0",
+    "respx>=0.23.1",
     "ruff>=0.17.2",
 ]
 
