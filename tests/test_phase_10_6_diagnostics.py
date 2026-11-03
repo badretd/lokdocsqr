@@ -14,6 +14,7 @@ from lokdocsqr.core.graph import (
     build_graph,
     parse_graph,
     resolve_states,
+    validate_graph,
 )
 from lokdocsqr.core.node_api.registry import registry
 
@@ -81,3 +82,47 @@ def test_loop_batch_on_child_error_warn(tmp_path: Path) -> None:
     assert result.warnings, "expected a child failure warning"
     assert any("loop_batch node" in item for item in result.warnings)
     assert result.success is False
+
+
+# ---------------------------------------------------------------------------
+# Item 2 — validate_graph accumulates every error
+# ---------------------------------------------------------------------------
+
+
+def test_validate_reports_all_edge_port_errors() -> None:
+    raw = {
+        "spec_version": "1.0",
+        "metadata": {"id": "two-bad-ports"},
+        "nodes": [
+            {
+                "id": "a",
+                "type": "fs.make_dir",
+                "outputs": [{"name": "path"}],
+            },
+            {
+                "id": "b",
+                "type": "fs.make_dir",
+                "inputs": [{"name": "in"}],
+            },
+        ],
+        "edges": [
+            {
+                "id": "bad-source",
+                "source": "a",
+                "target": "b",
+                "source_port": "missing-source",
+                "target_port": "in",
+            },
+            {
+                "id": "bad-target",
+                "source": "a",
+                "target": "b",
+                "source_port": "path",
+                "target_port": "missing-target",
+            },
+        ],
+    }
+    errors = validate_graph(parse_graph(raw))
+    assert len(errors) == 2, errors
+    assert any("missing-source" in error for error in errors)
+    assert any("missing-target" in error for error in errors)

@@ -81,7 +81,7 @@ Key modeling classes live in `src/lokdocsqr/core/models.py`: `WorkflowDocument`,
 | `spec_version == "1.0"` | `core.graph.parser.parse_graph` | `GraphParseError` |
 | Metadata `id` present | `parse_graph` | `GraphParseError` |
 | Types of document fields, ports, state | `parse_graph` | `GraphParseError` |
-| Duplicate ids, dangling edges, self-loops, port names, path policy | `validate_graph` | returned `list[str]` |
+| Duplicate ids, dangling edges, self-loops, port names, path policy | `validate_graph` | returned `list[str]` — every discovered error, not just the first |
 | Unknown node type | `build_graph` (enabled nodes only) | `GraphValidationError` |
 | Graph cycle | `build_graph` | `GraphValidationError` |
 | Node param semantics | node's `run`/`dry_run` | `NodeExecutionError`, `ScopeViolation`, etc. |
@@ -3715,6 +3715,7 @@ edge "classify-validate" {
 | `graph contains cycle(s)` even with disabled nodes | Cycle check covers all nodes | Remove the cycle; disabling does not excuse it |
 | `Unknown node type` only at run/build | `parse_dsl`/`validate_graph` do not check the registry | Run `build_graph` or register/import the node family |
 | `desktop` notify channel fails | Only `email` and `webhook` are supported | Change the channel |
+| You want the old one-error-at-a-time validation output | `validate_graph` and the CLI report all errors by default | Pass `--first-error` to `validate`/`run` |
 
 ---
 

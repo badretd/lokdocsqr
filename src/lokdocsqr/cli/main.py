@@ -131,6 +131,11 @@ def _add_run_flags(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="print the RunResult as JSON instead of a human summary",
     )
+    parser.add_argument(
+        "--first-error",
+        action="store_true",
+        help="report only the first validation error (legacy behaviour)",
+    )
 
 
 def _add_automation_argument(parser: argparse.ArgumentParser, *, many: bool = False) -> None:
@@ -188,6 +193,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_automation_argument(validate_parser)
     _add_config_flags(validate_parser)
     validate_parser.add_argument("--json", action="store_true", help="print the result as JSON")
+    validate_parser.add_argument(
+        "--first-error",
+        action="store_true",
+        help="report only the first validation error (legacy behaviour)",
+    )
     validate_parser.set_defaults(handler=_cmd_validate)
 
     list_parser = subparsers.add_parser("list-nodes", help="list every registered node type")
@@ -416,10 +426,16 @@ def _cmd_run(args: argparse.Namespace) -> int:
     _apply_scope_override(document, args, config.base_dir)
 
     runtime = _make_runtime(args, config)
-    automation_id = runtime.register(
-        document,
-        automation_id=getattr(args, "automation_id", None),
-    )
+    try:
+        automation_id = runtime.register(
+            document,
+            automation_id=getattr(args, "automation_id", None),
+        )
+    except GraphValidationError as exc:
+        if getattr(args, "first_error", False):
+            first = str(exc).split("; ", 1)[0]
+            raise GraphValidationError(first) from exc
+        raise
     result = runtime.run_once(automation_id, dry_run=args.dry_run)
 
     _print_run_result(result, as_json=bool(args.json))
@@ -451,6 +467,9 @@ def _cmd_validate(args: argparse.Namespace) -> int:
             build_graph(document, states, registry)
         except GraphValidationError as exc:
             errors.append(str(exc))
+
+    if getattr(args, "first_error", False) and errors:
+        errors = errors[:1]
 
     payload = {
         "ok": not errors,
