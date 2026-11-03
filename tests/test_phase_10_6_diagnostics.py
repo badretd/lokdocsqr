@@ -11,6 +11,7 @@ from typing import Any
 import lokdocsqr.nodes  # noqa: F401  (register built-in node families)
 from tests.helpers import make_ctx
 from lokdocsqr.cli.main import main
+from lokdocsqr.core.dsl import compile_dsl
 from lokdocsqr.core.executor.engine import Executor
 from lokdocsqr.core.graph import (
     build_graph,
@@ -320,3 +321,34 @@ def test_order_edge_is_ignored_in_payload() -> None:
         outputs_by_node={"source": {"path": "should-not-appear"}},
     )
     assert "value" not in payload
+
+
+# ---------------------------------------------------------------------------
+# Item 7 — block-form lists
+# ---------------------------------------------------------------------------
+
+
+def test_block_form_list_parses() -> None:
+    inline = """\
+automation "block-list"
+node "loop" {
+  type = "flow.loop_batch"
+  params {
+    items = [1, 2, 3]
+  }
+}
+"""
+    block = """\
+automation "block-list"
+node "loop" {
+  type = "flow.loop_batch"
+  params {
+    items = [
+      1,
+      2,
+      3,
+    ]
+  }
+}
+"""
+    assert compile_dsl(block) == compile_dsl(inline)

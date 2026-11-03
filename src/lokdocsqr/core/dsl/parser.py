@@ -249,16 +249,26 @@ class _Parser:
             return self._parse_inline_map()
         self._error("expected a value")
 
+    def _skip_list_separators(self) -> None:
+        while self._at("NEWLINE"):
+            self._advance()
+
     def _parse_list(self) -> list[Any]:
         self._expect("LBRACK")
         items: list[Any] = []
+        self._skip_list_separators()
         if self._at("RBRACK"):
             self._advance()
             return items
         while True:
             items.append(self._parse_value())
+            self._skip_list_separators()
             if self._at("COMMA"):
                 self._advance()
+                self._skip_list_separators()
+                if self._at("RBRACK"):
+                    self._advance()
+                    break
                 continue
             if self._at("RBRACK"):
                 self._advance()

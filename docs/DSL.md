@@ -603,8 +603,8 @@ key         := WORD | STRING
 
 Rules and restrictions:
 
-* Lists are inline and comma-separated. Newlines inside `[...]` are **not** skipped by `_parse_list`; a multi-line list fails. A trailing comma (`[1, 2,]`) fails because the parser requires a value after `,`.
-* Inline maps are comma-separated `key = value` entries on one logical line (newlines are not skipped inside the braces). Trailing commas fail.
+* Lists are comma-separated and may span multiple lines. Newlines inside `[...]` are treated as whitespace, and a trailing comma before `]` is accepted. The emitter still writes lists inline.
+* Inline maps are comma-separated `key = value` entries on one logical line (newlines are not skipped inside the braces). Trailing commas fail in inline maps.
 * Block maps are newline-separated and accept either `key = value` or `key { ... }` entries (`_parse_entry_value`). This is how nested maps such as `params { ... }`, `scope { ... }`, and `schema { ... }` are written.
 * A key may be a bare word or a quoted string. Quoted keys allow spaces and punctuation.
 * Duplicate keys in a block or inline map: the last assignment wins.
@@ -612,6 +612,22 @@ Rules and restrictions:
 * Bare-word values become booleans/null only for exact lowercase `true`, `false`, `null`. `True`, `FALSE`, and `none` are strings in DSL value position.
 * Int versus float is preserved. Floats are emitted with `repr`, e.g. `1.0`, `1000.0`, `0.025`.
 * Non-finite floats (`nan`, `inf`) cannot be produced by the lexer and cannot be emitted (`serializer.py:_fmt_value` raises `ValueError`).
+
+Block-form list (identical to `items = [1, 2, 3]`):
+
+```ldsq
+node "loop" {
+  type = "flow.loop_batch"
+  params {
+    items = [
+      1,
+      2,
+      3,
+    ]
+    graph_id = "child"
+  }
+}
+```
 
 ---
 
@@ -628,6 +644,7 @@ The parser accepts more forms than the emitter produces. These are **not canonic
 | Bare string values | yes (`type = fs.make_dir`) | quoted strings (`type = "fs.make_dir"`) |
 | Bare string labels | yes (`node mk {`) | quoted labels (`node "mk" {`) |
 | Non-empty maps written as nested blocks inside any block entry | yes (`schema { ... }`) | maps in value position are inlined (`schema = {type = "object", ...}`) |
+| Long lists split across lines, with an optional trailing comma | yes (`items = [\n  1,\n  2,\n]`) | lists are inline (`items = [1, 2]`) |
 | `edge` without `label` | yes | omitted if empty |
 | Ports as bare strings | yes (`inputs = ["file"]`) | bare string retained if it is a default `PortSpec` |
 | `position` omitted | yes | omitted |
@@ -3738,7 +3755,7 @@ edge "classify-validate" {
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `DSL parse error ... expected a newline or '}' after an entry` | Two entries on one line, or a multi-line list/inline map | Put one block entry per line; keep lists/inline maps on one line |
+| `DSL parse error ... expected a newline or '}' after an entry` | Two entries on one line, or a multi-line inline map | Put one block entry per line; inline maps stay on one line (lists may span lines) |
 | `DSL parse error ... expected a label` after `edge {` | The DSL has no implicit edge id | Write `edge "e1" { ... }` |
 | `a DSL automation must start with 'automation "<id>"'` | Missing header | Start the file with `automation "<id>"` |
 | `unsupported spec_version` | `spec_version` not `"1.0"` | Omit it or set `"1.0"` |
