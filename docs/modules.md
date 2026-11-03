@@ -32,6 +32,8 @@ The tree is the target layout. Current code differs in these known ways:
   lock, graceful shutdown, per-run error isolation and bounded concurrency.
 - `core/preview.py`, `core/payload.py`, `core/catalog.py`, `core/clock.py`
   exist and are part of the current core surface.
+- `core/dsl/` implements the Phase 10.5 automation DSL (parser + serializer)
+  that compiles DSL text into the v1.0 JSON automation schema.
 - `nodes/triggers/*` implements `watch_folder`, `scheduled_scan`, `manual_run`
   and `webhook`; `nodes/planning/` remains an empty package.
   `nodes/llm/local_llm.py` and `nodes/utils/*` are implemented. The LLM node
@@ -73,6 +75,10 @@ lokdocsqr/
 │   │   ├── validator.py
 │   │   ├── resolver.py
 │   │   └── builder.py
+│   ├── dsl/
+│   │   ├── __init__.py
+│   │   ├── parser.py
+│   │   └── serializer.py
 │   ├── executor/
 │   │   ├── engine.py
 │   │   └── context.py
@@ -205,6 +211,22 @@ Node contract (`ABC`): `id`, `title`, `inputs`, `outputs`, `run(ctx, payload)`, 
 
 ### 3.21 `core/node_api/decorators.py`
 `@register_node` decorator plus helper decorators for typed ports.
+
+### 3.22 `core/dsl/` (Phase 10.5)
+The automation DSL — a brace-delimited text language that compiles into the
+v1.0 JSON automation schema. Layering: `core` only (no `nodes`, `gui`, or
+`PySide6` imports).
+
+- `parser.py` — lexer + recursive-descent parser: DSL text → raw schema dict
+  (`dsl_to_dict`).
+- `serializer.py` — `document_to_dict` (WorkflowDocument → schema dict, the
+  inverse of `parse_graph`) and `dsl_from_dict` (schema dict → canonical DSL).
+- `__init__.py` — public surface: `compile_dsl`, `parse_dsl`, `emit_dsl`,
+  `document_to_dict`.
+
+Round-trip contract (see `docs/SCHEMA.md` and `tests/test_phase_10_5.py`):
+`parse_graph(document_to_dict(doc)) == doc` and
+`emit_dsl(parse_dsl(text)) == text` on canonical text.
 
 ---
 

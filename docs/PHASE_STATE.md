@@ -1,7 +1,7 @@
 # Phase State
 
-Done: 0-8, 8.6-pre, 8.6, 8.7, 9, 10
-Current: 8.8 (background tooling) / 10.5 unblocked
+Done: 0-8, 8.6-pre, 8.6, 8.7, 9, 10, 10.5
+Current: 8.8 (background tooling)
 
 ## 8.6-pre — ticket closeout
 
@@ -91,3 +91,25 @@ were created for 8.6 or 8.7.
 - No `pyproject.toml` / `THIRD-PARTY-NOTICES` changes: the watcher and cron
   parser are stdlib-only.
 - Per operator instruction, no Git tag was created for Phase 10.
+
+## 10.5 — Automation DSL
+
+| Item | Implemented | Tested | Integrated |
+|---|---|---|---|
+| Parser: DSL → schema dict / `WorkflowDocument` | yes | yes | yes — `core/dsl/parser.py` |
+| Serializer + `document_to_dict` (inverse of `parse_graph`) | yes | yes | yes — `core/dsl/serializer.py` |
+| Round-trip: DSL → document → DSL stable | yes | yes | yes — text-idempotent |
+| Runtime trigger references | yes | yes | yes — `triggers.watch_folder` etc. bind on register |
+| Schema documented | yes | — | — — `docs/SCHEMA.md` |
+
+- Public surface: `compile_dsl`, `parse_dsl`, `emit_dsl`, `document_to_dict`
+  (`lokdocsqr.core.dsl`).
+- Acceptance: `tests/test_phase_10_5.py` — a sample DSL compiles, parses,
+  executes through the real `Runtime`, and produces `fs.make_dir` /
+  `fs.write_file` audit entries; a declared watch trigger binds at
+  registration time.
+- Round-trip pinned by `test_round_trip_is_text_idempotent` and
+  `test_document_to_dict_inverts_parse_graph`.
+- No `pyproject.toml` / `THIRD-PARTY-NOTICES` changes: the DSL parser and
+  serializer are stdlib-only.
+- Per operator instruction, no Git tag was created for Phase 10.5.
