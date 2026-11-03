@@ -8,10 +8,14 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 import lokdocsqr.nodes  # noqa: F401  (register built-in node families)
 from tests.helpers import make_ctx
 from lokdocsqr.cli.main import main
 from lokdocsqr.core.dsl import compile_dsl
+from lokdocsqr.core.errors import ScopeViolation
+from lokdocsqr.core.paths import render_template
 from lokdocsqr.core.executor.engine import Executor
 from lokdocsqr.core.graph import (
     build_graph,
@@ -352,3 +356,42 @@ node "loop" {
 }
 """
     assert compile_dsl(block) == compile_dsl(inline)
+
+
+# ---------------------------------------------------------------------------
+# Item 8 — template path functions
+# ---------------------------------------------------------------------------
+
+
+def test_template_basename() -> None:
+    assert (
+        render_template("{basename(source)}", {"source": "a/b/c.txt"})
+        == "c.txt"
+    )
+    assert (
+        render_template("{stem(source)}", {"source": "a/b/c.txt"}) == "c"
+    )
+    assert (
+        render_template("{suffix(source)}", {"source": "a/b/c.txt"})
+        == ".txt"
+    )
+    assert (
+        render_template("{dirname(source)}", {"source": "a/b/c.txt"})
+        == "a/b"
+    )
+
+
+def test_template_join() -> None:
+    assert (
+        render_template(
+            "archive/{join(folder, name)}",
+            {"folder": "sub", "name": "a.txt"},
+        )
+        == "archive/sub/a.txt"
+    )
+    assert render_template("{join('a', 'b', 'c.txt')}", {}) == "a/b/c.txt"
+
+
+def test_template_function_absolute_result_rejected() -> None:
+    with pytest.raises(ScopeViolation, match="absolute"):
+        render_template("{join('/etc', 'passwd')}", {})

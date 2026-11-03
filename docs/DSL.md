@@ -2589,7 +2589,8 @@ work/{name}{ext}
 * `{{` and `}}` escape literal braces.
 * Format specs are technically supported by `str.format_map` (e.g. `{score:03d}`), but the stable contract uses simple `{key}` placeholders. `render_template` wraps `ValueError`/`KeyError` as `ScopeViolation`.
 * `{item[path]}` selects a dict key; `{item.path}` would attempt attribute access and is not the intended form for dict items.
-* No nested or computed expressions are supported.
+* A small whitelist of string functions is available: `basename(path)`, `dirname(path)`, `stem(path)`, `suffix(path)`, and `join(a, b, ...)`. Arguments are quoted string literals or bare context keys; nesting and arbitrary expressions are not supported. `join` uses `PurePosixPath` semantics (forward slashes) so results are portable. Unresolved function names or arguments are left literal, like missing keys.
+* No nested or computed expressions beyond those five functions are supported.
 * **Indexed placeholders and `validate_graph`:** the validator still runs its static checks (literal absolute path, literal `..`) on the raw template, then probes it with an empty context. When that probe cannot resolve an indexed/subscripted placeholder (`TypeError`, `KeyError`, `IndexError`, `AttributeError`), validation defers the template to runtime instead of failing registration. Rendering with the populated `item` then applies the normal absolute/`..`/scope rules.
 
 ### 12.2 Where templates are used
@@ -2706,6 +2707,18 @@ node "safe-name" {
 ```
 
 Returns `path_template = "work/2026/invoice-42.txt"`.
+
+```ldsq
+node "sibling-name" {
+  type = "utils.path_template"
+  params {
+    template = "{join('archive', basename(source))}"
+    variables = {source = "inbox/report.pdf"}
+  }
+}
+```
+
+Returns `path_template = "archive/report.pdf"`. `basename`, `dirname`, `stem`, `suffix`, and `join` are the only functions; they accept quoted literals or context keys.
 
 ```ldsq
 node "loop-path" {
