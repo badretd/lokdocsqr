@@ -1,5 +1,5 @@
 # mypy: disable-error-code="no-untyped-def,no-untyped-call"
-"""Archive / Extract — zip / 7z with zip-slip protection.
+"""Archive / Extract — zip with zip-slip protection.
 
 Node id: ``fs.archive``. Two operations:
 
@@ -110,7 +110,7 @@ def _build_zip_bytes(sources: list[Path]) -> bytes:
 
 @register_node
 class ArchiveNode(FsNode):
-    """Archive / Extract — zip / 7z with zip-slip protection."""
+    """Archive / Extract — zip with zip-slip protection."""
 
     id = "fs.archive"
     title = "Archive / Extract"

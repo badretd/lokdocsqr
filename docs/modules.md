@@ -261,7 +261,7 @@ All `fs_ops` nodes implement `dry_run()` and always emit `ActionLog` entries.
 | `trash.py` | **Delete to Trash / Quarantine** — never deletes; TTL and rollback. |
 | `make_dir.py` | **Create Folder** — templated. |
 | `write_file.py` | **Write / Append File** — reports, sidecars, logs. |
-| `archive.py` | **Archive / Extract** — zip / 7z. |
+| `archive.py` | **Archive / Extract** — zip. |
 | `convert.py` | **Convert File** — format conversion. |
 | `tag.py` | **Tag / Set Metadata** — tags, xattr, sidecar JSON. |
 
