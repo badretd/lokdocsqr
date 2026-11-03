@@ -476,11 +476,6 @@ class _Parser:
 
     def _parse_edge(self, label: str) -> dict[str, Any]:
         body = self._parse_block()
-        if "condition" in body:
-            self._error(
-                "edge field 'condition' is not supported; "
-                "use flow.if_branch or flow.filter instead"
-            )
         edge: dict[str, Any] = {
             "id": label,
             "source": body.get("source", ""),
@@ -493,6 +488,8 @@ class _Parser:
             edge["label"] = body["label"]
         if body.get("kind"):
             edge["kind"] = body["kind"]
+        if body.get("condition") is not None:
+            edge["condition"] = body["condition"]
         return edge
 
 

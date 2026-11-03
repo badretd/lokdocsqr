@@ -6,6 +6,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
+from lokdocsqr.core.conditions import _CondError, _evaluate
 from lokdocsqr.core.errors import (
     GraphValidationError,
     NodeExecutionError,
@@ -475,6 +476,48 @@ class Executor:
                     NodeState.DISABLED,
                     NodeState.FAILED,
                 )
+
+            # Edge conditions gate execution: a node whose every inbound
+            # data edge has a falsy (or failing) condition is skipped.
+            # Ordering-only edges never gate.
+            data_edges = [
+                edge
+                for edge in inbound_edges.get(node_id, [])
+                if getattr(edge, "kind", "data") == "data"
+            ]
+            if data_edges and all(
+                getattr(edge, "condition", None) is not None
+                for edge in data_edges
+            ):
+                condition_mapping: dict[str, Any] = dict(
+                    self.ctx.variables
+                )
+                for edge in data_edges:
+                    upstream = node_results.get(edge.source)
+                    if (
+                        upstream is not None
+                        and upstream.state == NodeState.ENABLED
+                    ):
+                        condition_mapping.update(upstream.outputs)
+                edge_truths: list[bool] = []
+                for edge in data_edges:
+                    try:
+                        edge_truths.append(
+                            _evaluate(edge.condition, condition_mapping)
+                        )
+                    except _CondError:
+                        edge_truths.append(False)
+                if not any(edge_truths):
+                    node_results[node_id] = NodeResult(
+                        node_id=node_id,
+                        state=NodeState.SKIPPED,
+                        outputs={},
+                        action_logs=[],
+                        error=None,
+                        attempts=0,
+                        duration_seconds=0.0,
+                    )
+                    continue
 
             skip = False
             for parent in inbound_parents.get(node_id, []):

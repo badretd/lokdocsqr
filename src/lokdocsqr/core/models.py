@@ -159,6 +159,7 @@ class EdgeSpec:
     target_port: str = "in"
     label: str = ""
     kind: str = "data"
+    condition: str | None = None
 
 
 @dataclass

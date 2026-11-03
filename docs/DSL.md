@@ -559,7 +559,17 @@ edge "<id>" {
 
 **DSL edge ids:** the DSL grammar requires a label after `edge`; `edge { ... }` is a parse error. There is no implicit-id shorthand in the DSL. The JSON parser, by contrast, derives `"{source}->{target}"` when `id` is absent (`graph/parser.py:_parse_edge`).
 
-**Edges have no condition.** `EdgeSpec` no longer has a `condition` field. The JSON parser ignores an unknown `condition` key (unknown edge keys are dropped); the DSL edge parser rejects it with a parse error. Use `flow.if_branch` or `flow.filter` to compute decisions inside the graph (§11).
+**Edge conditions (reinstated as a real gate).** `EdgeSpec.condition` is an optional condition expression using the language in §11. At run time, a node whose **every** inbound `kind="data"` edge has a condition that evaluates falsy is recorded as `skipped`, and its descendants cascade to `skipped` through the normal rule (§14.2). An edge without a condition is ungated; if any inbound data edge is ungated or truthy, the gate does not skip the node. Order-only edges (`kind="order"`) never gate. A condition that fails to parse/evaluate is treated as falsy for gating. The source node's outputs are visible to the condition, along with `ctx.variables`.
+
+```ldsq
+edge "only-if-scored" {
+  source = "decide"
+  target = "report"
+  condition = "score >= 0.8"
+}
+```
+
+This is an intentional reversal of the Phase 10.5 D1 removal: the field is no longer inert. `flow.if_branch` / `flow.filter` remain available for computing values inside the graph; edge conditions now control whether the downstream node runs at all.
 
 ### 5.11 `extra_meta`
 
@@ -810,7 +820,7 @@ The emitter would drop `source_port = "out"` and `target_port = "in"` (they are 
 | `node ... inputs = ...` | `nodes[].inputs` | string, port object, or list |
 | `node ... outputs = ...` | `nodes[].outputs` | string, port object, or list |
 | `node ... position = {...}` | `nodes[].position` | numbers converted to float |
-| `edge "<id>" { ... }` | `edges[]` | entry `{id, source, target, source_port?, target_port?, label?, kind?}`; `kind` defaults to `"data"`; `condition` is not part of the schema |
+| `edge "<id>" { ... }` | `edges[]` | entry `{id, source, target, source_port?, target_port?, label?, kind?, condition?}`; `kind` defaults to `"data"`; `condition` is an optional §11 gate |
 | `extra_meta { ... }` | `extra_meta` | arbitrary custom data |
 | JSON-only: missing `edges[].id` | `edges[].id = "{source}->{target}"` | no DSL equivalent |
 | JSON-only: unknown top-level key | `extra_meta.<key>` | folded by `parse_graph`; no DSL equivalent |
@@ -2431,8 +2441,9 @@ Source: `src/lokdocsqr/nodes/flow/_common.py` (`_tokenize`, `_Parser`, `_compare
 |---|---|---|
 | `flow.if_branch` params `condition` | yes | scalar or per-item; errors become `"error"` |
 | `flow.filter` params `condition` | yes | per item; errors increment `errors` |
+| `edge.condition` | yes | gates the target node; an error is treated as falsy |
 
-Edges carry no condition. `EdgeSpec` has no `condition` field, the DSL edge parser rejects `condition`, and a JSON edge object with an unknown `condition` key has it dropped by `graph/parser.py:_parse_edge`. Use `flow.if_branch` to compute a decision and `flow.filter` to select items; neither rewires graph execution, so control flow remains explicit in the edge topology.
+An edge condition gates execution: when every inbound data edge of a node has a condition and all evaluate falsy, the node is skipped and descendants cascade. The mapping contains `ctx.variables` plus outputs of the upstream source nodes. Use `flow.if_branch` to compute a decision value and `flow.filter` to select items; use `edge.condition` when the decision should control whether the downstream node runs.
 
 ### 11.2 Grammar
 
@@ -2881,7 +2892,7 @@ Port declarations are document-controlled: `node.inputs` must list the port for 
 2. build inbound parent lists from `edges` (all edges);
 3. repeatedly: for every **enabled** node, if any inbound parent is `disabled` or `skipped`, set it to `skipped`; repeat until stable.
 
-A join node is skipped if **any** inbound parent is disabled/skipped. Isolated nodes keep their declared state. Declared `failed` nodes do not cascade.
+A join node is skipped if **any** inbound parent is disabled/skipped. Isolated nodes keep their declared state. Declared `failed` nodes do not cascade. At run time, an edge-condition gate can also skip an otherwise-enabled node; the same executor rule then skips its descendants.
 
 ### 14.3 Building and execution
 
@@ -3218,7 +3229,7 @@ The edge forces `first` before `second`; it requires no `target_port`, injects n
 
 ### 16.2 (b) Conditional evaluation with `flow.if_branch`
 
-`decide` evaluates `score > 5` (true for the declared `score = 7`) and returns `result`/`branch`. The edge from `branch` to `report.in` is a data dependency, not a control-flow gate: `report` executes regardless. See §11.1.
+`decide` evaluates `score > 5` (true for the declared `score = 7`) and returns `result`/`branch`. The edge from `branch` to `report.in` has no `condition`, so it is only a data dependency: `report` executes regardless. Add `condition = "score > 5"` to that edge to make it a real gate (§11.1).
 
 **DSL**
 
@@ -3838,7 +3849,7 @@ edge "classify-validate" {
 | `path == "/tmp"` is a condition error | Conditions reject `/` and `\` anywhere | Compare a path-free field, or compute the path in `utils.path_template` |
 | `in` condition errors | Right operand is not a string/list/tuple/set/dict | Use a supported container |
 | `item.path` is a condition parse error | Dotted names are not identifiers | Use `path` after dict-item merging, or `item` for a scalar |
-| `edge` uses `condition` | Edges have no condition field | Use `flow.if_branch`/`flow.filter` and explicit graph structure |
+| `edge.condition` does not skip the target | Another inbound data edge is ungated/truthy, or the condition evaluated falsy/errored | Every inbound data edge must have a falsy condition to skip; check §11 constants and names |
 | `fs.make_dir`/`fs.write_file` leaves `{name}` literal | These nodes do not inject file-derived variables | Pass `variables = {name = ...}` or use a source→target node |
 | `absolute paths are not allowed` during validation | A path-like param starts with `/`, `~`, or a drive letter | Use a relative path; absolute **sources** are resolved by the node, but templates are rejected |
 | Template with `..` is rejected | `render_template`/`render_and_check` policy | Use a source whose parent makes the relative destination correct |
@@ -3876,7 +3887,7 @@ edge "classify-validate" {
 | JSON trigger/node/edge | Unknown keys are ignored (node `params` is the container for extras) |
 | DSL top level | Unknown statement keyword → `GraphParseError` |
 | DSL node block | Unknown keys → `params` |
-| DSL trigger/edge/variable block | Unknown keys are silently dropped, except `edge.condition`, which is rejected |
+| DSL trigger/edge/variable block | Unknown keys are silently dropped (`edge.condition` is a supported key, not an unknown one) |
 | Node params | Any key is accepted and passed to the node; the node decides whether to use it |
 
 `extra_meta` is the supported forward-compatibility bucket for JSON producers. It is preserved by `document_to_dict` and emitted as `extra_meta { ... }`.
@@ -4057,7 +4068,7 @@ Runtime smoke used a temporary `AppConfig(base_dir=...)`, `policy=None`, `single
 
 ### Fixed-item checks that previously failed
 
-* **D1:** edge conditions are no longer stored. The DSL rejects `condition` on an edge and the serializer has no condition output.
+* **D1:** as of Phase 10.5 edges no longer stored an inert condition; Phase 10.6 item 17 reinstates `edge.condition` with real gating semantics (§5.10, §11.1).
 * **D5:** all six fs_ops nodes now wire their declared output port into a downstream node and deliver a non-`None` value.
 * **D10:** scalar and dict-without-list input to `flow.filter` return `results=["error"]`, `errors=1`, and `total=0`; empty lists remain valid.
 * **D23:** `template = "{item[path]}"` passes `validate_graph` and `build_graph`, renders inside `flow.loop_batch`, and literal `"/etc/passwd"` / `"../x/{name}"` templates are still rejected.

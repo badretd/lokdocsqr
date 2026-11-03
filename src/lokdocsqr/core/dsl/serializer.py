@@ -146,6 +146,8 @@ def _edge_to_dict(edge: EdgeSpec) -> dict[str, Any]:
         entry["label"] = edge.label
     if edge.kind != "data":
         entry["kind"] = edge.kind
+    if edge.condition is not None:
+        entry["condition"] = edge.condition
     return entry
 
 
@@ -358,4 +360,6 @@ def _emit_edge(lines: list[str], edge: dict[str, Any]) -> None:
         lines.append(f"  kind = {_fmt_value(edge['kind'])}")
     if edge.get("label"):
         lines.append(f"  label = {_fmt_value(edge['label'])}")
+    if edge.get("condition") is not None:
+        lines.append(f"  condition = {_fmt_value(edge['condition'])}")
     lines.append("}")

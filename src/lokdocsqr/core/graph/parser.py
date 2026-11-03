@@ -296,6 +296,9 @@ def _parse_edge(raw: Any, index: int) -> EdgeSpec:
         _fail(f"{context}.source_port must be non-empty")
     if kind != "order" and not target_port:
         _fail(f"{context}.target_port must be non-empty")
+    condition = _optional_nullable_str(obj, "condition", context)
+    if condition == "":
+        condition = None
     return EdgeSpec(
         id=edge_id,
         source=source,
@@ -304,6 +307,7 @@ def _parse_edge(raw: Any, index: int) -> EdgeSpec:
         target_port=target_port,
         label=_optional_str(obj, "label", context, ""),
         kind=kind,
+        condition=condition,
     )
 
 

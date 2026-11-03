@@ -827,3 +827,69 @@ def test_serve_help_mentions_flags(capsys: Any) -> None:
     assert "--base-dir" in out
     assert "--include" in out
     assert "AUTOMATION" in out
+
+
+# ---------------------------------------------------------------------------
+# Item 17 — edge.condition is a real gate
+# ---------------------------------------------------------------------------
+
+
+class _RunCountNode(Node):
+    def __init__(self, node_id: str) -> None:
+        self.id = node_id
+        self.run_calls = 0
+
+    @property
+    def title(self) -> str:
+        return "Run counter"
+
+    def run(self, ctx: Any, payload: Any) -> Any:
+        self.run_calls += 1
+        return {}
+
+    def dry_run(self, ctx: Any, payload: Any) -> Any:
+        return self.run(ctx, payload)
+
+
+def test_edge_condition_gates_and_cascades(tmp_path: Path) -> None:
+    nodes = [
+        NodeSpec(id="a", type="test.counter"),
+        NodeSpec(id="b", type="test.counter"),
+        NodeSpec(id="c", type="test.counter"),
+    ]
+    document = WorkflowDocument(
+        spec_version="1.0",
+        metadata=WorkflowMetadata(id="edge-gate"),
+        nodes=nodes,
+        edges=[
+            EdgeSpec(
+                id="a-b",
+                source="a",
+                target="b",
+                condition="False",
+            ),
+            EdgeSpec(id="b-c", source="b", target="c"),
+        ],
+    )
+    counters = {
+        "a": _RunCountNode("a"),
+        "b": _RunCountNode("b"),
+        "c": _RunCountNode("c"),
+    }
+    graph = ResolvedGraph(
+        document=document,
+        ordered_node_ids=["a", "b", "c"],
+        handlers=counters,
+        states={
+            "a": NodeState.ENABLED,
+            "b": NodeState.ENABLED,
+            "c": NodeState.ENABLED,
+        },
+    )
+    result = Executor(make_ctx(tmp_path)).execute(graph)
+    assert result.success is True
+    assert counters["a"].run_calls == 1
+    assert counters["b"].run_calls == 0
+    assert counters["c"].run_calls == 0
+    assert result.node_results["b"].state == NodeState.SKIPPED
+    assert result.node_results["c"].state == NodeState.SKIPPED

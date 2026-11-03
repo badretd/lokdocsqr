@@ -2,7 +2,8 @@
 
 Each group maps to one documented defect:
 
-* D1  — ``edge.condition`` is removed from the schema/grammar.
+* D1  — ``edge.condition`` was removed in Phase 10.5 and is reinstated as a
+        real gate in Phase 10.6 (item 17).
 * D5  — ``fs.copy``/``move``/``rename``/``archive``/``convert``/``trash``
         populate their declared output ports.
 * D10 — ``flow.filter`` reports non-sequence input as an error.
@@ -18,7 +19,6 @@ import pytest
 import lokdocsqr.nodes  # noqa: F401  (register built-in node families)
 from tests.helpers import make_ctx
 from lokdocsqr.core.dsl import document_to_dict, emit_dsl, parse_dsl
-from lokdocsqr.core.errors import GraphParseError
 from lokdocsqr.core.executor.engine import Executor
 from lokdocsqr.core.graph import (
     build_graph,
@@ -52,7 +52,7 @@ from lokdocsqr.nodes.flow.loop_batch import LoopBatchNode
 # ---------------------------------------------------------------------------
 
 
-def test_d1_dsl_edge_condition_is_rejected() -> None:
+def test_d1_dsl_edge_condition_is_a_gate() -> None:
     text = """\
 automation "edge-condition"
 node "a" { type = "fs.make_dir" }
@@ -60,14 +60,14 @@ node "b" { type = "fs.make_dir" }
 edge "e" {
   source = "a"
   target = "b"
-  condition = "true"
+  condition = "score > 5"
 }
 """
-    with pytest.raises(GraphParseError, match="condition"):
-        parse_dsl(text)
+    document = parse_dsl(text)
+    assert document.edges[0].condition == "score > 5"
 
 
-def test_d1_json_edge_condition_is_ignored_and_not_serialized() -> None:
+def test_d1_json_edge_condition_is_parsed_and_serialized() -> None:
     raw = {
         "spec_version": "1.0",
         "metadata": {"id": "d1-json"},
@@ -85,9 +85,9 @@ def test_d1_json_edge_condition_is_ignored_and_not_serialized() -> None:
         ],
     }
     document = parse_graph(raw)
-    assert not hasattr(document.edges[0], "condition")
-    assert "condition" not in document_to_dict(document)["edges"][0]
-    assert "  condition =" not in emit_dsl(document)
+    assert document.edges[0].condition == "score > 5"
+    assert document_to_dict(document)["edges"][0]["condition"] == "score > 5"
+    assert "  condition =" in emit_dsl(document)
 
 
 # ---------------------------------------------------------------------------
