@@ -417,6 +417,9 @@ def _scope_manager(config: AppConfig) -> ScopeManager:
             roots=list(roots),
             writable=list(roots),
             allow_symlinks=False,
+            allow_parent_traversal=bool(
+                getattr(config, "allow_parent_traversal", False)
+            ),
         )
     )
 

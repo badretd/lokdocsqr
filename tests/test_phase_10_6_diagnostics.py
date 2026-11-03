@@ -23,7 +23,8 @@ from lokdocsqr.core.graph import (
     resolve_states,
     validate_graph,
 )
-from lokdocsqr.core.models import EdgeSpec, NodeSpec, PortSpec
+from lokdocsqr.core.models import EdgeSpec, NodeSpec, PortSpec, WorkspaceScope
+from lokdocsqr.core.scope import ScopeManager
 from lokdocsqr.core.node_api.registry import registry
 from lokdocsqr.core.payload import build_node_payload
 
@@ -395,3 +396,59 @@ def test_template_join() -> None:
 def test_template_function_absolute_result_rejected() -> None:
     with pytest.raises(ScopeViolation, match="absolute"):
         render_template("{join('/etc', 'passwd')}", {})
+
+
+# ---------------------------------------------------------------------------
+# Item 9 — optional parent traversal inside writable roots
+# ---------------------------------------------------------------------------
+
+
+def test_parent_traversal_disabled_by_default(tmp_path: Path) -> None:
+    scope = ScopeManager(
+        WorkspaceScope(roots=[tmp_path], writable=[tmp_path])
+    )
+    with pytest.raises(ScopeViolation, match="'\\.\\.'"):
+        scope.check(tmp_path / "sub" / ".." / "sibling", write=True)
+    with pytest.raises(ScopeViolation, match="'\\.\\.'"):
+        render_template("../sibling", {})
+
+
+def test_parent_traversal_enabled_within_writable_root(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sibling").mkdir()
+    scope = ScopeManager(
+        WorkspaceScope(
+            roots=[tmp_path],
+            writable=[tmp_path],
+            allow_parent_traversal=True,
+        )
+    )
+    resolved = scope.check(
+        tmp_path / "sub" / ".." / "sibling", write=True
+    )
+    assert resolved == (tmp_path / "sibling").resolve()
+    assert (
+        render_template(
+            "../sibling", {}, allow_parent_traversal=True
+        )
+        == "../sibling"
+    )
+
+
+def test_parent_traversal_escape_rejected(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "sub").mkdir()
+    scope = ScopeManager(
+        WorkspaceScope(
+            roots=[root],
+            writable=[root],
+            allow_parent_traversal=True,
+        )
+    )
+    with pytest.raises(ScopeViolation, match="outside"):
+        scope.check(
+            root / "sub" / ".." / ".." / "outside", write=True
+        )

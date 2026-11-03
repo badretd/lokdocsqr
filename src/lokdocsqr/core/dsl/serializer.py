@@ -199,6 +199,8 @@ def _settings_to_dict(settings: Any) -> dict[str, Any] | None:
         scope["allow_symlinks"] = True
     if settings.scope.policy_ref is not None:
         scope["policy_ref"] = settings.scope.policy_ref
+    if settings.scope.allow_parent_traversal:
+        scope["allow_parent_traversal"] = True
 
     handling: dict[str, Any] = {}
     if settings.error_handling.strategy != "fail":

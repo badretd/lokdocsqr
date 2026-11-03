@@ -1342,6 +1342,10 @@ class Runtime:
                 writable=writable,
                 allow_symlinks=settings.allow_symlinks,
                 policy_ref=settings.policy_ref,
+                allow_parent_traversal=bool(
+                    settings.allow_parent_traversal
+                    or getattr(self.config, "allow_parent_traversal", False)
+                ),
             )
         )
 

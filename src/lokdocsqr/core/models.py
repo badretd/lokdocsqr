@@ -76,6 +76,7 @@ class WorkflowScopeSettings:
     writable: list[str] = field(default_factory=list)
     allow_symlinks: bool = False
     policy_ref: str | None = None
+    allow_parent_traversal: bool = False
 
 
 @dataclass
@@ -203,6 +204,7 @@ class WorkspaceScope:
     writable: list[Path] = field(default_factory=list)
     allow_symlinks: bool = False
     policy_ref: str | None = None
+    allow_parent_traversal: bool = False
 
 
 # --- Phase 4 models ---------------------------------------------------------

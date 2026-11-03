@@ -60,11 +60,15 @@ def _iter_string_values(value: Any, prefix: str = "") -> list[tuple[str, str]]:
 
 
 def _validate_path_value(
-    node_id: str, key: str, value: str
+    node_id: str,
+    key: str,
+    value: str,
+    *,
+    allow_parent_traversal: bool = False,
 ) -> list[str]:
     errors: list[str] = []
     normalized = value.replace("\\", "/")
-    if ".." in normalized.split("/"):
+    if not allow_parent_traversal and ".." in normalized.split("/"):
         errors.append(
             f"node {node_id!r} param {key!r}: contains '..' segment"
         )
@@ -73,7 +77,11 @@ def _validate_path_value(
             f"node {node_id!r} param {key!r}: absolute paths are not allowed"
         )
     try:
-        render_template(value, {})
+        render_template(
+            value,
+            {},
+            allow_parent_traversal=allow_parent_traversal,
+        )
     except ScopeViolation as exc:
         errors.append(
             f"node {node_id!r} param {key!r}: rejected by path policy ({exc})"
@@ -288,6 +296,9 @@ def validate_graph(
                         )
                     )
 
+    allow_parent_traversal = bool(
+        document.settings.scope.allow_parent_traversal
+    )
     for node in nodes:
         if not node.id:
             continue
@@ -296,7 +307,12 @@ def validate_graph(
                 continue
             for sub_key, value in _iter_string_values(raw, str(key)):
                 errors.extend(
-                    _validate_path_value(node.id, sub_key, value)
+                    _validate_path_value(
+                        node.id,
+                        sub_key,
+                        value,
+                        allow_parent_traversal=allow_parent_traversal,
+                    )
                 )
 
     return errors

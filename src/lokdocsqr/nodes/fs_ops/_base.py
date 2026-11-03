@@ -183,14 +183,27 @@ class FsTemplateNode(FsNode):
         the instance-level default.
         """
         template = self.template if template is None else template
-        rendered_str = str(render_template(template, variables))
+        allow_parent = bool(
+            getattr(
+                getattr(ctx, "scope", None),
+                "allow_parent_traversal",
+                False,
+            )
+        )
+        rendered_str = str(
+            render_template(
+                template,
+                variables,
+                allow_parent_traversal=allow_parent,
+            )
+        )
         if not rendered_str.strip():
             raise ValueError(
                 f"{self.id} template rendered to empty: "
                 f"template={template!r}"
             )
         parts = rendered_str.replace("\\", "/").split("/")
-        if ".." in parts:
+        if not allow_parent and ".." in parts:
             raise ScopeViolation(
                 f"rendered path contains '..': {rendered_str!r}"
             )

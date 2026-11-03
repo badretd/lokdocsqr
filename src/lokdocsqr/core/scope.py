@@ -43,6 +43,9 @@ class ScopeManager:
             self._writable = [Path(r).resolve() for r in writable]
 
         self._allow_symlinks = bool(getattr(scope, "allow_symlinks", False))
+        self.allow_parent_traversal = bool(
+            getattr(scope, "allow_parent_traversal", False)
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -54,7 +57,7 @@ class ScopeManager:
         Raises ScopeViolation on any violation.
         """
         path = Path(path)
-        if ".." in path.parts:
+        if not self.allow_parent_traversal and ".." in path.parts:
             raise ScopeViolation(f"Path must not contain '..': {path}")
 
         try:

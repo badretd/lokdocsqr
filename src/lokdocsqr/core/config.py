@@ -38,6 +38,7 @@ class AppConfig:
     logs_dir: Path | None = None
     scope_roots: list[Path] = field(default_factory=list)
     default_dry_run: bool = True
+    allow_parent_traversal: bool = False
 
     flow: FlowConfig = field(default_factory=FlowConfig)
 
@@ -90,6 +91,9 @@ def load_config(path: Path) -> AppConfig:
             logs_dir=Path(data["logs_dir"]) if data.get("logs_dir") else None,
             scope_roots=[Path(p) for p in data.get("scope_roots", [])],
             default_dry_run=bool(data.get("default_dry_run", True)),
+            allow_parent_traversal=bool(
+                data.get("allow_parent_traversal", False)
+            ),
             flow=_flow_config_from_data(data),
         )
     except (TypeError, ValueError) as exc:
@@ -105,6 +109,7 @@ def save_config(config: AppConfig, path: Path) -> None:
         "logs_dir": str(config.logs_dir),
         "scope_roots": [str(p) for p in config.scope_roots],
         "default_dry_run": bool(config.default_dry_run),
+        "allow_parent_traversal": bool(config.allow_parent_traversal),
         "flow": {
             "max_subflow_depth": int(
                 getattr(getattr(config, "flow", None), "max_subflow_depth", 4)

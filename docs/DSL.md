@@ -429,10 +429,11 @@ scope {
   writable = <list[str]>
   allow_symlinks = <bool>
   policy_ref = <string|null>
+  allow_parent_traversal = <bool>
 }
 ```
 
-Maps to `settings.scope` (`parser.py:_parse_top_level`). Empty `scope {}` is accepted and parses to an empty settings scope; it is omitted by the canonical emitter. Unknown keys inside `scope` are preserved in the raw block but ignored by `parse_graph` (only `roots`, `writable`, `allow_symlinks`, `policy_ref` are read).
+Maps to `settings.scope` (`parser.py:_parse_top_level`). Empty `scope {}` is accepted and parses to an empty settings scope; it is omitted by the canonical emitter. Unknown keys inside `scope` are preserved in the raw block but ignored by `parse_graph` (only `roots`, `writable`, `allow_symlinks`, `policy_ref`, `allow_parent_traversal` are read). `allow_parent_traversal` defaults to `false`; when `true`, `..` is allowed in rendered templates and paths as long as the resolved path stays inside a writable root (see §12.4).
 
 ### 5.6 `error_handling` block
 
@@ -2630,27 +2631,29 @@ Standard variables for source→target nodes (`FsNode._variables`):
 
 ### 12.4 Rendering safety rules
 
-`render_template(template, context)` (`core/paths.py`):
+`render_template(template, context, *, allow_parent_traversal=False)` (`core/paths.py`):
 
-1. substitute with `SafeDict`;
+1. substitute whitelisted path functions, then `SafeDict`;
 2. reject a rendered absolute path (`Path(rendered).is_absolute()`);
-3. `os.path.normpath` the result and reject if any remaining part is `..`;
+3. when `allow_parent_traversal` is `false`, `os.path.normpath` the result and reject if any remaining part is `..`;
 4. return the rendered string.
 
 `render_and_check` (`nodes/fs_ops/_common.py`) additionally:
 
-1. rejects `..` in the raw rendered path parts (before normalization);
+1. rejects `..` in the raw rendered path parts (before normalization) unless the workflow set `scope.allow_parent_traversal = true`;
 2. resolves relative paths against `config.base_dir`;
-3. calls `ctx.scope.check(path, write=True)` and raises `ScopeViolation` on failure.
+3. calls `ctx.scope.check(path, write=True)` and raises `ScopeViolation` on failure — this is the final containment check when parent traversal is allowed.
 
 `FsTemplateNode._render_target` for copy/move/rename:
 
 * rejects an empty/whitespace-only render;
-* rejects `..` in the rendered parts;
+* rejects `..` in the rendered parts unless `scope.allow_parent_traversal = true`;
 * if the rendered path has no suffix and the source has one, appends the source suffix;
 * returns an absolute path unchanged (in practice `render_template` has already rejected absolute results);
-* otherwise resolves against `source.parent`;
+* otherwise resolves against `source.parent` (or `target_dir`, §9.1);
 * calls `scope.check(dst, write=True)`.
+
+The setting is carried on the `ScopeManager` so node code reads one source of truth: `ctx.scope.allow_parent_traversal`. The validator also skips its static `..` rejection when the document enables the flag, but still rejects literal absolute paths.
 
 `utils.path_template` additionally rejects a rendered string that still contains `{` (an unresolved placeholder) and returns an error result instead of raising.
 
@@ -2660,7 +2663,7 @@ Standard variables for source→target nodes (`FsNode._variables`):
 
 `ScopeManager.check(path, write=...)` (`core/scope.py`):
 
-* rejects any path whose raw parts contain `..`;
+* rejects any path whose raw parts contain `..` unless `allow_parent_traversal` is enabled;
 * resolves the path (`Path.resolve(strict=False)`);
 * if `allow_symlinks` is false, rejects a symlink **leaf** (`path.is_symlink()`); ancestor symlinks are resolved and vetted by the root containment check;
 * selects readable roots (`roots`) or writable roots (`writable`) depending on `write`;
@@ -2678,6 +2681,7 @@ Runtime scope construction (`core/runtime.py:_scope_for`):
 Consequences:
 
 * A node writing under `settings.scope.roots` but not `writable` fails scope checks.
+* `scope.allow_parent_traversal=true` permits `..` in a rendered path; the resolved path must still be relative to a writable root, so escaping the workspace remains a `ScopeViolation`.
 * `scope.allow_symlinks=false` does not forbid symlinked ancestors, only a symlink leaf.
 * Triggers bound with a path do not call `scope.check` at bind time; trigger nodes that scan do check discovered paths, but event-supplied files are normalized without a scope check and are checked later by downstream access/fs nodes.
 
@@ -3946,6 +3950,9 @@ These are real differences that remain between prose/documentation, declared met
 
 19. **Registry-declared but undeclared document ports are warnings.**
     When an edge references a port that exists on the registered node class but is absent from the document's `inputs`/`outputs`, `validate_graph` returns no error but appends a warning (via its `warnings=` out-parameter). The document is still the only source of ports; adding the declaration silences the warning. This is intentional: auto-injecting registry ports would break `parse_graph(document_to_dict(doc)) == doc`.
+
+20. **Parent traversal is opt-in.**
+    By default any `..` in a rendered path is rejected before scope resolution. With `scope.allow_parent_traversal = true` (or `AppConfig.allow_parent_traversal = true`), `..` is permitted and only the final writable-root containment check decides. This resolves the former inability to reference a sibling folder; the default remains closed for compatibility.
 
 ---
 

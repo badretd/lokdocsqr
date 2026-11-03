@@ -152,6 +152,9 @@ def _parse_scope_settings(
         writable=_list_of_str(raw, "writable", context),
         allow_symlinks=_optional_bool(raw, "allow_symlinks", context, False),
         policy_ref=_optional_nullable_str(raw, "policy_ref", context),
+        allow_parent_traversal=_optional_bool(
+            raw, "allow_parent_traversal", context, False
+        ),
     )
 
 
