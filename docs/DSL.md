@@ -222,6 +222,18 @@ Exceptions (`src/lokdocsqr/core/errors.py`):
 
 `compile_dsl` is not the same as `document_to_dict(parse_dsl(text))`: `compile_dsl` preserves the raw shape produced by the DSL (including `settings: {}` if an empty `scope {}` was written), while `document_to_dict` normalizes and omits defaults.
 
+### 3.1 CLI output modes
+
+`lokdocsqr run` supports three output modes:
+
+| Flags | Output |
+|---|---|
+| none | Compact human summary: run id/success, one line per node state, audit log lines, errors, warnings on stderr |
+| `--json` or `--format=json` | Full `RunResult.to_dict()` JSON on stdout (`default=str` for non-JSON values) |
+| `--explain` | Per-node detail: state, every output key with its Python type and value truncated to 200 characters, each `ActionLog` (type, status, reason, target), and the node error |
+
+`--explain` implies `--format=text` unless an explicit `--format` is supplied. `--json` remains supported as an alias for `--format=json`. Warnings are always printed to stderr in text mode, and are present under `warnings` in JSON mode.
+
 ---
 
 ## 4. Lexical grammar

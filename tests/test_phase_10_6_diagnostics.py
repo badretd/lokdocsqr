@@ -4,11 +4,13 @@ Each test group maps to one numbered item from the task brief.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 import lokdocsqr.nodes  # noqa: F401  (register built-in node families)
 from tests.helpers import make_ctx
+from lokdocsqr.cli.main import main
 from lokdocsqr.core.executor.engine import Executor
 from lokdocsqr.core.graph import (
     build_graph,
@@ -126,3 +128,54 @@ def test_validate_reports_all_edge_port_errors() -> None:
     assert len(errors) == 2, errors
     assert any("missing-source" in error for error in errors)
     assert any("missing-target" in error for error in errors)
+
+
+# ---------------------------------------------------------------------------
+# Item 3 — run --explain
+# ---------------------------------------------------------------------------
+
+
+def test_run_explain_prints_outputs(
+    tmp_path: Path, capsys: Any
+) -> None:
+    automation = tmp_path / "explain.json"
+    automation.write_text(
+        json.dumps(
+            {
+                "spec_version": "1.0",
+                "metadata": {"id": "explain"},
+                "settings": {"default_dry_run": True},
+                "nodes": [
+                    {
+                        "id": "wr",
+                        "type": "fs.write_file",
+                        "params": {
+                            "path_template": "out.txt",
+                            "content": "hello",
+                        },
+                    }
+                ],
+                "edges": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    base = tmp_path / "ws"
+    base.mkdir()
+    assert (
+        main(
+            [
+                "run",
+                str(automation),
+                "--base-dir",
+                str(base),
+                "--dry-run",
+                "--explain",
+            ]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "node wr" in out
+    assert "outputs:" in out
+    assert "path" in out

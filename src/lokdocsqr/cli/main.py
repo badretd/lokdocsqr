@@ -172,6 +172,17 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="ID",
         help="override the automation id declared by the document",
     )
+    run_parser.add_argument(
+        "--explain",
+        action="store_true",
+        help="show per-node outputs, action logs and errors",
+    )
+    run_parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default=None,
+        help="output format (default: text, or json with --json)",
+    )
     run_parser.set_defaults(handler=_cmd_run)
 
     compile_parser = subparsers.add_parser(
@@ -438,7 +449,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
         raise
     result = runtime.run_once(automation_id, dry_run=args.dry_run)
 
-    _print_run_result(result, as_json=bool(args.json))
+    output_format = _output_format(args)
+    _print_run_result(
+        result,
+        as_json=output_format == "json",
+        explain=bool(getattr(args, "explain", False)),
+    )
     return 0 if result.success else 1
 
 
@@ -605,9 +621,32 @@ def _cmd_audit_rollback(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _print_run_result(result: RunResult, *, as_json: bool) -> None:
+def _output_format(args: argparse.Namespace) -> str:
+    """Resolve ``--format`` / ``--json`` / ``--explain`` precedence."""
+    explicit = getattr(args, "format", None)
+    if explicit is not None:
+        return explicit
+    if getattr(args, "json", False):
+        return "json"
+    return "text"
+
+
+def _truncate(value: Any, limit: int = 200) -> str:
+    text = str(value)
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "..."
+
+
+def _print_run_result(
+    result: RunResult, *, as_json: bool, explain: bool = False
+) -> None:
     if as_json:
-        print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
+        print(
+            json.dumps(
+                result.to_dict(), indent=2, ensure_ascii=False, default=str
+            )
+        )
         return
 
     mode = "dry-run" if result.dry_run else "run"
@@ -616,10 +655,25 @@ def _print_run_result(result: RunResult, *, as_json: bool) -> None:
     for node_id, node_result in result.node_results.items():
         node_state = getattr(node_result.state, "value", str(node_result.state))
         print(f"  node {node_id}: {node_state}")
+        if explain:
+            if node_result.outputs:
+                print("    outputs:")
+                for key, value in node_result.outputs.items():
+                    print(
+                        f"      {key} ({type(value).__name__}): "
+                        f"{_truncate(value)}"
+                    )
+            for log in node_result.action_logs:
+                print(f"    action {_format_log(log)}")
+                print(f"      reason: {log.reason or '-'}")
+                print(f"      target: {log.target or '-'}")
+            for warning in node_result.warnings:
+                print(f"    warning: {warning}")
         if node_result.error:
             print(f"    error: {node_result.error}")
-    for log in result.action_logs:
-        print(f"  {_format_log(log)}")
+    if not explain:
+        for log in result.action_logs:
+            print(f"  {_format_log(log)}")
     for error in result.errors:
         if not any(node_result.error == error for node_result in result.node_results.values()):
             print(f"  error: {error}")
