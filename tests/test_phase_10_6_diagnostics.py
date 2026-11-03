@@ -939,3 +939,54 @@ def test_condition_item_attribute_lookup() -> None:
         _evaluate("item.missing == 1", {"item": {"path": "a.txt"}})
     with pytest.raises(_CondError):
         _evaluate("other.path == 1", {"other": {"path": 1}})
+
+
+# ---------------------------------------------------------------------------
+# Item 20 — unified --format for compile/validate/run
+# ---------------------------------------------------------------------------
+
+
+def test_cli_unified_format_json(
+    tmp_path: Path, capsys: Any
+) -> None:
+    automation = tmp_path / "format.ldsq"
+    automation.write_text(
+        """\
+automation "format"
+node "mk" {
+  type = "fs.make_dir"
+  params {
+    path_template = "out"
+  }
+}
+""",
+        encoding="utf-8",
+    )
+    assert main(["compile", str(automation), "--format", "json"]) == 0
+    compiled = json.loads(capsys.readouterr().out)
+    assert compiled["metadata"]["id"] == "format"
+
+    assert main(["validate", str(automation), "--format", "json"]) == 0
+    validated = json.loads(capsys.readouterr().out)
+    assert validated["ok"] is True
+
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    assert (
+        main(
+            [
+                "run",
+                str(automation),
+                "--format",
+                "json",
+                "--dry-run",
+                "--base-dir",
+                str(workspace),
+                "--scope",
+                str(workspace),
+            ]
+        )
+        == 0
+    )
+    ran = json.loads(capsys.readouterr().out)
+    assert ran["success"] is True

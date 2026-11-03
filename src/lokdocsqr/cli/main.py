@@ -218,6 +218,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="FILE",
         help="write the compiled JSON to FILE instead of stdout",
     )
+    compile_parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="json",
+        help="output format (default: json)",
+    )
     compile_parser.set_defaults(handler=_cmd_compile)
 
     validate_parser = subparsers.add_parser(
@@ -227,6 +233,12 @@ def build_parser() -> argparse.ArgumentParser:
     _add_config_flags(validate_parser)
     _add_include_flags(validate_parser)
     validate_parser.add_argument("--json", action="store_true", help="print the result as JSON")
+    validate_parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default=None,
+        help="output format (default: text, or json with --json)",
+    )
     validate_parser.add_argument(
         "--first-error",
         action="store_true",
@@ -603,6 +615,13 @@ def _cmd_compile(args: argparse.Namespace) -> int:
         destination = Path(output)
         safe_fs.atomic_write(destination, text)
         print(f"compiled -> {destination}", file=sys.stderr)
+    elif getattr(args, "format", "json") == "text":
+        metadata = payload.get("metadata") or {}
+        print(
+            f"compiled {metadata.get('id', '')} "
+            f"({len(payload.get('nodes') or [])} nodes, "
+            f"{len(payload.get('edges') or [])} edges)"
+        )
     else:
         print(text, end="")
     return 0
@@ -648,7 +667,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         "edge_count": len(document.edges),
         "errors": errors,
     }
-    if args.json:
+    if _output_format(args) == "json":
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     elif errors:
         for error in errors:

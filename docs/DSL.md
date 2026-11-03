@@ -236,6 +236,16 @@ Exceptions (`src/lokdocsqr/core/errors.py`):
 
 `--explain` implies `--format=text` unless an explicit `--format` is supplied. `--json` remains supported as an alias for `--format=json`. Warnings are always printed to stderr in text mode, and are present under `warnings` in JSON mode.
 
+The same `--format {text,json}` flag is accepted by `compile` and `validate`:
+
+| Command | `--format=json` output | `--format=text` output |
+|---|---|---|
+| `compile` | Canonical schema JSON (also the default) | One-line `compiled <id> (<n> nodes, <m> edges)` summary |
+| `validate` | `{ok, automation_id, node_count, edge_count, errors}` | Human `OK: ...` or `error:` lines (default) |
+| `run` | Full `RunResult.to_dict()` | Human summary or `--explain` detail (default) |
+
+`--json` remains a backwards-compatible alias on `validate` and `run`.
+
 ---
 
 ## 4. Lexical grammar
